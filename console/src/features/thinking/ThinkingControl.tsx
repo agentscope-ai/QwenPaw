@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -65,6 +66,7 @@ export function ThinkingControl({
     Math.max(0, efforts.indexOf(displayed.level)),
   );
   const [adjusting, setAdjusting] = useState(false);
+  const capturedSliderKey = useRef<string | null>(null);
   useEffect(() => {
     setEffortIndex(Math.max(0, efforts.indexOf(displayed.level)));
     setAdjusting(false);
@@ -135,6 +137,7 @@ export function ThinkingControl({
         ) {
           event.preventDefault();
           event.stopPropagation();
+          capturedSliderKey.current = event.key;
           const last = event.key === "End";
           if (isBudget) commitBudget(last ? high : low);
           else
@@ -157,6 +160,7 @@ export function ThinkingControl({
         if ((off && increase) || (!off && budget === low && decrease)) {
           event.preventDefault();
           event.stopPropagation();
+          capturedSliderKey.current = event.key;
           if (off) commitBudget(low);
           else {
             setBudget(offPosition);
@@ -164,6 +168,12 @@ export function ThinkingControl({
             onChange({ level: "off" });
           }
         }
+      }}
+      onKeyUpCapture={(event) => {
+        if (capturedSliderKey.current !== event.key) return;
+        event.preventDefault();
+        event.stopPropagation();
+        capturedSliderKey.current = null;
       }}
     >
       <header className={styles.header}>

@@ -916,6 +916,7 @@ class BaseChannel(ABC):
         msg_id_to_stream_type: Dict[str, str] = {}
         streaming_buffers: Dict[str, str] = {}
         headline_stream_states: dict[str, Any] = {}
+        notice_dispatch: Dict[str, Any] = {}
         try:
             process_iterator = self._process(request)
             async for event in process_iterator:
@@ -980,6 +981,7 @@ class BaseChannel(ABC):
                         to_handle,
                         event,
                         send_meta,
+                        dispatched=notice_dispatch,
                     )
                 elif obj == "response":
                     last_response = event
@@ -1565,6 +1567,7 @@ class BaseChannel(ABC):
         """
         last_response = None
         session_id = getattr(request, "session_id", "") or ""
+        notice_dispatch: Dict[str, Any] = {}
         self._clear_session_turn_usage(session_id)
         try:
             async for event in self._process(request):
@@ -1589,6 +1592,7 @@ class BaseChannel(ABC):
                         to_handle,
                         event,
                         send_meta,
+                        dispatched=notice_dispatch,
                     )
                 elif obj == "response":
                     last_response = event
@@ -1941,25 +1945,82 @@ class BaseChannel(ABC):
             f"({event['reason_kind']})."
         )
 
+    @staticmethod
+    def _media_omitted_notice(event: Any) -> str:
+        """Return a one-line notice when media was left out of the request.
+
+        Media that exceeds a provider limit is replaced with a text
+        placeholder before the request is sent, so the model answers as if
+        the file had never been attached. Without this line the user has no
+        way to tell the difference between "the model ignored my image" and
+        "the image never reached the model".
+        """
+        metadata = getattr(event, "metadata", None)
+        if not isinstance(metadata, dict):
+            message = getattr(event, "message", None)
+            metadata = getattr(message, "metadata", None)
+        if not isinstance(metadata, dict):
+            return ""
+        nested_metadata = metadata.get("metadata")
+        event_source = (
+            nested_metadata if isinstance(nested_metadata, dict) else metadata
+        )
+        raw_notice = event_source.get("qwenpaw_media_omitted")
+        if not isinstance(raw_notice, dict):
+            return ""
+        count = raw_notice.get("count")
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            return ""
+        reason = raw_notice.get("reason")
+        suffix = (
+            f" ({reason})"
+            if isinstance(reason, str) and reason.strip()
+            else ""
+        )
+        return (
+            f"{count} media item(s) did not reach the model{suffix}. "
+            "The original files are still available."
+        )
+
     async def _send_model_fallback_notice(
         self,
         to_handle: str,
         event: Any,
         send_meta: Dict[str, Any],
+        *,
+        dispatched: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Send fallback metadata to channels without Console rendering."""
+        """Send fallback and media-omission notices to non-Console channels.
+
+        ``dispatched`` is the per-turn delivery state. One reply can emit
+        two completed messages — a thinking block and the final text — and
+        both carry the same omission metadata. The notice describes the
+        turn, so it must be sent once.
+        """
         if self.channel == "console":
             return
-        fallback_events = self._model_fallback_events(event)
-        if not fallback_events:
-            return
-        notice = "\n".join(
+        notices = [
             self._format_model_fallback_notice(item)
-            for item in fallback_events
-        )
+            for item in self._model_fallback_events(event)
+        ]
+        omitted_notice = self._media_omitted_notice(event)
+        if omitted_notice and dispatched is not None:
+            if dispatched.get("media_omission_sent"):
+                omitted_notice = ""
+            else:
+                dispatched["media_omission_sent"] = True
+        if omitted_notice:
+            notices.append(omitted_notice)
+        if not notices:
+            return
         await self.send_content_parts(
             to_handle,
-            [TextContent(type=ContentType.TEXT, text=notice)],
+            [
+                TextContent(
+                    type=ContentType.TEXT,
+                    text="\n".join(notices),
+                ),
+            ],
             send_meta,
         )
 
@@ -2006,12 +2067,9 @@ class BaseChannel(ABC):
     @staticmethod
     def _clear_session_turn_usage(session_id: str) -> None:
         """Drop any staged per-session usage (turn start / cancel / error)."""
-        if not session_id:
-            return
-        import importlib
+        from ...token_usage.turn_usage import discard_turn_usage
 
-        mod = importlib.import_module("qwenpaw.token_usage.model_wrapper")
-        mod.TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+        discard_turn_usage(session_id)
 
     async def _commit_turn_usage(
         self,
@@ -2024,30 +2082,15 @@ class BaseChannel(ABC):
         if not session_id:
             return []
         try:
-            import importlib
-
-            turn_usage = importlib.import_module(
-                "qwenpaw.token_usage.turn_usage",
-            )
-            token_usage = importlib.import_module("qwenpaw.token_usage")
+            from ...token_usage.turn_usage import commit_turn_usage
 
             workspace = self._workspace
-            session = (
-                getattr(workspace, "session", None)
-                if workspace is not None
-                else None
-            )
-            agent_id = (
-                getattr(workspace, "agent_id", "default")
-                if workspace is not None
-                else "default"
-            )
             user_id = getattr(request, "user_id", "") or ""
             channel = getattr(request, "channel", "") or self.channel
-            turn, ctx, agent_state = await turn_usage.resolve_turn_usage(
+            turn, ctx = await commit_turn_usage(
+                session=getattr(workspace, "session", None),
+                agent_id=getattr(workspace, "agent_id", "default"),
                 session_id=session_id,
-                agent_id=agent_id,
-                session=session,
                 user_id=user_id,
                 channel=channel,
             )
@@ -2061,21 +2104,6 @@ class BaseChannel(ABC):
                     f"completion_tokens={turn.get('completion_tokens', 0)} "
                     f"total_tokens={turn.get('total_tokens', 0)}",
                 )
-            if session is not None:
-                try:
-                    await token_usage.persist_turn_usage(
-                        session=session,
-                        session_id=session_id,
-                        user_id=user_id,
-                        channel=channel,
-                        turn=turn,
-                        ctx=ctx,
-                        agent_state=agent_state,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        f"Turn usage persist skipped ({type(exc).__name__})",
-                    )
             if not emit_sse:
                 return []
             payload: Dict[str, Any] = {
@@ -2406,11 +2434,18 @@ class BaseChannel(ABC):
         session_id: str,
         event: "Event",
         meta: Optional[Dict[str, Any]] = None,
+        dispatched: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Send a runner Event to this channel (non-stream).
 
         We only send when event is a completed message, then reuse
         send_message_content().
+
+        ``dispatched`` is the turn-scoped delivery state. Direct dispatch
+        has no process loop of its own, and one reply emits two completed
+        messages (a thinking block and the final text), so a caller that
+        walks a whole turn must hand the same mapping to every event of that
+        turn — otherwise the media-omission notice is sent twice.
         """
         # Delay import to avoid hard dependency at module import time
 
@@ -2425,7 +2460,12 @@ class BaseChannel(ABC):
             session_id=session_id,
         )
         await self.send_message_content(to_handle, event, meta)
-        await self._send_model_fallback_notice(to_handle, event, meta or {})
+        await self._send_model_fallback_notice(
+            to_handle,
+            event,
+            meta or {},
+            dispatched=dispatched,
+        )
 
     async def send_approval_notification(
         self,

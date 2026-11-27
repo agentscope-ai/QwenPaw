@@ -41,22 +41,14 @@ def _isolated_skills_workspace(
         resolved = Path(skills_dir).resolve()
         (tmp_path / "skills").symlink_to(resolved)
 
-        skill_entries: dict = {}
-        if resolved.is_dir():
-            for p in sorted(resolved.iterdir()):
-                if p.is_dir() and (p / "SKILL.md").exists():
-                    skill_entries[p.name] = {
-                        "enabled": True,
-                        "channels": ["all"],
-                        "source": "headless",
-                    }
-        (tmp_path / "skill.json").write_text(
+        from ..agents.skill_system.store import (
+            get_workspace_skill_manifest_path,
+            manifest_for_external_skills,
+        )
+
+        get_workspace_skill_manifest_path(tmp_path).write_text(
             json.dumps(
-                {
-                    "schema_version": "workspace-skill-manifest.v1",
-                    "version": 1,
-                    "skills": skill_entries,
-                },
+                manifest_for_external_skills(resolved),
                 indent=2,
                 ensure_ascii=False,
             ),
@@ -93,13 +85,13 @@ async def _run_task(
     output_dir: str | None,
     skills_dir: str | None = None,
 ) -> dict:
-    from types import SimpleNamespace
-
     from agentscope.message import UserMsg
 
     from ..runtime.builder import AgentBuilder
+    from ..runtime.hooks import HookContext
     from ..schemas import AgentRequest
 
+    agent_config = agent_config.model_copy(deep=True)
     agent_config.running.max_iters = max_iters
 
     base_workspace: Path | None = None
@@ -117,17 +109,22 @@ async def _run_task(
             session_id=request_context.get("session_id", "headless-task"),
             user_id=request_context.get("user_id", "headless"),
             channel=request_context.get("channel", "console"),
+            request_context=dict(request_context),
         )
-        ctx = SimpleNamespace(
+        session_id = req.session_id or ""
+        # TODO: Give headless tasks a runtime-owned workspace scope for tools
+        # and services. Reuse workspace setup and teardown when that scope is
+        # available; the CLI should only supply request options and output.
+        ctx = HookContext(
             request=req,
-            session_id=req.session_id,
+            session_id=session_id,
             agent_id=request_context.get("agent_id", "default"),
-            root_session_id=req.session_id,
+            root_session_id=session_id,
             root_agent_id=request_context.get("agent_id", "default"),
             workspace_dir=workspace,
             workspace=None,
             app_services=None,
-            agent_config=None,
+            agent_config=agent_config,
             session_state=None,
         )
         builder = AgentBuilder()
@@ -163,6 +160,8 @@ async def _run_task(
                 "error": str(exc),
                 "response": "",
             }
+        finally:
+            await agent.close()
 
     usage: dict = {}
     try:

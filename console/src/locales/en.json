@@ -1,4 +1,43 @@
 {
+  "webApp": {
+    "refresh": "Refresh workspace",
+    "cloud": "Cloud",
+    "bound": "Connected",
+    "noCloud": "No cloud deployments",
+    "noBound": "No connected nodes",
+    "addToHome": "Add to home screen",
+    "switchTarget": "Switch workspace",
+    "signOut": "Sign out of Web App",
+    "update": "Update"
+  },
+  "platformAccess": {
+    "account": "Platform account",
+    "bind": "Connect Platform",
+    "signIn": "Sign in to cloud",
+    "signOut": "Sign out of Platform",
+    "localIdentity": "Local account",
+    "cloudIdentity": "Cloud account",
+    "addToPhone": "Add to phone",
+    "notSignedIn": "Not signed in",
+    "connection": "Local node",
+    "online": "Online",
+    "offline": "Offline",
+    "offlineHint": "The node is offline. You can still add it to your phone.",
+    "retryBind": "Retry connection",
+    "bindingExpired": "This node binding is no longer valid. Disconnect it, then connect again.",
+    "disconnect": "Disconnect node",
+    "disconnectConfirm": "Disconnect this QwenPaw from Platform?",
+    "remoteCleanupUnconfirmed": "Remote access stopped on this device. Cloud cleanup could not be confirmed.",
+    "waitingLogin": "Complete Platform sign-in and authorization in the new window.",
+    "popupBlocked": "Allow pop-up windows, then sign in again.",
+    "qrConsent": "Scan to sign in to your full Platform account, including its cloud and connected nodes.",
+    "verifyPhone": "Match the digits on your phone, then confirm sign-in.",
+    "confirmPhone": "Confirm this phone",
+    "phoneConnected": "Phone signed in",
+    "installOnPhone": "Continue on your phone to add the app to your home screen.",
+    "expired": "This QR code has expired. Refresh it to scan again.",
+    "refreshQr": "Refresh QR code"
+  },
   "mcpFeature": {
     "required": "MCP plugin required",
     "unavailable": "MCP is not installed or is unavailable. Mail and ACP cannot run. Your settings are retained; install, enable or repair MCP on the official plugins page.",
@@ -4330,7 +4369,8 @@
       },
       "attach": "Attach files",
       "send": "Send message",
-      "stop": "Stop generating"
+      "stop": "Stop generating",
+      "stopFailed": "Could not stop the current run. Try again."
     },
     "emptyOutputError": "The assistant returned an empty response.",
     "commands": {
@@ -4381,6 +4421,7 @@
     },
     "rateLimitHit": "The current model is rate-limited. Try switching to another free model.",
     "modelFallbackNotice": "Switched model from {{from}} to {{to}} ({{reason}}).",
+    "mediaOmittedNotice": "{{count}} media item(s) did not reach the model{{reason}}. The original files are still available.",
     "turnUsagePopover": {
       "ariaLabel": "Context usage {{contextRate}}, cache hit rate {{cacheRate}}. View usage details",
       "turn": "This turn",

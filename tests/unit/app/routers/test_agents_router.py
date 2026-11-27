@@ -1862,11 +1862,11 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
             return_value=source_cfg,
         ),
         patch(
-            "qwenpaw.app.routers.agents.mutate_config",
+            "qwenpaw.services.agent_setup.mutate_config",
             side_effect=_root_transaction(fake_config),
         ),
         patch(
-            "qwenpaw.app.routers.agents.write_json_atomic",
+            "qwenpaw.services.agent_setup.write_json_atomic",
             side_effect=fake_write_agent,
         ),
         patch(
@@ -1960,10 +1960,10 @@ def test_copy_agent_copies_skills_and_jobs_when_requested(
             return_value=source_cfg,
         ),
         patch(
-            "qwenpaw.app.routers.agents.mutate_config",
+            "qwenpaw.services.agent_setup.mutate_config",
             side_effect=_root_transaction(fake_config),
         ),
-        patch("qwenpaw.app.routers.agents.write_json_atomic"),
+        patch("qwenpaw.services.agent_setup.write_json_atomic"),
         patch(
             "qwenpaw.app.routers.agents._initialize_agent_workspace",
         ) as init_mock,
@@ -2056,10 +2056,10 @@ async def test_copy_agent_skips_startup_without_http_request(
             return_value=source_cfg,
         ),
         patch(
-            "qwenpaw.app.routers.agents.mutate_config",
+            "qwenpaw.services.agent_setup.mutate_config",
             side_effect=_root_transaction(fake_config),
         ),
-        patch("qwenpaw.app.routers.agents.write_json_atomic"),
+        patch("qwenpaw.services.agent_setup.write_json_atomic"),
         patch("qwenpaw.app.routers.agents._initialize_agent_workspace"),
         patch(
             "qwenpaw.app.routers.agents._generate_unique_id",
@@ -2187,10 +2187,10 @@ def test_copy_agent_optional_assets_match_request_flags(
             return_value=source_cfg,
         ),
         patch(
-            "qwenpaw.app.routers.agents.mutate_config",
+            "qwenpaw.services.agent_setup.mutate_config",
             side_effect=_root_transaction(fake_config),
         ),
-        patch("qwenpaw.app.routers.agents.write_json_atomic"),
+        patch("qwenpaw.services.agent_setup.write_json_atomic"),
         patch(
             "qwenpaw.app.routers.agents._generate_unique_id",
             return_value=agent_id,

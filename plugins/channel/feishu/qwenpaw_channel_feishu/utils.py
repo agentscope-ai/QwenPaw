@@ -33,6 +33,8 @@ def extract_json_key(content: Optional[str], *keys: str) -> Optional[str]:
         data = json.loads(content)
     except json.JSONDecodeError:
         return None
+    if not isinstance(data, dict):
+        return None
     for k in keys:
         v = data.get(k) or data.get(k.replace("_", "").lower())
         if v:

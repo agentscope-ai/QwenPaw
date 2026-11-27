@@ -58,6 +58,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import tomllib
@@ -279,6 +280,23 @@ def _iter_tree_relpaths(
     return rels
 
 
+def _channel_packages(manifest, descriptor):
+    """Read named driver requirements during stdlib-only release packaging."""
+    groups = manifest.get("optional_dependencies", {})
+    names = descriptor["requires"]
+    if not isinstance(names, list) or not isinstance(groups, dict):
+        raise ValueError("Invalid channel dependency groups")
+    packages = []
+    for name in names:
+        if not isinstance(name, str) or not isinstance(groups.get(name), list):
+            raise ValueError("Unknown channel dependency group")
+        for value in groups[name]:
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("Invalid channel package requirement")
+            packages.append(value)
+    return packages
+
+
 # Closed descriptor guards are deliberately kept beside each validated shape.
 # pylint: disable=too-many-boolean-expressions
 def _validate_channel_candidate(
@@ -302,7 +320,6 @@ def _validate_channel_candidate(
         or any(part in {"", ".", ".."} for part in relative.split("/"))
         or not relative.endswith(".json")
         or manifest.get("type") != "channel"
-        or entry.get("backend") is not None
         or manifest.get("entry_point")
     ):
         raise ValueError("Invalid Channel descriptor entry")
@@ -326,27 +343,33 @@ def _validate_channel_candidate(
         "process_mode",
         "dependency_mode",
         "entrypoint",
-        "requirements_file",
         "config_schema",
         "config_fields",
         "capabilities",
     }
-    if not isinstance(descriptor, dict) or set(descriptor) != fields:
+    version = (
+        descriptor.get("schema_version")
+        if isinstance(descriptor, dict)
+        else None
+    )
+    if type(version) is not int or version not in (2, 3):
+        raise ValueError("Invalid shared Channel descriptor version")
+    dependency_field = "requirements_file" if version == 2 else "requires"
+    if set(descriptor) != fields | {dependency_field}:
         raise ValueError("Invalid shared Channel descriptor shape")
     if (
-        type(descriptor["schema_version"]) is not int
-        or descriptor["schema_version"] != 2
-        or descriptor["process_mode"] != "runner_process"
+        descriptor["process_mode"] != "runner_process"
         or descriptor["dependency_mode"] != "shared"
-        or descriptor["requirements_file"] != "requirements.txt"
         or descriptor_path.parent != root
     ):
         raise ValueError("Invalid shared Channel descriptor metadata")
+    if version == 2 and descriptor["requirements_file"] != "requirements.txt":
+        raise ValueError("Invalid channel requirements file")
     target = descriptor["entrypoint"]
     key = descriptor["channel_key"]
     if (
         not isinstance(key, str)
-        or not key.isidentifier()
+        or not re.fullmatch(r"[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?", key)
         or not isinstance(target, dict)
         or set(target) != {"scope", "module", "qualname"}
         or target["scope"] != "runner"
@@ -364,7 +387,13 @@ def _validate_channel_candidate(
         "/".join(parts[:index]) + "/__init__.py"
         for index in range(1, len(parts))
     }
-    runtime_files = {"requirements.txt", module_file, *package_files}
+    runtime_files = {module_file, *package_files}
+    if version == 2:
+        runtime_files.add("requirements.txt")
+    else:
+        _channel_packages(manifest, descriptor)
+    if entry.get("backend"):
+        runtime_files.add(entry["backend"])
     for rel in runtime_files:
         required(root / rel)
     for path in root.rglob("*"):
@@ -501,7 +530,6 @@ def build_official_channel_bundle(
         required = {
             "plugin.json",
             descriptor_file,
-            "requirements.txt",
             "README.md",
             *(
                 path.relative_to(source).as_posix()
@@ -515,13 +543,16 @@ def build_official_channel_bundle(
         }
         if not required <= packed:
             raise ValueError("Official bundle excludes runtime source files")
-        requirements.update(
-            line.strip()
-            for line in (source / "requirements.txt")
-            .read_text("utf-8")
-            .splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        )
+        if descriptor["schema_version"] == 2:
+            dependency_source = source / descriptor["requirements_file"]
+            requirements.update(
+                line.strip()
+                for line in dependency_source.read_text("utf-8").splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            )
+        else:
+            dependency_source = source / "plugin.json"
+            requirements.update(_channel_packages(manifest, descriptor))
         filename = f"{plugin_id}-{manifest['version']}.zip"
         if Path(filename).name != filename or any(
             c in filename for c in "\\:"
@@ -536,9 +567,7 @@ def build_official_channel_bundle(
                 "filename": filename,
                 "sha256": _sha256_of_file(archive),
                 "descriptor_sha256": _sha256_of_file(descriptor_path),
-                "requirements_sha256": _sha256_of_file(
-                    source / "requirements.txt"
-                ),
+                "requirements_sha256": _sha256_of_file(dependency_source),
                 "qwenpaw_version": manifest["qwenpaw_version"],
             }
         )
@@ -548,7 +577,7 @@ def build_official_channel_bundle(
     declared = project["project"]["optional-dependencies"]["channels"]
     if set(declared) != requirements:
         raise ValueError(
-            "channels extra must match official requirements.txt files"
+            "channels extra must match official channel dependencies"
         )
     index = destination / "index.json"
     index.write_text(
@@ -780,9 +809,7 @@ def discover_and_pack(
             )
             _zip_plugin(plugin_dir, zip_path, manifest)
 
-            cdn_path = (
-                f"{cdn_prefix.rstrip('/')}/{archive_kind}/{plugin_id}/{zip_name}"
-            )
+            cdn_path = f"{cdn_prefix.rstrip('/')}/{archive_kind}/{plugin_id}/{zip_name}"
             file_id = f"{plugin_id}-{version}"
             metadata = _build_metadata(
                 manifest,

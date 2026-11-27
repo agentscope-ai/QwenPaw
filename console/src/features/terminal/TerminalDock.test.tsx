@@ -255,7 +255,7 @@ describe("conversation terminal dock", () => {
       screen
         .getAllByRole("button")
         .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["Terminal", "files.openWorkspace"]);
+    ).toEqual(["platformAccess.addToPhone", "Terminal", "files.openWorkspace"]);
     expect(
       screen.queryByRole("button", { name: "New terminal" }),
     ).not.toBeInTheDocument();

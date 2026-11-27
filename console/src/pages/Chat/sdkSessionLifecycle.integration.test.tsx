@@ -92,7 +92,9 @@ function createFixture() {
     close: () => void;
     emit: (event: Record<string, unknown>) => void;
   }> = [];
-  const stop = vi.fn<(id: string) => Promise<void>>(async () => {});
+  const stop = vi
+    .fn<(id: string) => Promise<{ stopped: boolean }>>()
+    .mockResolvedValue({ stopped: true });
   const create = vi
     .spyOn(api, "createChat")
     .mockImplementation(async (draft) => {
@@ -292,12 +294,13 @@ function mountHost(
         sender: { queue: false },
         api: {
           fetch: fixture.transport,
-          cancel: (data) =>
-            cancelSdkChatRequest(data, {
+          cancel: async (data) => {
+            await cancelSdkChatRequest(data, {
               resolveBackendSessionId: (id) =>
                 sessionApi.getRealIdForSession(id),
               stopChat: fixture.stop,
-            }),
+            });
+          },
           reconnect: (data) => fixture.transport({ ...data, input: [] }),
         },
       }),

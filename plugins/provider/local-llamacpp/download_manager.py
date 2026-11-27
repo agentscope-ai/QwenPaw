@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from contextlib import contextmanager, suppress
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import asdict, dataclass, field, replace
 from queue import Empty
 from typing import Any, Callable
@@ -15,6 +15,7 @@ from pathlib import Path
 import multiprocessing as mp
 import runpy
 from multiprocessing.process import BaseProcess
+from filelock import FileLock, Timeout
 from .io_helpers import (
     DOWNLOAD_MONITOR_WAIT_SECONDS,
     DOWNLOAD_PROCESS_WAIT_SECONDS,
@@ -75,6 +76,7 @@ class ProcessDownloadTaskSpec:
     source: str | None = None
     total_bytes: int | None = None
     poll_interval: float = 1.0
+    destination: Path | None = None
 
 
 @dataclass
@@ -84,6 +86,7 @@ class ManagedDownloadTask:
     monitor_thread: threading.Thread
     spec: ProcessDownloadTaskSpec
     cancelled: threading.Event = field(default_factory=threading.Event)
+    resources: ExitStack = field(default_factory=ExitStack)
 
 
 class DownloadProgressTracker:
@@ -271,9 +274,22 @@ class ProcessDownloadController:
         self._task: ManagedDownloadTask | None = None
 
     def start(self, spec: ProcessDownloadTaskSpec) -> None:
-        with self._lock:
+        with self._lock, ExitStack() as resources:
             if self._task is not None:
                 raise RuntimeError("A download is already in progress.")
+
+            if spec.destination is not None:
+                lock_path = spec.destination.with_name(
+                    f".{spec.destination.name}.download.lock",
+                )
+                # The monitor releases the reservation after publication.
+                lock = FileLock(lock_path, thread_local=False)
+                try:
+                    resources.enter_context(lock.acquire(timeout=0))
+                except Timeout as exc:
+                    raise RuntimeError(
+                        f"A download for {spec.model_name} is already in progress.",
+                    ) from exc
 
             context = mp.get_context("spawn")
             queue = context.Queue()
@@ -309,12 +325,19 @@ class ProcessDownloadController:
                 monitor_thread=monitor_thread,
                 spec=spec,
             )
-            self._progress.begin(
-                total_bytes=spec.total_bytes,
-                model_name=spec.model_name,
-                source=spec.source,
-            )
-            monitor_thread.start()
+            try:
+                self._progress.begin(
+                    total_bytes=spec.total_bytes,
+                    model_name=spec.model_name,
+                    source=spec.source,
+                )
+                monitor_thread.start()
+            except BaseException:
+                stop_download(process)
+                self._release_task_resources(self._task)
+                self._task = None
+                raise
+            self._task.resources = resources.pop_all()
 
     def cancel(self) -> None:
         """Cancel the current worker if it is still running."""
@@ -504,6 +527,7 @@ class ProcessDownloadController:
             if cleanup_spec:
                 current.spec.task.run_cleanup()
 
+            current.resources.close()
             if (
                 current.cancelled.is_set()
                 and result.status == DownloadTaskStatus.FAILED

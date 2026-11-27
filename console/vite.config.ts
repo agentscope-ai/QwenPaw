@@ -3,6 +3,10 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { startupMonitorPlugin } from "./scripts/startup-monitor-plugin";
+import {
+  chatScrollPolicyOptimizer,
+  chatScrollPolicyPlugin,
+} from "./scripts/chat-scroll-policy-plugin";
 import { normalizeConsoleBasename } from "./src/utils/consoleBasename";
 
 // Vitest-only plugin: transforms .css imports inside node_modules to empty
@@ -38,7 +42,9 @@ export default defineConfig(({ command, mode }) => {
     base:
       !desktop && consoleBasename
         ? `${normalizeConsoleBasename(consoleBasename)}/`
-        : "/",
+        : desktop
+        ? "/"
+        : "./",
     define: {
       VITE_API_BASE_URL: JSON.stringify(desktop ? "" : apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
@@ -47,6 +53,20 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       startupMonitorPlugin(),
+      {
+        name: "console-host-document",
+        transformIndexHtml(html: string) {
+          const base =
+            !desktop && consoleBasename
+              ? `${normalizeConsoleBasename(consoleBasename)}/`
+              : "/";
+          return html.replace(
+            "<head>",
+            `<head><base href="${base}"><meta name="qwenpaw-console-protocol" content="1">`,
+          );
+        },
+      } satisfies Plugin,
+      chatScrollPolicyPlugin,
       ...(desktop
         ? [
             {
@@ -182,6 +202,7 @@ export default defineConfig(({ command, mode }) => {
     },
     optimizeDeps: {
       include: ["diff"],
+      esbuildOptions: { plugins: [chatScrollPolicyOptimizer] },
     },
     build: {
       ...(desktop ? { outDir: "dist-tauri" } : {}),
@@ -201,6 +222,11 @@ export default defineConfig(({ command, mode }) => {
             // Automatic splitting keeps the small desktop shell independent
             // of the console's UI vendor bundle.
             if (desktop) return;
+            // Keep shared icons together to avoid a burst of tiny HTTP/2
+            // requests when Console is served through Platform Relay.
+            if (id.includes("node_modules/lucide-react/")) {
+              return "icons-vendor";
+            }
             // A shared runtime must not land in a lazy consumer that its
             // vendor imports back (for example Monaco and TabbedEditor).
             if (

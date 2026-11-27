@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import sys
 import io
+import os
 import socket
 import tarfile
 import threading
@@ -12,16 +14,19 @@ import time
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from typing import Any, cast
 
 import httpx
 import pytest
 
+import llamacpp.io_helpers as io_helpers
 import llamacpp.llamacpp as downloader_module
 from llamacpp.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
 )
+from llamacpp.io_helpers import create_server_job, process_options
 from llamacpp.llamacpp import LlamaCppBackend
 from llamacpp.model_types import LocalModelInfo as ModelInfo
 
@@ -1553,6 +1558,75 @@ async def test_shutdown_server_uses_plugin_shutdown_helper(
     }
 
 
+@pytest.mark.asyncio
+async def test_shutdown_server_releases_the_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unloading must release the job handle, not just stop the server.
+
+    Leaving it open lets a start/reload cycle accumulate handles until the
+    process exits, because a fresh job is created on the next start.
+    """
+    downloader = _build_downloader(monkeypatch)
+    releases: list[str] = []
+    monkeypatch.setattr(
+        downloader._server_job,
+        "close",
+        lambda: releases.append("closed"),
+    )
+
+    await downloader.shutdown_server()
+
+    assert releases == ["closed"]
+
+
+async def test_failed_shutdown_keeps_the_job_for_the_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed stop keeps the job open so the retry can still use it.
+
+    Releasing it here would terminate the server on Windows — the last handle
+    going away kills everything in the job — while the process is deliberately
+    kept for a retry, so the retry would be handed a corpse.
+    """
+    downloader = _build_downloader(monkeypatch)
+    process = _FakeServerProcess()
+    downloader._server_process = process
+    releases: list[str] = []
+    monkeypatch.setattr(
+        downloader._server_job,
+        "close",
+        lambda: releases.append("closed"),
+    )
+
+    def stop(*_args, **_kwargs):
+        raise RuntimeError("llama.cpp did not exit")
+
+    monkeypatch.setattr(downloader_module, "stop_server", stop)
+    with pytest.raises(RuntimeError, match="did not exit"):
+        await downloader.shutdown_server()
+
+    assert releases == []
+    assert downloader._server_process is process
+
+
+def test_force_shutdown_server_releases_the_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The synchronous exit path must release the handle as well."""
+    downloader = _build_downloader(monkeypatch)
+    releases: list[str] = []
+    monkeypatch.setattr(
+        downloader._server_job,
+        "close",
+        lambda: releases.append("closed"),
+    )
+
+    downloader.shutdown_server_sync()
+
+    assert releases == ["closed"]
+
+
 def test_force_shutdown_server_uses_plugin_shutdown_helper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1578,3 +1652,288 @@ def test_force_shutdown_server_uses_plugin_shutdown_helper(
     downloader.shutdown_server_sync()
 
     assert calls == [(process, 5.0, 1.0)]
+
+
+# ---------------------------------------------------------------------------
+# The server must not outlive a crashed provider (#8830)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_setup_server_binds_the_process_to_its_job(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Every launch hands the server to the job that outlives nothing."""
+    downloader = _build_downloader(monkeypatch)
+    model_path = tmp_path / "demo.gguf"
+    model_path.write_text("gguf")
+    assigned: list[int] = []
+
+    class _FakeStdout:
+        def close(self):
+            pass
+
+        def readline(self) -> bytes:
+            return b""
+
+    class _FakeStartedProcess:
+        pid = 4321
+
+        def __init__(self) -> None:
+            self.stdout = _FakeStdout()
+            self.returncode: int | None = None
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout=None) -> int:
+            self.returncode = 0
+            return 0
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def kill(self) -> None:
+            self.returncode = -9
+
+    async def fake_server_ready(*_args, **_kwargs) -> bool:
+        return True
+
+    downloader.os_name = "windows"
+    monkeypatch.setattr(downloader_module, "process_options", lambda: {})
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(
+        downloader_module.subprocess,
+        "Popen",
+        lambda command, **kwargs: _FakeStartedProcess(),
+    )
+    monkeypatch.setattr(downloader, "server_ready", fake_server_ready)
+    monkeypatch.setattr(
+        downloader._server_job,
+        "assign",
+        lambda process: assigned.append(process.pid),
+    )
+
+    await downloader.setup_server(model_path, "demo-model")
+    await asyncio.sleep(0)
+
+    assert assigned == [4321]
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="job objects are Windows-only",
+)
+def test_closing_the_job_terminates_the_server(tmp_path: Path) -> None:
+    """A crash closes our handles, and closing them kills the server.
+
+    This is the property the fix relies on: nothing has to run at exit, the
+    kernel ends the member as soon as the last handle goes away.
+    """
+    job = create_server_job()
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    try:
+        job.assign(process)
+        time.sleep(0.5)
+        assert process.poll() is None
+
+        job.close()
+        process.wait(timeout=10)
+        assert process.poll() is not None
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=10)
+        job.close()
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="job objects are Windows-only",
+)
+def test_closing_the_job_twice_releases_the_handle_once() -> None:
+    """Unloading the plugin must release the job handle exactly once.
+
+    The unload path stops the server but used to leave the job handle open, so
+    starting a model and reloading the plugin accumulated handles until the
+    process exited. ``close()`` is therefore called from every shutdown path,
+    including twice for one unload; only the first call may release the handle.
+    """
+    job = create_server_job()
+    # A real job is created lazily on first assign; a sentinel is enough to
+    # count releases without spawning a child process.
+    job._handle = 4321
+
+    with mock.patch.object(
+        io_helpers._KERNEL32,
+        "CloseHandle",
+    ) as close_handle:
+        job.close()
+        job.close()
+
+    assert close_handle.call_count == 1
+    assert close_handle.call_args_list[0].args == (4321,)
+    assert job._handle is None
+
+
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="job objects are Windows-only",
+)
+def test_a_job_without_a_handle_is_harmless() -> None:
+    """Test doubles and exotic launchers must not break a server start."""
+    job = create_server_job()
+
+    class _NoHandle:
+        pid = 1
+
+    job.assign(_NoHandle())
+
+
+# ---------------------------------------------------------------------------
+# On Linux the server must die with a SIGKILLed provider (#8830)
+# ---------------------------------------------------------------------------
+
+_HELPER = """
+import os
+import sys
+import time
+
+sys.path.insert(0, {plugin_dir!r})
+import io_helpers
+
+proc = io_helpers.subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(300)"],
+    **io_helpers.process_options(),
+)
+print(proc.pid, flush=True)
+time.sleep(300)
+"""
+
+
+def _alive(pid: int) -> bool:
+    """True while the process exists and is not a zombie."""
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as fh:
+            return fh.read().split()[2].decode() != "Z"
+    except FileNotFoundError:
+        return False
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="PR_SET_PDEATHSIG is Linux-only",
+)
+def test_process_options_arms_pdeathsig(tmp_path: Path) -> None:
+    """Linux children get the hook; other platforms must not."""
+    options = process_options()
+    assert options.get("start_new_session") is True
+    assert callable(options.get("preexec_fn"))
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="PR_SET_PDEATHSIG is Linux-only",
+)
+def test_the_pdeathsig_hook_compares_the_captured_parent_pid(
+    monkeypatch,
+) -> None:
+    """A provider that is itself PID 1 must not look like a dead parent.
+
+    ``getppid() == 1`` is only "orphaned" when the original parent died. A
+    provider that is PID 1 makes every child see 1, and comparing against the
+    pid captured before ``Popen`` is what tells those two apart.
+    """
+    armed: list[tuple] = []
+    monkeypatch.setattr(io_helpers, "_PRCTL", lambda *args: armed.append(args))
+    monkeypatch.setattr(os, "getppid", lambda: 1)
+    exits: list[int] = []
+    monkeypatch.setattr(os, "_exit", lambda code: exits.append(code))
+
+    io_helpers._make_pdeathsig_hook(1)()
+
+    assert armed, "the signal was not armed"
+    assert exits == [], "a child of a PID-1 provider exited on its own"
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="PR_SET_PDEATHSIG is Linux-only",
+)
+def test_the_pdeathsig_hook_exits_when_the_parent_changed(monkeypatch) -> None:
+    """An adopted child must not keep running under a stranger supervisor.
+
+    If the provider dies before the child arms its signal, the child is
+    reparented to something whose pid is not 1 — the old check let that one
+    run on unsupervised.
+    """
+    armed: list[tuple] = []
+    monkeypatch.setattr(io_helpers, "_PRCTL", lambda *args: armed.append(args))
+    monkeypatch.setattr(os, "getppid", lambda: 987654)
+    exits: list[int] = []
+    monkeypatch.setattr(os, "_exit", lambda code: exits.append(code))
+
+    io_helpers._make_pdeathsig_hook(4242)()
+
+    assert armed, "the signal was armed after the parent check, not before"
+    assert exits == [1]
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux"),
+    reason="PR_SET_PDEATHSIG is Linux-only",
+)
+def test_the_server_dies_with_a_sigkilled_provider(tmp_path: Path) -> None:
+    """One SIGKILL of the provider, no cleanup code runs, server is gone.
+
+    This is the Linux half of #8830: stop_server() never runs on a crash, so
+    the kernel has to do it. The helper stands in for the provider.
+    """
+    plugin_dir = (
+        Path(__file__).resolve().parents[4]
+        / "plugins"
+        / "provider"
+        / "local-llamacpp"
+    )
+    helper = tmp_path / "provider.py"
+    helper.write_text(
+        _HELPER.format(plugin_dir=str(plugin_dir)),
+        encoding="utf-8",
+    )
+
+    parent = subprocess.Popen(
+        [sys.executable, str(helper)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        first_line = parent.stdout.readline().strip()
+        assert first_line, "the stand-in provider printed no pid:\n" + (
+            parent.stderr.read() or "<no stderr>"
+        )
+        child_pid = int(first_line)
+        time.sleep(0.5)
+        assert _alive(child_pid), "the stand-in server did not start"
+
+        parent.kill()
+        parent.wait()
+        time.sleep(1.5)
+
+        assert not _alive(
+            child_pid,
+        ), "the server outlived a SIGKILLed provider"
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait()

@@ -16,10 +16,12 @@ Covers:
 import asyncio
 import base64
 from io import BytesIO
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
     Base64Source,
     DataBlock,
@@ -44,10 +46,14 @@ from qwenpaw.agents.tools.view_media import (
     view_image,
     view_video,
 )
+from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers.capping_formatter import (
     MAX_INLINE_MEDIA_BYTES,
     _CappingOpenAIFormatter,
 )
+from qwenpaw.providers.model_info import ModelInfo
+from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.agents import model_factory
 
 
@@ -223,6 +229,128 @@ class TestCheckMultimodalSupport:
         mock_info.side_effect = ImportError("no module")
         assert _check_multimodal_support("image") is True
 
+    def test_image_uses_resolved_capability_for_active_model(self):
+        raw = SimpleNamespace(
+            supports_image=False,
+            supports_multimodal=False,
+        )
+        resolved = SimpleNamespace(supports_image=True)
+        active = ModelSlotConfig(provider_id="mimo", model="vision")
+        provider = MagicMock()
+        provider.resolve_model_info.return_value = resolved
+        manager = MagicMock()
+        manager.get_provider.return_value = provider
+
+        with (
+            patch(
+                "qwenpaw.agents.prompt._get_active_model_info",
+                return_value=(raw, active.model),
+            ),
+            patch(
+                "qwenpaw.agents.prompt._get_active_model_slot",
+                return_value=active,
+            ) as active_slot,
+            patch.object(
+                ProviderManager,
+                "get_instance",
+                return_value=manager,
+            ),
+        ):
+            assert _check_multimodal_support("image") is True
+
+        active_slot.assert_called_once_with()
+        manager.get_provider.assert_called_once_with(active.provider_id)
+        provider.resolve_model_info.assert_called_once_with(active.model)
+
+    @pytest.mark.parametrize(
+        "probe_source",
+        [None, "probed"],
+        ids=["explicit-override", "probed"],
+    )
+    def test_other_modalities_do_not_override_negative_image_verdict(
+        self,
+        probe_source,
+    ):
+        model_id = "review-text-only"
+        probed = probe_source == "probed"
+        raw = ModelInfo(
+            id=model_id,
+            name=model_id,
+            supports_image=False,
+            supports_audio=True,
+            supports_video=False if probed else None,
+            supports_multimodal=False,
+            probe_source=probe_source,
+            config_overrides=[] if probed else ["supports_image"],
+        )
+        discovered = ModelInfo(
+            id=model_id,
+            name=model_id,
+            supports_image=True,
+            supports_multimodal=True,
+            probe_source="api",
+        )
+        provider = OpenAIProvider(
+            id="review-synthetic",
+            name="Review Synthetic",
+            api_key="test-key",
+            base_url="https://relay.invalid/v1",
+            extra_models=[raw],
+            discovered_models=[] if probed else [discovered],
+        )
+        active = ModelSlotConfig(
+            provider_id="review-synthetic",
+            model=model_id,
+        )
+        manager = MagicMock()
+        manager.get_provider.return_value = provider
+        resolved = provider.resolve_model_info(model_id)
+        assert resolved.supports_image is False
+        assert resolved.supports_multimodal is True
+
+        with (
+            patch(
+                "qwenpaw.agents.prompt._get_active_model_slot",
+                return_value=active,
+            ),
+            patch.object(
+                ProviderManager,
+                "get_instance",
+                return_value=manager,
+            ),
+        ):
+            assert _check_multimodal_support("image") is False
+
+    def test_image_resolution_failure_preserves_raw_verdict(self):
+        raw = SimpleNamespace(
+            supports_image=False,
+            supports_multimodal=False,
+        )
+        active = ModelSlotConfig(provider_id="mimo", model="text-only")
+        provider = MagicMock()
+        provider.resolve_model_info.side_effect = RuntimeError(
+            "resolver failed",
+        )
+        manager = MagicMock()
+        manager.get_provider.return_value = provider
+
+        with (
+            patch(
+                "qwenpaw.agents.prompt._get_active_model_info",
+                return_value=(raw, active.model),
+            ),
+            patch(
+                "qwenpaw.agents.prompt._get_active_model_slot",
+                return_value=active,
+            ),
+            patch.object(
+                ProviderManager,
+                "get_instance",
+                return_value=manager,
+            ),
+        ):
+            assert _check_multimodal_support("image") is False
+
 
 # ---------------------------------------------------------------------------
 # _get_multimodal_fallback_hint
@@ -276,6 +404,91 @@ class TestGetMultimodalFallbackHint:
 
 class TestViewImage:
     """Tests for view_image."""
+
+    @pytest.mark.asyncio
+    async def test_discovered_image_capability_reaches_wire_without_refusal(
+        self,
+        tmp_path,
+    ):
+        model_id = "review-synthetic-vision"
+        provider = OpenAIProvider(
+            id="review-synthetic",
+            name="Review Synthetic",
+            api_key="test-key",
+            base_url="https://relay.invalid/v1",
+            extra_models=[
+                ModelInfo(
+                    id=model_id,
+                    name=model_id,
+                    supports_image=False,
+                    supports_multimodal=False,
+                ),
+            ],
+            discovered_models=[
+                ModelInfo(
+                    id=model_id,
+                    name=model_id,
+                    supports_image=True,
+                    supports_multimodal=True,
+                    probe_source="api",
+                ),
+            ],
+        )
+        active = ModelSlotConfig(
+            provider_id="review-synthetic",
+            model=model_id,
+        )
+        probe = AsyncMock()
+        manager = SimpleNamespace(
+            get_provider=lambda provider_id: provider,
+            get_active_model=lambda: active,
+            probe_model_multimodal=probe,
+        )
+        image_path = tmp_path / "image.png"
+        Image.new("RGB", (2, 2), color="red").save(image_path)
+
+        with (
+            patch.object(
+                ProviderManager,
+                "get_instance",
+                return_value=manager,
+            ),
+            patch(
+                "qwenpaw.agents.prompt._get_active_model_slot",
+                return_value=active,
+            ),
+        ):
+            result = await view_image(str(image_path))
+
+        resolved = provider.resolve_model_info(active.model)
+        assert (
+            resolved.capability_provenance["supports_image"]["source"] == "api"
+        )
+        model = SimpleNamespace(
+            model=model_id,
+            formatter=OpenAIChatFormatter(),
+        )
+        formatter = model_factory._install_model_formatter(
+            model,
+            provider_id=active.provider_id,
+            model_info=resolved,
+        )
+        wire = await formatter.format(
+            [Msg(name="tool", role="assistant", content=result.content)],
+        )
+        text = "\n".join(
+            block.text
+            for block in result.content
+            if getattr(block, "type", None) == "text"
+        )
+        wire_parts = [
+            part for message in wire for part in message.get("content", [])
+        ]
+
+        assert "cannot see" not in text
+        assert f"Image loaded: {image_path.name}" in text
+        assert any(part.get("type") == "image_url" for part in wire_parts)
+        probe.assert_not_awaited()
 
     @pytest.mark.asyncio
     @patch(

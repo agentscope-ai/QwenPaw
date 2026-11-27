@@ -375,6 +375,20 @@ def has_registered_users() -> bool:
     return bool(data.get("user"))
 
 
+def platform_runtime_headers() -> dict[str, str]:
+    """Authenticate owned Relay calls without exporting local credentials."""
+    runtime_token = EnvVarLoader.get_str(_RUNTIME_TOKEN_ENV, "")
+    headers = (
+        {"X-QwenPaw-Runtime-Token": runtime_token} if runtime_token else {}
+    )
+    if is_auth_enabled():
+        username = _load_auth_data().get("user", {}).get("username")
+        if username:
+            token = create_token(username, expiry_seconds=60)
+            headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 def owns_default_console_chat(username: str) -> bool:
     """Whether the authenticated principal owns legacy Console conversations."""
     # QwenPaw has one registered account. The main Console has always stored
@@ -388,6 +402,42 @@ def owns_default_console_chat(username: str) -> bool:
 # ---------------------------------------------------------------------------
 # Registration (single-user)
 # ---------------------------------------------------------------------------
+
+
+def registered_username() -> Optional[str]:
+    """Read the local account identity for password recovery."""
+    data = _load_recovery_data()
+    user = data.get("user")
+    return user.get("username", "<unknown>") if user else None
+
+
+def _load_recovery_data() -> dict:
+    data = _load_auth_data()
+    if data.get("_auth_load_error"):
+        raise ValueError(
+            "Failed to read auth data. Check auth.json for corruption.",
+        )
+    return data
+
+
+def reset_password(new_password: str) -> bool:
+    """Reset the local account password and invalidate existing sessions.
+
+    This recovery operation requires local filesystem access. Remote account
+    changes use update_credentials and verify the current password.
+    """
+    if not new_password or not new_password.strip():
+        raise ValueError("Password cannot be empty.")
+    data = _load_recovery_data()
+    user = data.get("user")
+    if not user:
+        return False
+    pw_hash, salt = _hash_password(new_password)
+    user["password_hash"] = pw_hash
+    user["password_salt"] = salt
+    data["jwt_secret"] = secrets.token_hex(32)
+    _save_auth_data(data)
+    return True
 
 
 def register_user(

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -20,6 +21,63 @@ from llamacpp.llamacpp import LlamaCppBackend
 from llamacpp.model_manager import ModelManager, DownloadSource
 
 from llamacpp.workers import ModelDownloads
+
+
+def test_two_downloaders_cannot_publish_to_the_same_model(
+    tmp_path,
+    monkeypatch,
+):
+    (tmp_path / "huggingface_hub.py").write_text(
+        "from pathlib import Path\n"
+        "def snapshot_download(repo_id, local_dir):\n"
+        "    Path(local_dir, 'model.gguf').write_bytes(b'GGUF')\n"
+        "    return local_dir\n",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    first = ModelManager(data_dir=Path("."))
+    second = ModelManager(data_dir=tmp_path)
+    for owner in (first, second):
+        monkeypatch.setattr(owner, "_estimate_download_size", lambda **kw: 4)
+        monkeypatch.setattr(
+            owner,
+            "_check_gguf_exists",
+            lambda **kw: (True, ""),
+        )
+
+    publishing, release = Event(), Event()
+    finalize = first._finalize_download_result
+
+    def pause_before_publication(*args, **kwargs):
+        publishing.set()
+        assert release.wait(10)
+        return finalize(*args, **kwargs)
+
+    monkeypatch.setattr(
+        first,
+        "_finalize_download_result",
+        pause_before_publication,
+    )
+    repo = "test/model"
+    try:
+        first.start_download(repo, DownloadSource.HUGGINGFACE)
+        monitor = first._download_controller._task.monitor_thread
+        assert publishing.wait(10)
+        with pytest.raises(RuntimeError, match="already in progress"):
+            second.start_download(repo, DownloadSource.HUGGINGFACE)
+        second.cancel_download()
+        release.set()
+        monitor.join(10)
+        assert first.get_download_progress()["status"] == "completed"
+        second.start_download(repo, DownloadSource.HUGGINGFACE)
+        second._download_controller._task.monitor_thread.join(10)
+        assert second.get_download_progress()["status"] == "completed"
+        final = first.get_model_dir(repo)
+        assert list(final.iterdir()) == [final / "model.gguf"]
+    finally:
+        release.set()
+        first._download_controller.close()
+        second._download_controller.close()
 
 
 class _FakeController:
