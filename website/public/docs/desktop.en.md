@@ -14,7 +14,7 @@
 
 **Download**: [GitHub Releases][releases]
 
-This guide explains how to install and use the QwenPaw Desktop application on Windows and macOS.
+This guide explains how to install and use the QwenPaw Desktop application on Windows, macOS, and Linux.
 
 [releases]: https://qwenpaw.agentscope.io/downloads
 
@@ -26,6 +26,7 @@ This guide explains how to install and use the QwenPaw Desktop application on Wi
 
 - [Windows Guide](#windows-guide)
 - [macOS Guide](#macos-guide)
+- [Linux Guide](#linux-guide)
 - [Technical Support](#technical-support)
 
 ---
@@ -233,6 +234,45 @@ A: Currently using:
 - ✅ **One-time trust**: Permanently effective after manual trust
 
 ---
+
+## Linux Guide
+
+### System Requirements
+
+- **Operating System**: Ubuntu 24.04 LTS or newer, Debian 13 or newer (glibc 2.39+), x86_64
+- **Runtime dependencies**: `libwebkit2gtk-4.1-0`, `libgtk-3-0t64`, `libayatana-appindicator3-1`, `pkexec`
+- **Session**: Wayland or X11
+- **Disk space**: about 3.5 GB after installation
+
+### Installation Steps
+
+1. Download `QwenPaw-Tauri-<version>-linux-x86_64.deb` from the [Release page][releases]
+2. Install it with apt so dependencies resolve automatically:
+
+   ```bash
+   sudo apt install ./QwenPaw-Tauri-<version>-linux-x86_64.deb
+   ```
+
+3. Launch **QwenPaw Desktop** from the application grid, or run `qwenpaw-desktop`
+
+### First Run
+
+The app creates `~/.qwenpaw` on first launch and initializes a default workspace automatically. Conversations, configuration, and agent data live there:
+
+- `~/.qwenpaw/workspaces/` — agent workspaces
+- `~/.qwenpaw/config.json` — configuration
+- `~/.qwenpaw.secret/` — credentials
+- `~/.qwenpaw/desktop.log` — logs
+
+### Known Limitations (Linux)
+
+- Text may look blurry under fractional display scaling. Try 100% or 200% scaling.
+- On some desktop environments, scrolling and window resizing may feel slower than in a browser.
+
+### Updates and Uninstall
+
+- **Updates**: choose **Update Now** or **Download in Background** in the app. Installing the update requires administrator authorization.
+- **Uninstall**: `sudo apt remove qwenpaw-desktop` — this keeps `~/.qwenpaw`, remove it manually for a clean wipe
 
 ## Technical Support
 

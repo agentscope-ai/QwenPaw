@@ -99,11 +99,58 @@ if ! "$PYTHON_BIN" -c "import PyInstaller" 2> /dev/null; then
 fi
 echo "PyInstaller installed"
 
+# Older Linux packages bundle Whisper via the full extra. Use CPU-only torch
+# for that case and let the optional Whisper plugin install its own runtime.
+CPU_TORCH=0
+if [ "$(uname -s)" = "Linux" ]; then
+    # Exit 0: the full extra bundles Whisper. Exit 3: it does not. Any other
+    # status is a probe failure and must stop the build: skipping CPU-only
+    # torch would ship CUDA torch without the CUDA libraries the spec strips.
+    whisper_probe=0
+    "$PYTHON_BIN" - "$REPO_ROOT/pyproject.toml" <<'PYTHON' || whisper_probe=$?
+import sys
+import tomllib
+
+from packaging.requirements import Requirement
+
+with open(sys.argv[1], "rb") as project_file:
+    full = tomllib.load(project_file)["project"]["optional-dependencies"]["full"]
+bundles_whisper = any("whisper" in Requirement(item).extras for item in full)
+sys.exit(0 if bundles_whisper else 3)
+PYTHON
+    case "$whisper_probe" in
+        0)
+            echo "== Installing CPU-only torch =="
+            install_python_packages torch \
+                --index-url https://download.pytorch.org/whl/cpu
+            CPU_TORCH=1
+            ;;
+        3) ;;
+        *)
+            echo "ERROR: could not read the full extra from pyproject.toml"
+            exit 1
+            ;;
+    esac
+fi
+
 # Install project dependencies (ensures ALL runtime deps are importable)
 echo "== Preparing desktop dependency wheels =="
 DESKTOP_WHEELS="${DIST}/desktop-wheels"
 rm -rf "$DESKTOP_WHEELS"
 mkdir -p "$DESKTOP_WHEELS"
+WHEEL_CONSTRAINTS=()
+if [ "$CPU_TORCH" = 1 ]; then
+    # Resolve Whisper against the CPU-only torch. PyPI's Linux torch would
+    # also download several GB of nvidia-* wheels that are never bundled.
+    TORCH_VERSION=$("$PYTHON_BIN" -c \
+        'from importlib.metadata import version; print(version("torch"))')
+    "$PYTHON_BIN" -m pip download --no-deps --only-binary=:all: \
+        --index-url https://download.pytorch.org/whl/cpu \
+        --dest "$DESKTOP_WHEELS" "torch==${TORCH_VERSION}"
+    echo "torch==${TORCH_VERSION}" > "${DIST}/cpu-torch-constraint.txt"
+    WHEEL_CONSTRAINTS=(--find-links "$DESKTOP_WHEELS"
+        --constraint "${DIST}/cpu-torch-constraint.txt")
+fi
 # Pin setuptools <82: lark-oapi still calls pkg_resources.declare_namespace
 # at import time. A *fresh* install of setuptools >= 82 removes pkg_resources
 # wholesale, so lark-oapi's except-ImportError fallback (pkgutil.extend_path)
@@ -116,6 +163,7 @@ mkdir -p "$DESKTOP_WHEELS"
 # Reuse published wheels; build source-only dependencies once for both the
 # frozen host and readable runtime, using the canonical Python ABI.
 "$PYTHON_BIN" -m pip wheel --prefer-binary --wheel-dir "$DESKTOP_WHEELS" \
+    ${WHEEL_CONSTRAINTS[@]+"${WHEEL_CONSTRAINTS[@]}"} \
     ".[full]" "setuptools<82" wheel \
     -r "${REPO_ROOT}/scripts/pack-tauri/native-host-requirements.txt"
 HOST_WHEELS=("$DESKTOP_WHEELS"/qwenpaw-*.whl)
