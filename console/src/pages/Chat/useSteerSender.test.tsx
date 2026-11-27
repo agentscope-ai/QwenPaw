@@ -22,6 +22,35 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
+it("keeps the local submission time when the acknowledgment omits it", async () => {
+  const now = 1_700_000_000_000;
+  const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+  vi.mocked(request).mockImplementation(async (_url, options) => {
+    if (options?.method !== "POST") return status as never;
+    const payload = JSON.parse(String(options.body));
+    return {
+      ...payload,
+      status: "accepted",
+      user_message_id: "s1",
+      append_seq: 1,
+      revision: 1,
+    } as never;
+  });
+  const hook = renderHook(() => useSteerSender("chat", "agent", true));
+  try {
+    await act(async () => {
+      expect(
+        await hook.result.current.submit([{ type: "text", text: "fix" }]),
+      ).toBe(true);
+    });
+    expect(useSteerStore.getState().receipts[status.scope][0].created_at).toBe(
+      now / 1000,
+    );
+  } finally {
+    nowSpy.mockRestore();
+  }
+});
+
 it("retries the same intent after reload and never delivers it to a newer turn", async () => {
   const content: SteerContent = [
     { type: "text", text: "fix" },
