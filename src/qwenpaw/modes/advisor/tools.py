@@ -28,12 +28,15 @@ CONSULT_POLICY_NAME = "ConsultAdvisor"
 # Part of every model call in Advisor Mode, so kept short.
 CONSULT_TOOL_DESCRIPTION = (
     "Ask your advisor (a stronger planning model that already wrote your "
-    "plan) for strategic guidance. Use it at a real decision point, before "
-    "committing to a costly or irreversible route, or when you are unsure "
-    "whether to abandon an approach that keeps failing. Do not use it for "
-    "routine steps or things you can check yourself with your tools. The "
-    "advisor cannot see your files or run code, so state what you tried "
-    "and what you are deciding between. Consultations are capped per "
+    "plan) when an unresolved judgment affects your next action and the "
+    "available evidence is insufficient to choose reliably. If one cheap "
+    "tool check can resolve it, do that first. Do not consult for routine "
+    "steps. Focus on one decision: include relevant requirements, observed "
+    "evidence, attempts and results, options, and the specific uncertainty. "
+    "Distinguish facts from assumptions. The advisor cannot run tools or "
+    "see your full history. Share only necessary information permitted by "
+    "the task's disclosure constraints, preserving conditions and "
+    "exceptions that affect the decision. Consultations are capped per "
     "conversation."
 )
 
@@ -88,12 +91,13 @@ def make_consult_advisor(owner: "AdvisorMode") -> Any:
     """
 
     async def consult_advisor(question: str) -> AsyncIterator[Any]:
-        """Ask the advisor a strategic question about the current task.
+        """Ask the advisor about an unresolved decision in the current task.
 
         Args:
-            question: What you are deciding or stuck on, in one or two
-                sentences, including what you already tried and which
-                options you see. Ask about strategy, not syntax.
+            question: A concise decision or question, with the relevant
+                constraints, observed evidence, assumptions, attempts and
+                results, and options. Include the specific uncertainty
+                you need resolved and only information allowed to be shared.
         """
         block_id = uuid.uuid4().hex[:12]
         middleware = owner.current_middleware()

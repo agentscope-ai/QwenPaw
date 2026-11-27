@@ -1,0 +1,30 @@
+{
+  "schema": "qwenpaw.frozen-collaboration-source.v1",
+  "version": "P3",
+  "historical_version": "P3a-r2",
+  "parent": "P1",
+  "status": "frozen",
+  "base_revision": "f47dd19bd1442b989eeb8df8d146cbbab572d0b1",
+  "implementation_frozen_at": "2026-11-17T08:03:22.094759+00:00",
+  "named_at": "2026-11-17T14:34:45.787389+00:00",
+  "source_freeze_manifest_sha256": "c0715a07844cb10a029755b5a8bd5d84054262119d7781ee888f9edb30c7702d",
+  "release_manifest_sha256": "c6872c8256f54a1dd91b3543724a1a65056a7030df10adf3ea3baf3d44c1b313",
+  "experiment_manifest_sha256": "10a63a3b9b700c5fa0d811cbe25d8ff4f6e07b99cdd70af04f218856f339b5d9",
+  "experiment": "advisor-prompt-p3a-r2-dual-full600-20261117-v1",
+  "verified_source_file_count": 3400,
+  "files": {
+    "src/qwenpaw/modes/advisor/middleware.py": "60ec325e69eff44ebe9451464e8bd4f52c8ae3d9c8eec911450152f5de6c0913",
+    "src/qwenpaw/modes/advisor/prompts.py": "ad0e95e549a62278f994785264e2b8b66870dfd9e65044567f91b5fc458505a1",
+    "src/qwenpaw/modes/advisor/tools.py": "8c6d896125959188f16d07e1a8ea67e1d11ad64b3d71da514d0c41a242ebea97"
+  },
+  "rendered_advisor_system_prompt_sha256": "440dc9bf3c333dc610fb6c45d168682cdf2da2b3d739759f1503cbbdd868ecb3",
+  "scope_vs_P1": [
+    "ADVISOR_SYSTEM_PROMPT"
+  ],
+  "inherited_changes_vs_base": [
+    "worker system context forwarding and advisor call audit",
+    "P1 consultation prompt and tool description"
+  ],
+  "outbound_privacy_filter_implemented": false,
+  "change_policy": "Preserve P3; freeze subsequent implementation changes under a new version."
+}

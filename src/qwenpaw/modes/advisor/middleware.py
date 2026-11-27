@@ -25,9 +25,9 @@ result pair so the agent reads them as something it asked for:
    the agent asks through the real ``consult_advisor`` tool (see
    ``tools.py``).
 
-Every request to the advisor is self-contained: the task, the opening
-plan and the agent's latest messages (clipped), so each call costs about
-the same however long the run gets. The plan is written once per
+Every request to the advisor is self-contained: the worker's current
+system instructions (unclipped), the task, the opening plan and the
+agent's latest messages (clipped). The plan is written once per
 conversation and carried over to its later turns.
 """
 
@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import copy
+import hashlib
 import json
 import logging
 import time
@@ -74,6 +75,7 @@ from .prompts import (
     PLAN_REQUEST_TEMPLATE,
     SEVERITY_NOTES,
     TRIGGER_NOTES,
+    WORKER_SYSTEM_CONTEXT_HEADER,
 )
 from .tools import CONSULT_TOOL_NAME
 from .trigger import FailureDetector, InterventionTrigger, TriggerEvent
@@ -537,6 +539,9 @@ class AdvisorMiddleware(MiddlewareBase):
         # The agent's context, kept so an on-demand consultation can show
         # the advisor the latest messages too.
         self._context: list[Msg] = []
+        # Capture the effective model input, including dynamic system
+        # prompt middleware output, rather than re-reading prompt files.
+        self._worker_system_messages: list[dict[str, Any]] = []
         self._recent_messages = max(1, int(recent_messages))
         self._trigger = trigger or InterventionTrigger()
         self._env_context_root = env_context_root
@@ -640,6 +645,27 @@ class AdvisorMiddleware(MiddlewareBase):
         next_handler: Callable[..., Any],
     ) -> Any:
         injected: Msg | None = None
+        # Advisor Mode is the innermost model-call middleware. Refresh
+        # even when the opening plan is disabled or was already injected;
+        # an empty input must also clear the preceding call's context.
+        self._worker_system_messages = []
+        for index, msg in enumerate(input_kwargs.get("messages") or []):
+            if _block_get(msg, "role") != "system":
+                continue
+            content = _block_get(msg, "content", [])
+            # AgentScope system messages contain text blocks only.
+            text = (
+                content
+                if isinstance(content, str)
+                else "\n".join(
+                    _block_get(block, "text", "")
+                    for block in content
+                    if _block_get(block, "type") == "text"
+                )
+            )
+            self._worker_system_messages.append(
+                {"message_index": index, "text": text},
+            )
         if not self._baselined:
             # Results that were already in the context when this request
             # started belong to earlier turns: never count them towards an
@@ -723,7 +749,11 @@ class AdvisorMiddleware(MiddlewareBase):
             "request": request,
         }
         try:
-            reply = await self._call_advisor(request, on_text=on_text)
+            reply = await self._call_advisor(
+                request,
+                on_text=on_text,
+                kind="consult",
+            )
         except Exception as exc:
             logger.error(
                 "AdvisorMiddleware: on-demand advisor call failed: %s",
@@ -924,6 +954,7 @@ class AdvisorMiddleware(MiddlewareBase):
                 advice = await self._call_advisor(
                     request,
                     on_text=live.on_text if live.active else None,
+                    kind="followup",
                 )
             except Exception as exc:
                 logger.error(
@@ -1038,6 +1069,7 @@ class AdvisorMiddleware(MiddlewareBase):
                 plan = await self._call_advisor(
                     plan_request,
                     on_text=live.on_text if live.active else None,
+                    kind="plan",
                 )
                 break
             except Exception as exc:
@@ -1089,6 +1121,8 @@ class AdvisorMiddleware(MiddlewareBase):
         self,
         message: str,
         on_text: Callable[[str], None] | None = None,
+        *,
+        kind: str,
     ) -> str:
         """Ask the advisor one self-contained question. ``on_text``
         receives the cumulative reply while it streams."""
@@ -1096,19 +1130,67 @@ class AdvisorMiddleware(MiddlewareBase):
             {"role": "system", "content": self._system_prompt()},
             {"role": "user", "content": message},
         ]
-        return await self._advisor.ask(messages, on_text=on_text)
+        # Keep the exact AdvisorClient input for every attempt, including
+        # retries and failures. Source hashes refer to the full texts in
+        # the JSON section of messages[0], not the clipped recent history.
+        calls = self._transcript.setdefault("calls", [])
+        record: dict[str, Any] = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "index": len(calls) + 1,
+            "kind": kind,
+            "messages": copy.deepcopy(messages),
+            "system_prompt_sha256": hashlib.sha256(
+                messages[0]["content"].encode("utf-8"),
+            ).hexdigest(),
+            "worker_system_sources": [
+                {
+                    "message_index": entry["message_index"],
+                    "sha256": hashlib.sha256(
+                        entry["text"].encode("utf-8"),
+                    ).hexdigest(),
+                }
+                for entry in self._worker_system_messages
+            ],
+            "status": "pending",
+        }
+        calls.append(record)
+        self._save_transcript()
+        try:
+            reply = await self._advisor.ask(messages, on_text=on_text)
+        except asyncio.CancelledError:
+            record["status"] = "cancelled"
+            raise
+        except Exception as exc:
+            record.update(status="error", error=str(exc))
+            raise
+        else:
+            record.update(
+                status="success",
+                reply=reply,
+                usage=copy.deepcopy(self._usage()),
+            )
+            return reply
+        finally:
+            self._save_transcript()
 
     def _system_prompt(self) -> str:
-        """The advisor's system prompt, with the workspace's ADVISOR.md
-        appended as project guidance when there is one."""
+        """Advisor guidance plus the effective worker system context."""
         if self._guidance is None:
             self._guidance = self._read_guidance()
-        if not self._guidance:
-            return ADVISOR_SYSTEM_PROMPT
-        return (
-            f"{ADVISOR_SYSTEM_PROMPT}\n\n{GUIDANCE_SECTION_HEADER}\n\n"
-            f"{self._guidance}"
-        )
+        prompt = ADVISOR_SYSTEM_PROMPT
+        if self._guidance:
+            prompt += f"\n\n{GUIDANCE_SECTION_HEADER}\n\n{self._guidance}"
+        if self._worker_system_messages:
+            prompt += (
+                "\n\n"
+                + WORKER_SYSTEM_CONTEXT_HEADER
+                + json.dumps(
+                    self._worker_system_messages,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+        return prompt
 
     def _read_guidance(self) -> str:
         """``ADVISOR.md`` from the directory the advisor plans for."""

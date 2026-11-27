@@ -1,0 +1,27 @@
+Pcurrent / P3 源码快照
+
+Pcurrent 当前指向 P3，P3 对应已实测的 P3a-r2。
+Pcurrent.json 是最新冻结方案的指针；P3.json 记录此固定版本的源码来源和哈希。
+新方案正式冻结后更新 Pcurrent；历史实验继续使用其固定版本和哈希。
+
+本分支从实验基线 f47dd19bd1442b989eeb8df8d146cbbab572d0b1 创建。
+三个实现文件与冻结实验源码逐字节一致，保留原格式：
+  src/qwenpaw/modes/advisor/middleware.py
+  src/qwenpaw/modes/advisor/prompts.py
+  src/qwenpaw/modes/advisor/tools.py
+与基线相比，包含完整 worker 系统约束传递、顾问调用审计及 P1/P3 提示词。
+与 P1 相比，P3 仅修改 ADVISOR_SYSTEM_PROMPT，其他调用模板与机制继承 P1。
+
+P3 强调基于证据与前提给出可执行建议、复用已确认观察、按决策需要检查、
+由 worker 在本地应用涉及隐私数据的判断条件。顾问自身不能执行工具。
+发送端隐私过滤尚未实现；原系统上下文传递行为保留。
+
+已有两协同组各600项实验，1197正常结束、3个模型终态错误保留。
+本分支发布源码与版本映射；任务轨迹、凭据及原始运行产物保留于实验归档。
+使用本分支运行新实验时，记录具体 Git 提交和 P3.json 中的源码哈希。
+
+本次导出验证：3400个运行源码文件与冻结实验一致，顾问相关163项测试通过，
+变更文件flake8与git diff --check通过。详细命令与限制见P3-validation.json。
+全仓pytest因缺少dingtalk_stream停在收集阶段；现有环境未安装pre-commit。
+Black对prompts.py提出两处引号格式调整，本分支保留原冻结字节。
+因此此源码归档分支不声称已通过全仓合入检查。

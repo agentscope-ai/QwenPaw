@@ -1,0 +1,32 @@
+{
+  "scope": "Frozen P3 source export; no model calls or benchmark reruns.",
+  "frozen_runtime_files_matched": 3400,
+  "advisor_system_prompt_hash_matched": true,
+  "git_diff_check": "passed",
+  "focused_pytest": {
+    "status": "passed",
+    "passed": 163,
+    "command": "python -m pytest -p no:cacheprovider -q tests/unit/modes/test_advisor_middleware.py tests/unit/modes/test_advisor_mode.py tests/unit/modes/test_advisor_trigger.py tests/unit/config/test_advisor_mode_config.py tests/unit/runtime/test_builder_mode_middlewares.py"
+  },
+  "flake8": {
+    "status": "passed",
+    "command": "python -m flake8 --extend-ignore=E203 --max-line-length=120 src/qwenpaw/modes/advisor/middleware.py src/qwenpaw/modes/advisor/prompts.py src/qwenpaw/modes/advisor/tools.py"
+  },
+  "black": {
+    "status": "frozen_format_difference",
+    "version": "23.3.0",
+    "line_length": 79,
+    "detail": "middleware.py and tools.py pass; prompts.py has two quote-style changes requested by Black. Frozen source bytes retained."
+  },
+  "pre_commit_all_files": {
+    "status": "unavailable",
+    "command": "python -m pre_commit run --all-files",
+    "reason": "No module named pre_commit in the existing test environment."
+  },
+  "full_pytest": {
+    "status": "collection_blocked",
+    "command": "python -m pytest -p no:cacheprovider -q --maxfail=1 -m 'not manual_real'",
+    "reason": "Missing dingtalk_stream at tests/unit/channels/test_dingtalk.py; full suite not validated."
+  },
+  "conclusion": "Frozen-source fidelity and advisor tests verified; repository-wide gates are not all passing."
+}
