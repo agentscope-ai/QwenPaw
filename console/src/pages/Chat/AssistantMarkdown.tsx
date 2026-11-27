@@ -9,7 +9,7 @@ import React, {
   useRef,
   useMemo,
 } from "react";
-import { Markdown } from "@agentscope-ai/chat";
+import { ChatMarkdown } from "../../components/ChatMarkdown/ChatMarkdown";
 import { useEffectiveFontSize } from "../../contexts/FontSizeContext";
 import { RenderableCodeBlock } from "../../components/RenderableCodeBlock/RenderableCodeBlock";
 import { useChatListSnapshot } from "../../plugins/registry/useChatExtensions";
@@ -171,7 +171,7 @@ function AssistantMarkdownDocument({
   const extended = entries.length > 0;
   if (!extended) {
     return (
-      <Markdown
+      <ChatMarkdown
         baseFontSize={baseFontSize}
         components={chatCodeComponents}
         content={deferredContent}
@@ -191,7 +191,7 @@ function AssistantMarkdownDocument({
       }}
     >
       <StableCodeBlocks key={messageId}>
-        <Markdown
+        <ChatMarkdown
           baseFontSize={baseFontSize}
           components={assistantCodeComponents}
           content={deferredContent}
