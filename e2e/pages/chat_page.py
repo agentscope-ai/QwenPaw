@@ -787,6 +787,9 @@ class ChatPage(BasePage):
         # Screenshot: input done, before clicking send
         self.step_shot(f"send_before_click_{text[:20]}")
 
+        user_messages = self.page.locator(f"{self.USER_MESSAGE}[id]")
+        user_ids = user_messages.evaluate_all("(nodes) => nodes.map(n => n.id)")
+
         # ---- Trigger send ----
         send_btn = self.page.locator(self.SEND_BTN)
         if send_btn.is_visible() and send_btn.is_enabled():
@@ -794,36 +797,40 @@ class ChatPage(BasePage):
         else:
             input_box.press("Enter")
 
-        # ---- Strict check: user bubble must +1 (proof the frontend actually sent the message) ----
-        try:
+        # A paged conversation can evict an old turn as the new one arrives.
+        # Only the outer SDK user bubble has a message ID.
+        def wait_for_user_message():
             self.page.wait_for_function(
-                """(expected) => {
-                    const msgs = document.querySelectorAll(
-                        '.qwenpaw-bubble.qwenpaw-bubble-end'
+                """({selector, count, ids, text}) => {
+                    const msgs = Array.from(document.querySelectorAll(selector));
+                    return msgs.length > count || msgs.some(el =>
+                        el.id && !ids.includes(el.id) && el.innerText.includes(text)
                     );
-                    return msgs.length > expected;
                 }""",
-                arg=user_count_before,
+                arg={
+                    "selector": self.USER_MESSAGE,
+                    "count": user_count_before,
+                    "ids": user_ids,
+                    "text": text,
+                },
                 timeout=15000,
             )
+
+        try:
+            wait_for_user_message()
             logger.info("[send_message] user bubble appeared")
-        except (TimeoutError, AssertionError, Exception):
+        except TimeoutError:
+            if not input_box.evaluate(
+                "(el, text) => (el.value ?? el.innerText) === text", text
+            ):
+                raise
             logger.warning("[send_message] user bubble missing, retrying with Enter")
             input_box = self.page.locator(self.CHAT_INPUT)
             input_box.focus()
             self.wait(200)
             input_box.press("Enter")
             # Verify again after retry; if still failing, raise for real
-            self.page.wait_for_function(
-                """(expected) => {
-                    const msgs = document.querySelectorAll(
-                        '.qwenpaw-bubble.qwenpaw-bubble-end'
-                    );
-                    return msgs.length > expected;
-                }""",
-                arg=user_count_before,
-                timeout=15000,
-            )
+            wait_for_user_message()
 
         # ---- Soft check: try to observe the send button becoming disabled (auxiliary signal only, not enforced) ----
         # Note: previously treating "must see disabled" as a hard condition introduced "false negatives" -- in some cases
@@ -864,6 +871,31 @@ class ChatPage(BasePage):
         self.send_message(text)
         self.wait_for_ai_response(timeout)
         return self
+
+    def wait_for_reply_to(self, prompt: str, timeout: int) -> Locator:
+        """Read the completed reply paired with a unique plain-text prompt."""
+        latest = self.page.get_by_role("button", name="Scroll to bottom", exact=True)
+        if latest.is_visible():
+            latest.click()
+
+        user = self.page.locator(f"{self.USER_MESSAGE}[id]").filter(
+            has=self.page.get_by_text(prompt, exact=True)
+        )
+        # Live SDK bubbles are newest first. The paged history renders each
+        # message in its own row, oldest first. Locators survive a re-render
+        # that replaces optimistic message IDs with persisted ones.
+        live_reply = user.locator(
+            "xpath=preceding-sibling::*[@data-role][1][@data-role='assistant']"
+        )
+        history_reply = user.locator(
+            "xpath=parent::*[@data-window-row]/following-sibling::*[@data-window-row][1]"
+            "/*[@data-role='assistant']"
+        )
+        reply = live_reply.or_(history_reply).filter(
+            has=self.page.locator(".qwenpaw-bubble-footer")
+        )
+        expect(reply).to_be_visible(timeout=timeout)
+        return reply
 
     def get_user_messages(self) -> List[Locator]:
         """Get all user messages."""
