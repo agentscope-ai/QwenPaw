@@ -717,7 +717,9 @@ class TestEnvironmentIdentity:
             alias = tmp_path / "alias"
             try:
                 alias.symlink_to(site, target_is_directory=True)
-            except OSError:  # WinError 1314 without the symlink privilege
+            except OSError as exc:
+                if getattr(exc, "winerror", None) != 1314:
+                    raise  # 1314: needs admin or Developer Mode on Windows
                 pytest.skip("requires symlink creation privilege")
         elif alias_kind == "case":
             if not alias.exists() or not alias.samefile(site):
@@ -792,6 +794,7 @@ async def test_reader_admission_waits_for_publication(tmp_path, outcome):
     site = tmp_path / "site"
     site.mkdir()
     script = """import importlib.util
+import os
 import sys
 from pathlib import Path
 spec = importlib.util.spec_from_file_location('maintenance', sys.argv[1])
@@ -811,7 +814,7 @@ def observed(fd):
 m._try_lock = observed
 try:
     m.lease_environment([site])
-    print('admitted', flush=True)
+    print('admitted', os.getpid(), flush=True)
     sys.stdin.readline()
 except RuntimeError as exc:
     print(str(exc).split(':')[0], flush=True)
@@ -884,16 +887,18 @@ finally:
                 if outcome == "success"
                 else "DEPENDENCY_REPAIR_REQUIRED"
             )
-            assert await line() == expected
+            last_line = await line()
             readers = maintenance.live_readers([site])
-            if _WINDOWS:
-                # The venv launcher reports peer.pid for the launcher, while
-                # the lease filename records the interpreter's os.getpid().
-                assert len(readers) == (1 if outcome == "success" else 0)
+            if outcome == "success":
+                # The lease records the interpreter's os.getpid(), which is
+                # not peer.pid on a Windows venv (launcher process), so the
+                # child reports the pid that owns its lease.
+                assert last_line.startswith("admitted "), last_line
+                lease_pid = int(last_line.split()[1])
+                assert [row["pid"] for row in readers] == [lease_pid]
             else:
-                assert [row["pid"] for row in readers] == (
-                    [peer.pid] if outcome == "success" else []
-                )
+                assert last_line == expected
+                assert readers == []
             if outcome == "success":
                 await resume()
         _stdout, stderr = await asyncio.wait_for(
@@ -1018,13 +1023,14 @@ async def test_observation_child_custody_is_temporary(
     sites = [site, other]
     script = """
 import importlib.util
+import os
 import sys
 from pathlib import Path
 spec = importlib.util.spec_from_file_location('maintenance', sys.argv[1])
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 m.lease_environment([Path(sys.argv[2])], parent_pid=int(sys.argv[3]) or None)
-sys.stdout.buffer.write(b'READY\\n')
+sys.stdout.buffer.write(("READY %d" % os.getpid()).encode() + b"\\n")
 sys.stdout.buffer.flush()
 sys.stdin.readline()
 m._close_readers()
@@ -1067,26 +1073,20 @@ m._close_readers()
                         ),
                     },
                 )
-                assert (
+                ready_line = (
                     await asyncio.wait_for(
                         peer.stdout.readline(),
                         WAIT_TIMEOUT,
                     )
-                    == b"READY\n"
-                )
-                if _WINDOWS:
-                    # peer.pid is the venv launcher, not the interpreter
-                    # that owns the lease (see the reader-admission test).
-                    assert (
-                        len(
-                            maintenance.live_readers([site]),
-                        )
-                        == 2
-                    )
-                else:
-                    assert sorted(
-                        row["pid"] for row in maintenance.live_readers([site])
-                    ) == sorted([os.getpid(), peer.pid])
+                ).decode()
+                assert ready_line.startswith("READY "), ready_line
+                # The lease records the interpreter's os.getpid(), which is
+                # not peer.pid on a Windows venv (launcher process), so the
+                # child reports the pid that owns its lease.
+                child_pid = int(ready_line.split()[1])
+                assert sorted(
+                    row["pid"] for row in maintenance.live_readers([site])
+                ) == sorted([os.getpid(), child_pid])
                 peer.stdin.write(b"RELEASE\n")
                 await peer.stdin.drain()
                 _, error = await asyncio.wait_for(
