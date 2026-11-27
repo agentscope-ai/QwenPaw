@@ -49,6 +49,17 @@ _GEMINI_NATIVE_FIELDS = frozenset({"extra_content"})
 
 _OMITTED_MEDIA_IDS = "qwenpaw_omitted_media_ids"
 
+# Why the media was left out, recorded beside the ids so the placeholder the
+# model reads can name the actual limit instead of guessing "body size".
+_OMITTED_MEDIA_REASON = "qwenpaw_omitted_media_reason"
+
+# The success text ``view_media`` appends next to the media it returns. When
+# the media is stripped the line stays behind and still tells the model the
+# file arrived, which is the misreading reported in #8629. Only these prefixes
+# are matched: the multimodal fallback hint occupies the same slot but says the
+# model cannot receive the file, so that one has to survive.
+_MEDIA_LOADED_TEXT_PREFIXES = ("Image loaded", "Video loaded", "Audio loaded")
+
 
 def _get(value: Any, key: str, default: Any = None) -> Any:
     return (
@@ -68,6 +79,17 @@ def _omitted_ids(msg: Msg) -> set[str]:
         if isinstance(value, list)
         else set()
     )
+
+
+def _omitted_reason(msg: Msg) -> str | None:
+    """The recorded reason the media on this message was left out, if any."""
+    metadata = getattr(msg, "metadata", None)
+    value = (
+        metadata.get(_OMITTED_MEDIA_REASON)
+        if isinstance(metadata, dict)
+        else None
+    )
+    return value if isinstance(value, str) and value else None
 
 
 def _media_block_lists(msg: Msg) -> Iterator[list[Any]]:
@@ -120,27 +142,44 @@ def _historical_media(msgs: list[Msg]) -> Iterator[tuple[Msg, Any]]:
                     yield msg, block
 
 
-def mark_media_omitted_after_overflow(msgs: list[Msg]) -> int:
+def mark_media_omitted_after_overflow(
+    msgs: list[Msg],
+    reason: str | None = None,
+) -> int:
     """Mark historical omissions in memory while retaining original media.
 
     Keep original assets and the active turn. Only mark historical media
     after the provider has rejected the request body size. The next session
     state save serializes these markers; this function does not write to
     disk or update history.db.
+
+    ``reason`` records the limit the provider actually named, so the
+    placeholder the model later reads can repeat it. Without it the
+    placeholder fell back to "body size limit" even when the refusal was about
+    image dimensions or total pixels.
     """
     count = 0
     for msg, block in _historical_media(msgs):
         block_id = _get(block, "id")
-        msg.metadata[_OMITTED_MEDIA_IDS] = sorted(
+        metadata = msg.metadata
+        metadata[_OMITTED_MEDIA_IDS] = sorted(
             _omitted_ids(msg) | {block_id},
         )
+        if reason:
+            metadata[_OMITTED_MEDIA_REASON] = reason
         count += 1
     return count
 
 
-def _media_placeholder(block: Any) -> str:
+def _media_type_of(block: Any) -> str:
+    """The media type a block declares, falling back to its block type."""
     source = _get(block, "source")
-    media_type = _get(source, "media_type") or _get(block, "type", "media")
+    return _get(source, "media_type") or _get(block, "type", "media")
+
+
+def _media_reference_of(block: Any) -> str | None:
+    """A printable name for the media, or ``None`` when it has no usable one."""
+    source = _get(block, "source")
     reference = (
         _get(source, "path")
         or _get(source, "url")
@@ -148,9 +187,46 @@ def _media_placeholder(block: Any) -> str:
         or _get(block, "name")
     )
     if not isinstance(reference, str) or reference.startswith("data:"):
-        reference = None
+        return None
+    return reference
+
+
+def _media_placeholder(block: Any, reason: str | None = None) -> str:
+    """Text standing in for media the request does not carry.
+
+    ``reason`` names the limit the provider actually refused. It is optional
+    because the body-size case predates the others; without it the placeholder
+    keeps the original wording.
+    """
+    return _media_placeholder_text(
+        _media_type_of(block),
+        _media_reference_of(block),
+        reason,
+    )
+
+
+def _media_placeholder_text(
+    media_type: str,
+    reference: str | None,
+    reason: str | None = None,
+) -> str:
+    """Render the placeholder, naming whichever limit caused the omission."""
     suffix = f": {reference}" if reference else ""
-    return f"[{media_type} omitted (body size limit){suffix}]"
+    limit = reason or "body size limit"
+    return f"[{media_type} omitted ({limit}){suffix}]"
+
+
+def _is_media_loaded_announcement(item: Any) -> bool:
+    """Whether a block is ``view_media``'s success line for the media beside it.
+
+    ``view_image`` and friends return ``[media, TextBlock("Image loaded: ...")]``.
+    Stripping the media leaves the line announcing a file the model is not
+    receiving, so the strip pass has to swap it rather than keep it.
+    """
+    text = _get(item, "text")
+    return isinstance(text, str) and text.startswith(
+        _MEDIA_LOADED_TEXT_PREFIXES,
+    )
 
 
 def _omit_rejected_media(msgs: list[Msg]) -> None:
@@ -159,6 +235,7 @@ def _omit_rejected_media(msgs: list[Msg]) -> None:
         omitted = _omitted_ids(msg)
         if not omitted:
             continue
+        reason = _omitted_reason(msg)
         for blocks in _media_block_lists(msg):
             for index, block in enumerate(blocks):
                 block_id = _get(block, "id")
@@ -169,7 +246,7 @@ def _omit_rejected_media(msgs: list[Msg]) -> None:
                 ):
                     blocks[index] = TextBlock(
                         id=block_id,
-                        text=_media_placeholder(block),
+                        text=_media_placeholder(block, reason),
                     )
 
 
@@ -491,12 +568,23 @@ def _strip_media_blocks_in_place(
                 if filtered:
                     replacement: Any = filtered
                     if stripped_count and mark_omission:
-                        # Keep the surviving text, but make the omission
-                        # explicit: a stale "Image loaded: x.png" would
-                        # otherwise tell the model it saw the image.
-                        replacement = filtered + [
-                            omitted_media_marker(filtered),
-                        ]
+                        # A surviving "Image loaded: x.png" tells the model it
+                        # saw the image. Replace that line with the omission
+                        # marker instead of keeping both: #8629 asks for the
+                        # success text to be replaced, not announced beside.
+                        marker = omitted_media_marker(filtered)
+                        marked: list[Any] = []
+                        replaced_announcement = False
+                        for item in filtered:
+                            if _is_media_loaded_announcement(item):
+                                if not replaced_announcement:
+                                    marked.append(marker)
+                                    replaced_announcement = True
+                                continue
+                            marked.append(item)
+                        if not replaced_announcement:
+                            marked.append(marker)
+                        replacement = marked
                 elif stripped_count:
                     replacement = MEDIA_UNSUPPORTED_PLACEHOLDER
                 else:

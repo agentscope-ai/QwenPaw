@@ -44,6 +44,7 @@ from .utils.context_stats import estimate_context_tokens
 from .utils.estimate_token_counter import EstimatedTokenCounter
 from .utils.message_request_normalizer import (
     _is_media_block,
+    _is_media_loaded_announcement,
     mark_media_omitted_after_overflow,
     omitted_media_marker,
 )
@@ -1459,7 +1460,14 @@ class QwenPawAgent(Agent):
             and self._is_media_payload_rejection_error(exc)
         )
         if (body_overflow or media_rejection) and has_media:
-            omitted = mark_media_omitted_after_overflow(self.state.context)
+            omitted = mark_media_omitted_after_overflow(
+                self.state.context,
+                (
+                    "request body size limit"
+                    if body_overflow
+                    else "provider media limit"
+                ),
+            )
             if omitted:
                 self._note_media_omission(
                     omitted,
@@ -1906,6 +1914,7 @@ class QwenPawAgent(Agent):
                 # a smaller rendition is the only recovery left.
                 omitted = mark_media_omitted_after_overflow(
                     self.state.context,
+                    "provider media limit",
                 )
                 if (
                     not omitted
@@ -2526,12 +2535,24 @@ class QwenPawAgent(Agent):
                                 filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
                             )
                             if filtered:
-                                # Some content survived the strip, so the
-                                # removed media would otherwise vanish without
-                                # a trace ("Image loaded: x.png" with no image).
-                                replacement = filtered + [
-                                    omitted_media_marker(filtered),
-                                ]
+                                # A surviving "Image loaded: x.png" tells the
+                                # model the file arrived. Replace that line
+                                # with the marker instead of keeping both —
+                                # #8629 asks for the success text to be
+                                # replaced, not announced beside.
+                                marker = omitted_media_marker(filtered)
+                                marked: list[Any] = []
+                                replaced_announcement = False
+                                for item in filtered:
+                                    if _is_media_loaded_announcement(item):
+                                        if not replaced_announcement:
+                                            marked.append(marker)
+                                            replaced_announcement = True
+                                        continue
+                                    marked.append(item)
+                                if not replaced_announcement:
+                                    marked.append(marker)
+                                replacement = marked
                             if isinstance(block, dict):
                                 block["output"] = replacement
                             else:

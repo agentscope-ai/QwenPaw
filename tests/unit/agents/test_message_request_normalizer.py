@@ -1013,11 +1013,12 @@ def test_partial_strip_marks_the_omission():
     assert stripped == 1
     output = msg.content[0].output
     assert isinstance(output, list)
-    assert len(output) == 2
+    # The success line announced a file the request no longer carries, so it
+    # is replaced rather than kept beside the placeholder: #8629 asks for the
+    # text to be replaced, not announced alongside the omission.
+    assert len(output) == 1
     assert isinstance(output[0], TextBlock)
-    assert output[0].text == "Image loaded: a.png"
-    assert isinstance(output[1], TextBlock)
-    assert output[1].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+    assert output[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
 
 
 def test_fully_stripped_block_still_uses_placeholder():

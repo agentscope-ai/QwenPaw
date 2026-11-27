@@ -36,6 +36,10 @@ from qwenpaw.agents import model_factory
 from qwenpaw.agents.react_agent import QwenPawAgent
 from qwenpaw.agents.tools.send_file import send_file_to_user
 from qwenpaw.agents.utils.image_resize import downscale_image_bytes
+from qwenpaw.agents.utils.message_request_normalizer import (
+    _omit_rejected_media,
+    mark_media_omitted_after_overflow,
+)
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
 from qwenpaw.providers import model_capability_cache
@@ -191,6 +195,10 @@ def _dump_without_omissions(context: list[Msg]) -> list[dict]:
         metadata = message.get("metadata")
         if isinstance(metadata, dict):
             metadata.pop("qwenpaw_omitted_media_ids", None)
+            # The reason is part of the same marker: it only exists because a
+            # block was omitted, so comparing "nothing else changed" has to
+            # drop it alongside the ids.
+            metadata.pop("qwenpaw_omitted_media_reason", None)
     return dumped
 
 
@@ -321,6 +329,109 @@ class TestStripMediaBlocksFromMemory:
         assert len(tool_result.output) == 2
         assert tool_result.output[0].text == "kept"
         assert tool_result.output[-1].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+    def test_an_image_loaded_announcement_is_replaced_not_kept(self):
+        """The success line must not outlive the media it announces (#8629).
+
+        ``view_image`` returns ``[image, "Image loaded: x.png"]``. Keeping that
+        line after the image is stripped tells the model it saw a file the
+        request does not carry.
+        """
+        tool_result = ToolResultBlock(
+            id="t1",
+            name="view_image",
+            state=ToolResultState.SUCCESS,
+            output="seed",
+        )
+        tool_result.output = [
+            TextBlock(type="text", text="Image loaded: photo.png"),
+            {"type": "image", "source": {"media_type": "image/png"}},
+        ]
+        msg = _msg_with([tool_result])
+        agent = _agent_with_context([msg])
+
+        removed = agent._strip_media_blocks_from_memory()
+
+        assert removed == 1
+        texts = [getattr(item, "text", None) for item in tool_result.output]
+        assert "Image loaded: photo.png" not in texts, texts
+        assert MEDIA_UNSUPPORTED_PLACEHOLDER in texts, texts
+
+    def test_a_fallback_hint_is_not_mistaken_for_a_loaded_announcement(self):
+        """The multimodal hint occupies the same slot but is not a success line.
+
+        It says the model cannot receive the file, which is still true after
+        the strip, so replacing it would drop the only explanation left.
+        """
+        tool_result = ToolResultBlock(
+            id="t1",
+            name="view_image",
+            state=ToolResultState.SUCCESS,
+            output="seed",
+        )
+        hint = "Multimodal input is not supported by this model."
+        tool_result.output = [
+            TextBlock(type="text", text=hint),
+            {"type": "image", "source": {"media_type": "image/png"}},
+        ]
+        msg = _msg_with([tool_result])
+        agent = _agent_with_context([msg])
+
+        agent._strip_media_blocks_from_memory()
+
+        texts = [getattr(item, "text", None) for item in tool_result.output]
+        assert hint in texts, texts
+
+    def test_the_placeholder_names_the_recorded_limit(self):
+        """A dimension refusal must not be reported as a body-size limit.
+
+        ``_media_placeholder`` used to hard-code "body size limit", which is
+        wrong for the image-dimension and pixel refusals #8785 also routes
+        here.
+        """
+        history = [
+            Msg(
+                name="user",
+                role="user",
+                content=[
+                    TextBlock(type="text", text="look"),
+                    _media_data_block(),
+                ],
+            ),
+            Msg(name="user", role="user", content=[TextBlock(text="next")]),
+        ]
+
+        marked = mark_media_omitted_after_overflow(
+            history,
+            "provider media limit",
+        )
+        assert marked == 1
+
+        _omit_rejected_media(history)
+
+        text = history[0].content[-1].text
+        assert "provider media limit" in text, text
+        assert "body size limit" not in text, text
+
+    def test_the_placeholder_keeps_the_body_size_wording_by_default(self):
+        """Without a recorded reason the original wording stays unchanged."""
+        history = [
+            Msg(
+                name="user",
+                role="user",
+                content=[
+                    TextBlock(type="text", text="look"),
+                    _media_data_block(),
+                ],
+            ),
+            Msg(name="user", role="user", content=[TextBlock(text="next")]),
+        ]
+
+        assert mark_media_omitted_after_overflow(history) == 1
+        _omit_rejected_media(history)
+
+        text = history[0].content[-1].text
+        assert "body size limit" in text, text
 
     def test_nested_all_media_replaced_with_placeholder(self):
         tool_result = ToolResultBlock(
@@ -521,6 +632,15 @@ async def test_payload_rejection_uses_request_only_retry(
         assert _dump_without_omissions(agent.state.context) == original_dump
         notice = (events[-1].metadata or {}).get("qwenpaw_media_omitted")
         if expected_omitted:
+            # The reason has to reach the marker, not just the user notice:
+            # it is what the placeholder names on every later turn. These are
+            # two separate strings, so the notice assertion cannot cover it.
+            recorded = [
+                message.metadata.get("qwenpaw_omitted_media_reason")
+                for message in agent.state.context
+                if isinstance(getattr(message, "metadata"), dict)
+            ]
+            assert "provider media limit" in recorded, recorded
             assert notice == {
                 "count": expected_omitted,
                 "reason": "provider media limit",
