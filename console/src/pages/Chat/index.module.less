@@ -400,6 +400,28 @@
 
 /* Chat messages scrollable area */
 .chatMessagesArea {
+  // Keep the SDK reverse list and the forward history window geometrically
+  // identical, including the gaps around the SDK's short-list filler.
+  --chat-message-gap: 24px;
+  --chat-message-edge: 16px;
+  --chat-message-header-space: 70px;
+
+  :global(.qwenpaw-chat-anywhere-message-list .qwenpaw-bubble-list-order-desc) {
+    gap: var(--chat-message-gap);
+    padding-top: var(--chat-message-edge);
+
+    &::before {
+      height: var(--chat-message-edge);
+      flex-basis: var(--chat-message-edge);
+    }
+
+    &::after {
+      height: var(--chat-message-header-space);
+      flex-basis: var(--chat-message-header-space);
+    }
+  }
+
+  position: relative;
   flex: 1;
   min-height: 0;
   height: 100%;
@@ -423,6 +445,8 @@
    * gutter shown by Spark Chat. The percentage responds to side panels too. */
   &.wideMode {
     --chat-wide-gutter: clamp(20px, 2%, 32px);
+    --chat-history-max-width: none;
+    --chat-history-navigation-right: 12px;
 
     :global {
       .qwenpaw-bubble-list,
@@ -471,6 +495,31 @@
   /* Firefox scrollbar */
   scrollbar-width: thin;
   scrollbar-color: var(--app-scrollbar-thumb) transparent;
+}
+
+.historyNotice {
+  position: absolute;
+  top: 56px;
+  right: 0;
+  left: 0;
+  z-index: 4;
+}
+
+.historyMode :global {
+  .qwenpaw-chat-anywhere-layout-right {
+    background: transparent;
+  }
+
+  .qwenpaw-chat-anywhere-message-list-bubble-wrapper,
+  .qwenpaw-chat-anywhere-message-list-anchors {
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+
+.headerSpacer {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 @media (max-width: 768px) {

@@ -4,6 +4,7 @@
 import asyncio
 import json
 import zipfile
+import uuid
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from qwenpaw.app.chats.api import (
+    ChatForkRequest,
+    fork_chat_at_turn,
+    get_fork_capability,
+)
+from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.plugins.harnesses import (
     HarnessAttachment,
     HarnessAttachmentKind,
@@ -91,6 +98,8 @@ class CodexProcess:
         elif method == "thread/start":
             self.counter += 1
             response = {"thread": {"id": f"new-{self.counter}"}}
+        elif method == "thread/fork":
+            response = {"thread": {"id": "native-" + uuid.uuid4().hex}}
         elif method == "thread/resume":
             response = {"thread": {"id": params["threadId"]}}
         elif method == "thread/read":
@@ -100,7 +109,17 @@ class CodexProcess:
                 "content": [{"type": "text", "text": "Old prompt"}],
             }
             answer = {"id": "a", "type": "agentMessage", "text": "Old answer"}
-            response = {"thread": {"turns": [{"items": [user, answer]}]}}
+            response = {
+                "thread": {
+                    "turns": [
+                        {
+                            "id": "historical-turn",
+                            "status": "completed",
+                            "items": [user, answer],
+                        },
+                    ],
+                },
+            }
         elif method == "turn/start":
             self.previous_turn = self.current.get("turnId", "old-turn")
             self.current = {
@@ -292,17 +311,20 @@ async def test_turn_settings_attachments_and_protocol_events(runtime, failed):
         ),
     )
     assert [e.kind for e in events] == [
+        HarnessEventKind.SESSION_BOUND,
+        HarnessEventKind.TURN_BOUNDARY,
         HarnessEventKind.TEXT_DELTA,
         HarnessEventKind.TOOL_STARTED,
         HarnessEventKind.TOOL_COMPLETED,
         HarnessEventKind.ERROR if failed else HarnessEventKind.COMPLETED,
     ]
-    assert events[0].text == "Done"
-    assert (events[1].tool_name, events[1].data["arguments"]["command"]) == (
+    assert events[1].data["boundary_id"].startswith("turn-")
+    assert events[2].text == "Done"
+    assert (events[3].tool_name, events[3].data["arguments"]["command"]) == (
         "shell",
         "pytest",
     )
-    assert events[2].text == "1 passed" and events[2].data["exit_code"] == 0
+    assert events[4].text == "1 passed" and events[4].data["exit_code"] == 0
     if failed:
         assert events[-1].text == "Vendor turn failed"
     requests = dict(runtime.processes[-1].requests)
@@ -387,6 +409,38 @@ async def test_legacy_session_reopens_with_same_identity_and_clears(runtime):
         "Old prompt",
         "Old answer",
     ]
+    native_turns = await second.turn_history(
+        call,
+        external_session_id="native-old",
+    )
+    assert native_turns[0][0] == "historical-turn"
+    assert [item.text for item in native_turns[0][1]] == [
+        "Old prompt",
+        "Old answer",
+    ]
+    assert not any(
+        method in {"thread/start", "thread/resume", "turn/start"}
+        for method, _ in runtime.processes[-1].requests
+    )
+    child = await second.fork_session(
+        call,
+        boundary={
+            "boundary_kind": "turn",
+            "boundary_id": "historical-turn",
+            "external_session_id": "native-old",
+        },
+    )
+    assert (
+        "thread/fork",
+        {
+            "threadId": "native-old",
+            "lastTurnId": "historical-turn",
+            "cwd": str(call.cwd),
+        },
+    ) in runtime.processes[-1].requests
+    await second.bind_session(call, child)
+    await collect(second, call)
+    assert ("thread/resume", {"threadId": child}) in process.requests
     await second.reset_session(call)
     assert await second.history(call) == ()
     await collect(second, call)
@@ -498,8 +552,50 @@ async def test_actual_zip_manifest_registration_and_host_call(
                 session_id="zip-call",
             )
         ]
-        assert output[-1].status == "completed"
+        assert output[-1].status == "completed", output[-1]
         assert "Done" in str(output) and "1 passed" in str(output)
         assert any(
             m == "turn/start" for p in runtime.processes for m, _ in p.requests
         )
+
+        workspace = await host._workspace("test")
+        parent = await workspace.chat_manager.create_chat(
+            ChatSpec(
+                name="Native fork",
+                session_id="zip-call",
+                user_id="test",
+                channel="console",
+            ),
+        )
+        for _ in range(2):
+            state = workspace.transcript_store.read_provider_state(
+                session_id=parent.session_id,
+                user_id=parent.user_id,
+                channel=parent.channel,
+            )
+            turn_id = list(state["boundaries"])[-1]
+            capability = await get_fork_capability(
+                parent.id,
+                turn_id,
+                workspace.chat_manager,
+                workspace,
+            )
+            assert capability == {"can_fork": True, "reason": None}
+            child = await fork_chat_at_turn(
+                parent.id,
+                ChatForkRequest(turn_id=turn_id),
+                workspace.chat_manager,
+                workspace,
+            )
+            assert child.parent_chat_id == parent.id
+            output = [
+                item
+                async for item in host.run_harness(
+                    "codex",
+                    HarnessRunRequest("Continue"),
+                    workspace_id="test",
+                    session_id=child.session_id,
+                )
+            ]
+            assert output[-1].status == "completed", output[-1]
+            parent = child

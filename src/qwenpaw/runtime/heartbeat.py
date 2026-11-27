@@ -1,8 +1,14 @@
 # -*- coding: utf-8 -*-
 """SSE heartbeat wrapper for async iterators."""
+
 from __future__ import annotations
 
 import asyncio
+import logging
+
+from ..utils.io_utils import run_async_to_completion
+
+logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 25.0
 _HEARTBEAT_TICK = object()
@@ -16,6 +22,7 @@ async def _iter_with_heartbeat(source_iter, interval: float):
     by the source iterator, so source exceptions propagate unchanged.
     """
     pending = None
+    failure = None
     try:
         while True:
             if pending is None:
@@ -29,14 +36,38 @@ async def _iter_with_heartbeat(source_iter, interval: float):
                 yield _HEARTBEAT_TICK
                 continue
 
+            completed, pending = pending, None
             try:
-                value = pending.result()
+                value = completed.result()
             except StopAsyncIteration:
-                pending = None
                 return
 
-            pending = None
             yield value
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
-        if pending is not None and not pending.done():
-            pending.cancel()
+
+        async def close_source():
+            try:
+                if pending is not None:
+                    if not pending.done():
+                        pending.cancel()
+                    try:
+                        await pending
+                    except (asyncio.CancelledError, StopAsyncIteration):
+                        pass
+            finally:
+                close = getattr(source_iter, "aclose", None)
+                if close is not None:
+                    await close()
+
+        try:
+            await run_async_to_completion(close_source())
+        except BaseException:
+            if failure is None or isinstance(
+                failure,
+                (asyncio.CancelledError, GeneratorExit),
+            ):
+                raise
+            logger.warning("Heartbeat cleanup failed", exc_info=True)

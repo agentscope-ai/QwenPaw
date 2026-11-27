@@ -121,6 +121,7 @@ def console_workspace(workspace_mock, monkeypatch):
     chat.name = "New Chat"
     chat.meta = {}
     workspace_mock.chat_manager = MagicMock(name="ChatManager")
+    workspace_mock.chat_manager.can_start_run = AsyncMock(return_value=True)
     workspace_mock.chat_manager.get_or_create_chat = AsyncMock(
         return_value=chat,
     )

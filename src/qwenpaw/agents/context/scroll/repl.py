@@ -14,6 +14,7 @@ Python variables do not persist across calls; derived tables do, because the
 """
 
 import asyncio
+from contextlib import suppress
 import shlex
 import sqlite3
 import sys
@@ -26,7 +27,7 @@ from agentscope.tool import ToolChunk
 
 from ...tools.utils import truncate_text_output  # repo-standard output bound
 from ....runtime.tool_registry import ToolDescriptor
-from ....utils.io_utils import run_sync_io
+from ....utils.io_utils import run_async_to_completion, run_sync_io
 
 # Directory holding memoryspace.py — added to the cell's sys.path so the
 # sandboxed process imports it by bare module name.
@@ -277,8 +278,12 @@ async def _run_subprocess(
             timeout=timeout_s,
         )
     except asyncio.TimeoutError:
-        proc.kill()
         return "", f"recall_history_python timed out after {timeout_s}s", -1
+    finally:
+        if proc.returncode is None:
+            with suppress(ProcessLookupError):
+                proc.kill()
+            await run_async_to_completion(proc.communicate())
     return (
         out.decode("utf-8", "replace"),
         err.decode("utf-8", "replace"),

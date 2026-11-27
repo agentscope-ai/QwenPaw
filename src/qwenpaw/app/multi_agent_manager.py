@@ -957,10 +957,6 @@ class MultiAgentManager:
         )
 
     def assert_agent_available(self, agent_id: str) -> None:
-        if agent_id in self._history_transition_agents:
-            raise RuntimeError(
-                f"Agent '{agent_id}' is switching to Scroll history",
-            )
         if agent_id in self._uninstalling_agents:
             raise RuntimeError(f"Agent '{agent_id}' is being uninstalled")
         if agent_id in self._unloaded_stop_tasks:

@@ -41,6 +41,7 @@ class FakeService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
         chat = SimpleNamespace(
+            id="chat-1",
             channel="console",
             user_id="user",
             session_id="session",
@@ -48,6 +49,7 @@ class FakeService:
             archived=False,
         )
         empty_chat = SimpleNamespace(
+            id="chat-empty",
             channel="console",
             user_id="user",
             session_id="empty-session",
@@ -130,9 +132,11 @@ async def test_graph_returns_topology_and_exact_session_identity():
     assert result["nodes"][0]["session_id"] == "session"
     assert result["nodes"][0]["user_id"] == "user"
     assert result["nodes"][0]["session_title"] == "Readable session title"
+    assert result["nodes"][0]["chat_id"] == "chat-1"
     assert result["nodes"][0]["sha"] == "a" * 12
     assert result["sessions"] == [
         {
+            "chat_id": "chat-1",
             "session_key": session_key(
                 channel="console",
                 user_id="user",
@@ -145,6 +149,7 @@ async def test_graph_returns_topology_and_exact_session_identity():
             "archived": False,
         },
         {
+            "chat_id": "chat-empty",
             "session_key": session_key(
                 channel="console",
                 user_id="user",

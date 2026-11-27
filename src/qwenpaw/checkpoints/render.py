@@ -201,12 +201,14 @@ def render_restore(result: RestoreResult) -> str:
         scope_parts.append("files")
 
     conversation_paths = [
-        path for path in result.restored_paths if path.startswith("sessions/")
+        path
+        for path in result.restored_paths
+        if path.startswith(".qwenpaw-checkpoint/")
     ]
     changed_paths = [
         path
         for path in result.restored_paths
-        if not path.startswith("sessions/")
+        if not path.startswith(".qwenpaw-checkpoint/")
     ]
     # File previews are the user's selection list for --files, so truncating
     # them would make valid restore candidates undiscoverable.
@@ -271,7 +273,7 @@ def render_restore(result: RestoreResult) -> str:
         )
     elif conversation_paths:
         lines.extend(
-            ["", "Reopen the conversation to load restored messages."],
+            ["", "The restored context will be used by the next turn."],
         )
     return "\n".join(lines)
 
