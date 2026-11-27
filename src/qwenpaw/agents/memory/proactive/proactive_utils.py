@@ -332,15 +332,13 @@ async def _read_chat_sessions_metadata(
     try:
         chats = await workspace.chat_manager.list_chats()
         for chat in chats:
-            user_id = chat.user_id.replace(":", "--")
-            session_id = chat.session_id.replace(":", "--")
+            user_id = chat.user_id
+            session_id = chat.session_id
             updated_at_dt = ensure_tz_aware(chat.updated_at)
             channel = chat.channel
 
-            filename = f"{user_id}_" f"{session_id}.json"
             sessions_to_read.append(
                 {
-                    "filename": filename,
                     "user_id": user_id,
                     "session_id": session_id,
                     "channel": channel,

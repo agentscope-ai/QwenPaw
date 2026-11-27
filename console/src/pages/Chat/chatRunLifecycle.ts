@@ -88,6 +88,29 @@ export async function waitForChatIdle(
   return false;
 }
 
+/** Poll only TaskTracker status when no history reconciliation is needed. */
+export async function waitForChatStatusIdle(
+  chatId: string,
+  signal: AbortSignal,
+  agentId: string,
+): Promise<boolean> {
+  while (!signal.aborted) {
+    try {
+      const result = await request<{ status: "idle" | "running" }>(
+        `/chats/${encodeURIComponent(chatId)}/status`,
+        { headers: { "X-Agent-Id": agentId }, signal },
+      );
+      if (signal.aborted) return false;
+      if (result.status === "idle") return true;
+    } catch (error) {
+      if (signal.aborted) return false;
+      throw error;
+    }
+    await waitForPoll(signal);
+  }
+  return false;
+}
+
 /** Call only while holding the queue's send lock. A persisted `sending`
  * marker is not a live sender: reconcile its receipt before allowing the
  * queue to continue. Unknown receipt must remain explicitly retryable rather

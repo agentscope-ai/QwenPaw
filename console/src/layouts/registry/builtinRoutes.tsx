@@ -15,6 +15,7 @@ import { Suspense } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import i18next from "../../i18n";
 import { lazyImportWithRetry } from "../../utils/lazyWithRetry";
+import ChatPage from "../../pages/Chat/ChatRouteGate";
 import { routeRegistry } from "../../plugins/registry/store";
 import type {
   Route,
@@ -26,7 +27,6 @@ import type {
 } from "../../plugins/registry/types";
 
 // Lazy pages
-const ChatPage = lazyImportWithRetry("../../pages/Chat");
 const ChannelsPage = lazyImportWithRetry("../../pages/Control/Channels");
 const SessionsPage = lazyImportWithRetry("../../pages/Control/Sessions");
 const InboxPage = lazyImportWithRetry("../../pages/Inbox");

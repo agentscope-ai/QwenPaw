@@ -5,6 +5,7 @@ import {
   filterHeadlineDelta,
   flushHeadlineFilter,
   stripScrollHeadlineTextBlocks,
+  stripScrollHeadlines,
 } from "./headlineFilter";
 
 function filterChunks(chunks: string[]): string[] {
@@ -15,6 +16,11 @@ function filterChunks(chunks: string[]): string[] {
 }
 
 describe("headline stream filter", () => {
+  it("preserves ordinary Markdown whitespace and inline brackets", () => {
+    const text = "    indented code\n\n\ncompare ⟦left⟧ and ⟦right⟧\n\n";
+    expect(stripScrollHeadlines(text)).toBe(text);
+  });
+
   it("flushes an ordinary HTML comment as soon as it stops matching", () => {
     const output = filterChunks([
       "<!--",
