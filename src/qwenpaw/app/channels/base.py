@@ -2071,12 +2071,9 @@ class BaseChannel(ABC):
     @staticmethod
     def _clear_session_turn_usage(session_id: str) -> None:
         """Drop any staged per-session usage (turn start / cancel / error)."""
-        if not session_id:
-            return
-        import importlib
+        from ...token_usage.turn_usage import discard_turn_usage
 
-        mod = importlib.import_module("qwenpaw.token_usage.model_wrapper")
-        mod.TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+        discard_turn_usage(session_id)
 
     async def _commit_turn_usage(
         self,

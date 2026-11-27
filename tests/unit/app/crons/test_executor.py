@@ -428,3 +428,52 @@ async def test_external_backend_does_not_silently_ignore_model(monkeypatch):
             channel_manager=AsyncMock(),
         ).execute(job)
     assert not workspace.requests
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("started", [False, True])
+async def test_failed_run_preserves_active_chat_usage(monkeypatch, started):
+    from qwenpaw.loop.gates.limits import TokenBudgetGate
+    from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+
+    chat_usage = {"total_tokens": 10}
+
+    class BrokenWorkspace(_Workspace):
+        async def stream_query(self, request):
+            session_id = request["session_id"]
+            assert (
+                TokenRecordingModelWrapper.peek_usage_for_session(
+                    session_id,
+                )
+                is None
+            )
+            if started:
+                TokenRecordingModelWrapper._usage_buffer()[session_id] = {
+                    "total_tokens": 2,
+                }
+                assert TokenBudgetGate._current_usage()["total_tokens"] == 2
+                yield "partial"
+            raise RuntimeError("cron failed")
+
+    workspace = BrokenWorkspace()
+    job = make_cron_job_spec(job_id="broken-job")
+    job.runtime.share_session = True
+    session_id = job.dispatch.target.session_id
+    monkeypatch.setattr(
+        "qwenpaw.app.agent_context.get_current_session_id",
+        lambda: session_id,
+    )
+    monkeypatch.setitem(
+        TokenRecordingModelWrapper._usage_by_session,
+        session_id,
+        chat_usage,
+    )
+    _patch_trace_storage(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="cron failed"):
+        await CronExecutor(
+            workspace=workspace,
+            channel_manager=AsyncMock(),
+        ).execute(job)
+
+    assert TokenBudgetGate._current_usage() == chat_usage

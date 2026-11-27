@@ -1,0 +1,85 @@
+.mobileButton {
+  width: var(--app-hit-desktop);
+  min-width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
+  color: var(--app-text-secondary);
+  @media (any-pointer: coarse) {
+    width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+  }
+}
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+}
+.hint {
+  margin: 0;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.identity {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: baseline;
+  span {
+    color: var(--app-text-secondary);
+    font-size: 13px;
+  }
+  strong {
+    font-size: 14px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+}
+.qr {
+  display: grid;
+  place-items: center;
+  width: 256px;
+  height: 256px;
+  max-width: 100%;
+  align-self: center;
+  border-radius: 16px;
+  background: #fff;
+  color: #141413;
+  border: 1px solid var(--app-border);
+}
+.verification {
+  display: grid;
+  place-items: center;
+  gap: 16px;
+  strong {
+    font-size: 36px;
+    letter-spacing: 0.12em;
+    font-variant-numeric: tabular-nums;
+  }
+  span {
+    max-width: 220px;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+}
+.accountName {
+  text-align: center;
+  font-weight: 500;
+}
+.completed {
+  display: grid;
+  place-items: center;
+  gap: 16px;
+  padding: 24px 0;
+  p {
+    margin: 0;
+    color: var(--app-text-secondary);
+    text-align: center;
+  }
+}
+.accountActions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}

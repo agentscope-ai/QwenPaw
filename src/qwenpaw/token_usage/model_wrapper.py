@@ -25,7 +25,7 @@ def set_conversation_context_tokens(tokens: int | None) -> None:
     session_id = get_current_session_id()
     if session_id and not _auxiliary_usage.get():
         snapshots = (
-            TokenRecordingModelWrapper._usage_by_session
+            TokenRecordingModelWrapper._usage_buffer()
         )  # pylint: disable=protected-access
         snapshots[session_id] = {
             **(snapshots.get(session_id) or {}),
@@ -57,6 +57,28 @@ _CACHE_USAGE_MODEL_MODULES = (
     "agentscope.model._openai_response",
     "agentscope.model._xai",
 )
+
+
+_scoped_usage: ContextVar[dict[str, dict[str, Any]] | None] = ContextVar(
+    "scoped_turn_usage",
+    default=None,
+)
+
+
+def has_isolated_turn_usage() -> bool:
+    return _scoped_usage.get() is not None
+
+
+@contextmanager
+def isolated_turn_usage() -> Iterator[None]:
+    """Keep staged usage private to one background run."""
+    usage: dict[str, dict[str, Any]] = {}
+    token = _scoped_usage.set(usage)
+    try:
+        yield
+    finally:
+        usage.clear()
+        _scoped_usage.reset(token)
 
 
 def _cache_usage_metrics(
@@ -226,13 +248,18 @@ class TokenRecordingModelWrapper(ChatModelBase):
         self._store_usage(usage_data)
 
     @classmethod
+    def _usage_buffer(cls) -> dict[str, dict[str, Any]]:
+        scoped = _scoped_usage.get()
+        return cls._usage_by_session if scoped is None else scoped
+
+    @classmethod
     def peek_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
         """Read the latest cumulative snapshot without consuming it."""
-        return cls._usage_by_session.get(session_id)
+        return cls._usage_buffer().get(session_id)
 
     @classmethod
     def pop_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
-        usage = cls._usage_by_session.pop(session_id, None)
+        usage = cls._usage_buffer().pop(session_id, None)
         if usage is not None and set(usage) == {f"context_tokens"}:
             return None
         return usage
@@ -243,9 +270,8 @@ class TokenRecordingModelWrapper(ChatModelBase):
         session_id = get_current_session_id()
         if session_id and usage:
             record_session_tokens(session_id, int(usage[f"total_tokens"]))
-            previous = TokenRecordingModelWrapper._usage_by_session.get(
-                session_id,
-            )
+            buffer = TokenRecordingModelWrapper._usage_buffer()
+            previous = buffer.get(session_id)
             usage[f"context_tokens"] = (previous or {}).get(f"context_tokens")
             if _auxiliary_usage.get():
                 for key in (
@@ -260,9 +286,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
                     if previous is not None and key in previous:
                         usage[key] = previous[key]
             if previous is None:
-                TokenRecordingModelWrapper._usage_by_session[
-                    session_id
-                ] = usage
+                buffer[session_id] = usage
                 return
             for key in (
                 "prompt_tokens",
@@ -287,7 +311,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
                 if cache_eligible > 0
                 else None
             )
-            TokenRecordingModelWrapper._usage_by_session[session_id] = usage
+            buffer[session_id] = usage
 
     async def generate_structured_output(
         self,

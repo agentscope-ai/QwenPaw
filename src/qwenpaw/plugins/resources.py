@@ -8,13 +8,16 @@ import inspect
 import os
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from contextvars import ContextVar, copy_context
 from collections.abc import Coroutine, Mapping, Sequence
+from itertools import groupby
 from os import PathLike
 from typing import Any, Callable, ParamSpec, TypeVar
 from types import SimpleNamespace
 
+from ..process_ownership import managed_launch
 from . import custody
 from .errors import ResourceError
 
@@ -109,6 +112,25 @@ class Registration:
 
     async def __aexit__(self, *_: object) -> None:
         await self.close()
+
+
+class _ThreadCloser:
+    """Join a signalled thread within its batch's deadline."""
+
+    def __init__(self, thread, stop, description):
+        self.thread = thread
+        self.stop = stop
+        self.description = description
+        self.deadline: float | None = None
+
+    async def __call__(self):
+        if self.thread.ident is not None:
+            await custody.stop_thread(
+                self.thread,
+                None,
+                self.description,
+                deadline=self.deadline,
+            )
 
 
 class ResourceScope:  # pylint: disable=protected-access
@@ -244,12 +266,7 @@ class ResourceScope:  # pylint: disable=protected-access
             daemon=True,
         )
 
-        async def close():
-            if thread.ident is None:
-                return
-            await custody.stop_thread(thread, stop, description)
-
-        self._defer(close, description)
+        self._defer(_ThreadCloser(thread, stop, description), description)
         thread.start()
         return thread
 
@@ -328,8 +345,10 @@ class ResourceScope:  # pylint: disable=protected-access
         if tree:
             self._tree_options(kwargs)
         # ResourceScope owns deferred process exit, not this stack frame.
-        # pylint: disable-next=consider-using-with
-        process = subprocess.Popen(args, **kwargs)  # noqa: S603
+        with managed_launch(kwargs) as started:
+            # pylint: disable-next=consider-using-with
+            process = subprocess.Popen(args, **kwargs)  # noqa: S603
+            started(process.pid)
         owned_tree = None
 
         async def close():
@@ -401,7 +420,7 @@ class ResourceScope:  # pylint: disable=protected-access
         Descendants must not detach into a new session.
         """
         self._check()
-        options = {}
+        options: dict[str, Any] = {"env": env}
         if tree:
             self._tree_options(options)
         owned_tree = None
@@ -409,15 +428,16 @@ class ResourceScope:  # pylint: disable=protected-access
 
         async def spawn():
             nonlocal owned_tree, process
-            process = await asyncio.create_subprocess_exec(
-                *args,
-                cwd=cwd,
-                env=env,
-                stdin=stdin,
-                stdout=stdout,
-                stderr=stderr,
-                **options,
-            )
+            with managed_launch(options) as started:
+                process = await asyncio.create_subprocess_exec(
+                    *args,
+                    cwd=cwd,
+                    stdin=stdin,
+                    stdout=stdout,
+                    stderr=stderr,
+                    **options,
+                )
+                started(process.pid)
             if tree:
                 owned_tree = self._process_tree(process.pid)
             return process
@@ -462,11 +482,23 @@ class ResourceScope:  # pylint: disable=protected-access
             return
         self._closing = True
         errors = []
-        for handle in reversed(tuple(self._handles)):
-            try:
-                await handle.close()
-            except Exception as exc:
-                errors.append(f"{handle.description}: {exc}")
+        handles = [h for h in reversed(self._handles) if not h.closed]
+        for threads, group in groupby(
+            handles,
+            key=lambda h: isinstance(h._release, _ThreadCloser),
+        ):
+            batch = list(group)
+            if threads:
+                # A callback or child scope is a LIFO ordering barrier.
+                deadline = time.monotonic() + custody.THREAD_STOP_SECONDS
+                for handle in batch:
+                    handle._release.deadline = deadline
+                    handle._release.stop.set()
+            for handle in batch:
+                try:
+                    await handle.close()
+                except Exception as exc:
+                    errors.append(f"{handle.description}: {exc}")
         if errors:
             raise ResourceError("; ".join(errors))
         self.closed = True
