@@ -28,15 +28,24 @@ def extract_json(text: str) -> Any:
     m = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if m:
         text = m.group(1).strip()
-    if not text.startswith(("{", "[")):
-        for i, ch in enumerate(text):
-            if ch in ("{", "["):
-                text = text[i:]
-                break
-    bracket = "]" if text.startswith("[") else "}"
-    idx = text.rfind(bracket)
-    if idx != -1:
-        text = text[: idx + 1]
+    # Surrounding prose may contain stray brackets (e.g. "[1]" or a stray
+    # "}" / "]"). Scan with raw_decode from every '{'/'[' start and keep the
+    # longest valid JSON value rather than slicing with rfind.
+    decoder = json.JSONDecoder()
+    best = None
+    best_span = -1
+    for i, ch in enumerate(text):
+        if ch not in ("{", "["):
+            continue
+        try:
+            value, end = decoder.raw_decode(text[i:])
+        except json.JSONDecodeError:
+            continue
+        if end > best_span:
+            best_span = end
+            best = value
+    if best is not None:
+        return best
     try:
         return json.loads(text)
     except json.JSONDecodeError:

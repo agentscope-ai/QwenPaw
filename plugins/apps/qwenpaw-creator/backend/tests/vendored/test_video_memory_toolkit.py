@@ -17,6 +17,7 @@ from vendor.media_toolkit.renderers import (
     renderer_module_name,
 )
 from vendor.media_toolkit.video_memory.embeddings import EmbeddingIndex
+from vendor.media_toolkit.video_memory.json_utils import extract_json
 from vendor.media_toolkit.video_memory.schema import HierarchicalGraphMemory
 from vendor.media_toolkit.video_memory.segmentation import (
     compute_cut_scores,
@@ -326,3 +327,33 @@ def test_model3d_renders_canonical_views(tmp_path) -> None:
     assert grouped["meta"][0]["format"] == "model3d"
     assert len(grouped["image"]) == 3, "one image per canonical view"
     assert "8 vertices" in grouped["full_text"][0]["text"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (
+            '{"mode": "fast", "n": 3} -- compare with } from prose',
+            {"mode": "fast", "n": 3},
+        ),
+        (
+            'Based on [1], the config is {"mode": "fast", "n": 3}',
+            {"mode": "fast", "n": 3},
+        ),
+        ("[1, 2, 3] -- see ] note", [1, 2, 3]),
+        (
+            '<think>check [1]</think>\n```json\n{"ok": true}\n```',
+            {"ok": True},
+        ),
+    ],
+)
+def test_extract_json_tolerates_stray_brackets_in_prose(
+    raw: str,
+    expected: object,
+) -> None:
+    assert extract_json(raw) == expected
+
+
+def test_extract_json_raises_on_unparseable_text() -> None:
+    with pytest.raises(json.JSONDecodeError):
+        extract_json("no valid json {here]")
