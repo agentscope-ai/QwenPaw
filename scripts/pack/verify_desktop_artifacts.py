@@ -14,6 +14,7 @@ import zipfile
 ARTIFACT_PATTERNS = {
     "windows": "QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe",
     "macos": "QwenPaw-Desktop-Tauri-macOS-*/QwenPaw-Tauri-*-macOS.zip",
+    "linux": "QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-linux-x86_64.deb",
 }
 
 UPDATER_SPECS = {
@@ -28,6 +29,12 @@ UPDATER_SPECS = {
         "artifact_pattern": "QwenPaw-Tauri-*-macOS.app.tar.gz",
         "metadata_pattern": "tauri-darwin-*-updater.json",
         "target": "darwin-aarch64",
+    },
+    "linux-updater": {
+        "directory": "tauri-updater-meta-linux",
+        "artifact_pattern": "QwenPaw-Tauri-*-linux-x86_64.deb.sig",
+        "metadata_pattern": "tauri-linux-x86_64-deb-updater.json",
+        "target": "linux-x86_64-deb",
     },
 }
 
@@ -145,13 +152,14 @@ def verify_updater_artifact(
         f"{platform} metadata file",
     )
 
-    if platform == "windows-updater":
+    if platform in ("windows-updater", "linux-updater"):
         signature = updater_artifact
         artifact_name = signature.name.removesuffix(".sig")
-        if artifact_name != installer_names.get("windows"):
+        installer_platform = platform.removesuffix("-updater")
+        if artifact_name != installer_names.get(installer_platform):
             raise ValueError(
-                f"Windows updater signature names {artifact_name!r}, "
-                f"expected {installer_names.get('windows')!r}",
+                f"{installer_platform} updater signature names {artifact_name!r}, "
+                f"expected {installer_names.get(installer_platform)!r}",
             )
     else:
         artifact_name = updater_artifact.name
