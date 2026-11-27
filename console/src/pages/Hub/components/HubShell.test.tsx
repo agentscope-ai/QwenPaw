@@ -9,6 +9,13 @@ const baseElement = vi.hoisted(() => {
   document.head.append(base);
   return base;
 });
+const runtimeBaseMeta = vi.hoisted(() => {
+  const meta = document.createElement("meta");
+  meta.name = "qwenpaw-base-path";
+  meta.content = "/app/qwenpaw/web";
+  document.head.append(meta);
+  return meta;
+});
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
@@ -19,6 +26,7 @@ const originalLocation = Object.getOwnPropertyDescriptor(window, "location")!;
 afterAll(() => {
   Object.defineProperty(window, "location", originalLocation);
   baseElement.remove();
+  runtimeBaseMeta.remove();
   vi.restoreAllMocks();
 });
 

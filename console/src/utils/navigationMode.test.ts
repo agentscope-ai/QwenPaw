@@ -82,15 +82,21 @@ describe("navigationMode", () => {
 
 describe("configured console basename", () => {
   let baseElement: HTMLBaseElement | undefined;
+  let runtimeBaseMeta: HTMLMetaElement | undefined;
 
   function setDocumentBase(path: string) {
     baseElement = document.createElement("base");
     baseElement.href = `${path}/`;
     document.head.append(baseElement);
+    runtimeBaseMeta = document.createElement("meta");
+    runtimeBaseMeta.name = "qwenpaw-base-path";
+    runtimeBaseMeta.content = path;
+    document.head.append(runtimeBaseMeta);
   }
 
   afterEach(() => {
     baseElement?.remove();
+    runtimeBaseMeta?.remove();
     vi.unstubAllEnvs();
     vi.resetModules();
   });

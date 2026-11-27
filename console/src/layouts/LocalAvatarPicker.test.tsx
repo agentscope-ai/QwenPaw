@@ -12,7 +12,17 @@ const baseElement = vi.hoisted(() => {
   document.head.append(base);
   return base;
 });
-afterAll(() => baseElement.remove());
+const runtimeBaseMeta = vi.hoisted(() => {
+  const meta = document.createElement("meta");
+  meta.name = "qwenpaw-base-path";
+  meta.content = "/qwenpaw";
+  document.head.append(meta);
+  return meta;
+});
+afterAll(() => {
+  baseElement.remove();
+  runtimeBaseMeta.remove();
+});
 
 vi.mock("../api/modules/avatars", () => ({
   avatarApi: {
