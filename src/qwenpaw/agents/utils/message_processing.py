@@ -6,6 +6,7 @@ This module handles:
 - Message content manipulation
 - Message validation
 """
+
 import asyncio
 import json
 import logging
@@ -126,12 +127,14 @@ def _format_uploaded_file_hint(
     filename: object,
     language: str,
 ) -> str:
-    """Build a localized upload hint with optional filename metadata."""
+    """Build a localized upload hint without exposing the host path."""
     display_name = _quote_display_filename(filename)
-    name_suffix = f" {display_name}" if display_name else ""
+    if display_name is None:
+        basename = os.path.basename(local_path.replace("\\", "/")) or "file"
+        display_name = _quote_display_filename(basename) or '"file"'
     if language == "zh":
-        return f"用户上传文件{name_suffix}，已经下载到 {local_path}"
-    return f"User uploaded a file{name_suffix}, downloaded to {local_path}"
+        return f"用户上传文件，已保存为 {display_name}"
+    return f"User uploaded a file, saved as {display_name}"
 
 
 def _media_type_from_path(path: str) -> str:
