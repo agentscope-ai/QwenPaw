@@ -73,6 +73,8 @@ function PlatformAccessDialog() {
   const { message } = useAppMessage();
   const { panel, open, connection, refresh, localAccount } =
     usePlatformAccess();
+  const recoveryRequired = connection?.status === "recovery_required";
+  const canDisconnect = recoveryRequired || !!connection?.node_id;
   const ready = !!connection?.logged_in && !!connection.node_id;
   const [ticket, setTicket] = useState<MobileLogin | null>(null);
   const [status, setStatus] = useState<MobileLoginStatus | null>(null);
@@ -226,7 +228,8 @@ function PlatformAccessDialog() {
     >
       <div className={styles.content}>
         {error && <Alert type="error" message={error} />}
-        {connection?.transport_status === "authorization_required" && (
+        {(recoveryRequired ||
+          connection?.transport_status === "authorization_required") && (
           <Alert type="warning" message={t("platformAccess.bindingExpired")} />
         )}
         {panel === "account" || !ready ? (
@@ -255,7 +258,7 @@ function PlatformAccessDialog() {
                 </strong>
               </div>
             )}
-            {!connection?.logged_in ? (
+            {recoveryRequired ? null : !connection?.logged_in ? (
               <Button type="primary" loading={busy} onClick={login} block>
                 {t("platformAccess.signIn")}
               </Button>
@@ -273,9 +276,9 @@ function PlatformAccessDialog() {
                 {t("platformAccess.retryBind")}
               </Button>
             )}
-            {(connection?.logged_in || connection?.node_id) && (
+            {(canDisconnect || connection?.logged_in) && (
               <div className={styles.accountActions}>
-                {connection.logged_in && (
+                {connection?.logged_in && (
                   <Button
                     type="text"
                     loading={busy}
@@ -284,7 +287,7 @@ function PlatformAccessDialog() {
                     {t("platformAccess.signOut")}
                   </Button>
                 )}
-                {connection.node_id && (
+                {canDisconnect && (
                   <Popconfirm
                     title={t("platformAccess.disconnectConfirm")}
                     onConfirm={() =>
