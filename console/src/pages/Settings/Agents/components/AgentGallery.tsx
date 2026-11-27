@@ -145,7 +145,7 @@ const AgentTile = memo(function AgentTile({
             type="text"
             aria-label={t("common.edit")}
             title={t("common.edit")}
-            disabled={disabled || agent.id === "default"}
+            disabled={disabled}
             icon={<Pencil size={16} />}
             onClick={() => onEdit(agent)}
           />
@@ -306,7 +306,7 @@ export function AgentGallery(props: AgentGalleryProps) {
               <Button
                 type="primary"
                 icon={<Pencil size={16} />}
-                disabled={agent.id === "default"}
+                disabled={loading}
                 onClick={() => {
                   setSelected(null);
                   onEdit(agent);
