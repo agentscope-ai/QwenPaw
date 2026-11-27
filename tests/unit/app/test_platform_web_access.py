@@ -21,10 +21,12 @@ from qwenpaw.app.routers.console_frontend import (
     create_console_frontend_router,
 )
 from qwenpaw.app.routers.remote_access import router as platform_router
+from qwenpaw.hub import platform_access
 from qwenpaw.hub.models import RuntimeState
 from qwenpaw.hub.platform_access import HubPlatformConnections
 from qwenpaw.remote_access.operation_dispatcher import RelayLocalApi
 from qwenpaw.remote_access.platform_client import (
+    EnrollmentToken,
     PlatformRelayClient,
     PlatformSession,
     RegisteredNode,
@@ -48,12 +50,26 @@ def isolated_key(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform_url", "proof_origin"),
+    [
+        ("http://[::1]", "http://[::1]"),
+        ("http://[::1]:80", "http://[::1]"),
+        ("http://[::1]:19088", "http://[::1]:19088"),
+        ("http://127.0.0.1:19088", "http://127.0.0.1:19088"),
+        ("https://PLATFORM.test:443", "https://platform.test"),
+    ],
+)
 async def test_oauth_binding_retry_refresh_and_local_logout(
     tmp_path,
     monkeypatch,
+    platform_url,
+    proof_origin,
 ):
+    node_id = "89d70541-db48-4bbb-9a18-9e1976832276"
+
     class Platform:
-        base_url = "https://platform.test"
+        base_url = platform_url
         fail = True
 
         def __init__(self, _url):
@@ -71,10 +87,39 @@ async def test_oauth_binding_retry_refresh_and_local_logout(
         async def create_oauth_enrollment(self, **_kwargs):
             if self.fail:
                 raise RelayPlatformError("quota", "Quota", status_code=409)
-            return object()
+            return EnrollmentToken("enrollment", 60, 1, "enrollment-nonce")
 
-        async def register_node(self, **_kwargs):
-            return RegisteredNode("node", "node-secret", "nonce", 1)
+        async def register_node(self, **kwargs):
+            def register_response(request):
+                path = "/api/v1/qwenpaw-relay/nodes"
+                encoded = request.headers["DPoP"].split(".")[1]
+                padding = "=" * (-len(encoded) % 4)
+                claims = json.loads(
+                    base64.urlsafe_b64decode(encoded + padding),
+                )
+                assert request.url.path == path
+                assert claims["htu"] == proof_origin + path
+                return httpx.Response(
+                    200,
+                    json={
+                        "data": {
+                            "node": {
+                                "id": node_id,
+                                "credential_generation": 1,
+                            },
+                            "node_credential": "node-secret",
+                            "dpop_nonce": "nonce",
+                        },
+                    },
+                )
+
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(register_response),
+            ) as client:
+                return await PlatformRelayClient(
+                    self.base_url,
+                    client=client,
+                ).register_node(**kwargs)
 
         async def refresh_session(self, session):
             def refresh_response(request):
@@ -129,14 +174,33 @@ async def test_oauth_binding_retry_refresh_and_local_logout(
     assert (await service.status()).logged_in
     assert (await service.status()).node_id is None
     Platform.fail = False
-    assert (await service.bind()).node_id == "node"
+    assert (await service.bind()).node_id == node_id
     assert store.load().session.access_token == "new-access"
     raw = store.path.read_text()
     assert "new-access" not in raw and "new-refresh" not in raw
+    saved = json.loads(raw)
+    for invalid in (
+        {"account_id": []},
+        {"account_name": {}},
+        {"runtime_id": 1},
+        {"session": {**saved["session"], "expires_at": float("inf")}},
+        {
+            "registered_node": {
+                **saved["registered_node"],
+                "credential_generation": -1,
+            },
+        },
+    ):
+        store.path.write_text(json.dumps(saved | invalid), encoding="utf-8")
+        invalid_status = await service.status()
+        assert invalid_status.status == "recovery_required"
+        assert invalid_status.account_id is None
+        assert invalid_status.account_name is None
+    store.path.write_text(raw, encoding="utf-8")
     with pytest.raises(RelayPlatformError):
         await service.logout()
     assert not (await service.status()).logged_in
-    assert (await service.status()).node_id == "node"
+    assert (await service.status()).node_id == node_id
 
     store.path.write_text("{", encoding="utf-8")
     await connection.start()
@@ -360,11 +424,36 @@ async def test_hub_bindings_are_scoped_to_local_user_and_runtime_owner(
             {"X-QwenPaw-Runtime-Token": name},
         )
 
+    first_pool = alice._local_api._http_client()
+    close_first_pool = first_pool.aclose
+
+    async def fail_close():
+        await close_first_pool()
+        raise RuntimeError("Pool shutdown interrupted")
+
+    monkeypatch.setattr(first_pool, "aclose", fail_close)
+    with pytest.raises(RuntimeError, match="Pool shutdown interrupted"):
+        await alice.close()
+    pool = alice._local_api._http_client()
+    assert pool is not first_pool
+
+    alice_starting = asyncio.Event()
+    fail_start = asyncio.Event()
+    alice_closing = asyncio.Event()
+    release_close = asyncio.Event()
     started = asyncio.Event()
     closed = asyncio.Event()
+    close_pool = pool.aclose
 
-    async def fail():
+    async def start_alice():
+        alice_starting.set()
+        await fail_start.wait()
         raise ValueError("Unusable binding")
+
+    async def slow_close():
+        alice_closing.set()
+        await release_close.wait()
+        await close_pool()
 
     async def start_bob():
         started.set()
@@ -372,18 +461,30 @@ async def test_hub_bindings_are_scoped_to_local_user_and_runtime_owner(
     async def close_bob():
         closed.set()
 
-    monkeypatch.setattr(alice, "start", fail)
-    monkeypatch.setattr(alice, "close", fail)
+    monkeypatch.setattr(alice, "start", start_alice)
+    monkeypatch.setattr(pool, "aclose", slow_close)
+    monkeypatch.setattr(platform_access, "_CLOSE_TIMEOUT", 0.05)
     monkeypatch.setattr(bob, "start", start_bob)
     monkeypatch.setattr(bob, "close", close_bob)
     watcher = asyncio.create_task(hub.watch())
     try:
+        await asyncio.wait_for(alice_starting.wait(), timeout=5)
         await asyncio.wait_for(started.wait(), timeout=5)
+        fail_start.set()
+        await asyncio.wait_for(alice_closing.wait(), timeout=5)
     finally:
         watcher.cancel()
-        await asyncio.gather(watcher, return_exceptions=True)
-    assert watcher.cancelled()
-    assert closed.is_set()
+        try:
+            await asyncio.wait_for(alice_closing.wait(), timeout=5)
+            await asyncio.wait_for(closed.wait(), timeout=5)
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(asyncio.shield(watcher), timeout=5)
+            assert not pool.is_closed
+        finally:
+            release_close.set()
+            await alice.close()
+            await asyncio.gather(watcher, return_exceptions=True)
+    assert pool.is_closed
 
     runtimes["alice"].owner_user_id = "bob"
     with pytest.raises(ValueError, match="ownership"):
@@ -394,6 +495,65 @@ async def test_hub_bindings_are_scoped_to_local_user_and_runtime_owner(
     users["bob"].disabled = True
     with pytest.raises(ValueError, match="disabled"):
         hub._endpoint("bob")
+
+
+@pytest.mark.asyncio
+async def test_relay_shutdown_waits_for_nonce_write_before_disconnect(
+    tmp_path,
+    monkeypatch,
+):
+    connection = PlatformRuntimeConnection(tmp_path, "http://127.0.0.1:19088")
+    store = connection.store
+    state = store.create(
+        platform_url="https://platform.test",
+        qwenpaw_id="local",
+        name="Office",
+    )
+    store.save(
+        replace(
+            state,
+            registered_node=RegisteredNode("node", "key", "old", 1),
+        ),
+    )
+    loop = asyncio.get_running_loop()
+    writing = asyncio.Event()
+    release = threading.Event()
+    save = store.save
+
+    async def connect_ticket(*_args):
+        return SimpleNamespace(next_credential_dpop_nonce="rotated")
+
+    def slow_save(value):
+        loop.call_soon_threadsafe(writing.set)
+        assert release.wait(timeout=5)
+        save(value)
+
+    monkeypatch.setattr(
+        PlatformRelayClient,
+        "create_node_connect_ticket",
+        connect_ticket,
+    )
+    monkeypatch.setattr(store, "save", slow_save)
+    await connection.start()
+    writing_task = connection.supervisor._task
+    await asyncio.wait_for(writing.wait(), timeout=5)
+    closing = asyncio.create_task(connection.close())
+    disconnecting = asyncio.create_task(connection.disconnect())
+    try:
+        completed, _ = await asyncio.wait(
+            (writing_task, closing, disconnecting),
+            timeout=0.05,
+        )
+        assert not completed
+        assert writing_task.cancelling()
+        assert store.path.exists()
+    finally:
+        release.set()
+        await asyncio.wait_for(
+            asyncio.gather(closing, disconnecting),
+            timeout=5,
+        )
+    assert not store.path.exists()
 
 
 @pytest.mark.asyncio

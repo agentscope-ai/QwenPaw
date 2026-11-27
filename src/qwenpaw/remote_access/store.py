@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import math
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -14,7 +15,7 @@ from uuid import uuid4
 from cryptography.fernet import InvalidToken
 
 from ..security.secret_store import decrypt, encrypt, is_encrypted
-from ..utils.io_utils import read_json, write_json_atomic
+from ..utils.io_utils import read_json, run_sync_io, write_json_atomic
 from .identity import RelayKeyPair
 from .platform_client import PlatformSession, RegisteredNode
 
@@ -101,16 +102,16 @@ class RelayNodeStore:
             qwenpaw_id=_string(payload, "qwenpaw_id"),
             name=_string(payload, "name"),
             private_key=private_key,
-            account_id=payload.get("account_id"),
-            account_name=payload.get("account_name"),
-            runtime_id=payload.get("runtime_id"),
+            account_id=_optional_string(payload, "account_id"),
+            account_name=_optional_string(payload, "account_name"),
+            runtime_id=_optional_string(payload, "runtime_id"),
             session=(
                 PlatformSession(
                     user_id=_string(session, "user_id"),
                     display_name=_string(session, "display_name"),
                     access_token=self._read_secret(session, "access_token"),
                     refresh_token=self._read_secret(session, "refresh_token"),
-                    expires_at=float(session["expires_at"]),
+                    expires_at=_expiry(session),
                 )
                 if isinstance(session, Mapping)
                 else None
@@ -142,6 +143,10 @@ class RelayNodeStore:
         suffix = self.path.suffix + "." + uuid4().hex + ".corrupt"
         backup = self.path.with_suffix(suffix)
         self.path.replace(backup)
+
+    async def save_async(self, state: RelayNodeState) -> None:
+        """Finish writing before the caller releases the mutation lock."""
+        await run_sync_io(self.save, state)
 
     def save(self, state: RelayNodeState) -> None:
         """Encrypt credentials and atomically replace the state file."""
@@ -205,8 +210,26 @@ def _string(payload: Mapping[str, Any], name: str) -> str:
     return value
 
 
+def _optional_string(payload: Mapping[str, Any], name: str) -> str | None:
+    value = payload.get(name)
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"Invalid Relay node state field {name}")
+    return value
+
+
+def _expiry(payload: Mapping[str, Any]) -> float:
+    value = payload.get("expires_at")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    ):
+        raise ValueError("Invalid Relay session expiry")
+    return float(value)
+
+
 def _integer(payload: Mapping[str, Any], name: str) -> int:
     value = payload.get(name)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"Relay node state is missing {name}")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"Invalid Relay node state field {name}")
     return value

@@ -1,3 +1,4 @@
+import { MessageChannel } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createForeignError } from "../test/foreignError";
 import { installStartupMonitor } from "./monitor";
@@ -163,6 +164,116 @@ describe("Console startup recovery", () => {
     expect(
       [...document.querySelectorAll("button")].map((node) => node.textContent),
     ).toEqual([en.chunkError.copy, en.chunkError.reload]);
+  });
+
+  it("shares startup and menu reloads across host disconnect and reconnect", async () => {
+    const origin = "https://platform.test";
+    const originalUrl = location.href;
+    const meta = document.createElement("meta");
+    meta.name = "qwenpaw-platform-origin";
+    meta.content = origin;
+    document.head.append(meta);
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+    const parent = frame.contentWindow!;
+    vi.spyOn(window, "parent", "get").mockReturnValue(parent);
+    const channels: MessageChannel[] = [];
+    const reloads: number[] = [];
+    const routes: string[] = [];
+    let onFirstReload!: () => void;
+    const firstReload = new Promise<void>((resolve) => {
+      onFirstReload = resolve;
+    });
+    let onTargets!: () => void;
+    const targetsRequested = new Promise<void>((resolve) => {
+      onTargets = resolve;
+    });
+    const handshake = vi.spyOn(parent, "postMessage").mockImplementation(() => {
+      const channel = new MessageChannel();
+      const index = channels.push(channel);
+      channel.port1.on("message", ({ id, path, body }) => {
+        if (path === "/host/navigation") routes.push(body.route);
+        if (path === "/host/reload") {
+          reloads.push(index);
+          if (index === 1) {
+            onFirstReload();
+            return;
+          }
+        }
+        if (path === "/targets") {
+          onTargets();
+          return;
+        }
+        channel.port1.postMessage({ id, value: true });
+      });
+      window.dispatchEvent(
+        Object.assign(new Event("message"), {
+          origin,
+          source: parent,
+          ports: [channel.port2],
+          data: {
+            type: "qwenpaw:console-context",
+            context: {
+              protocol: 1,
+              basename: "",
+              route: location.pathname,
+              targets: [],
+              target: { id: `workspace-${index}` },
+            },
+          },
+        }),
+      );
+    });
+    try {
+      entry.dispatchEvent(new Event("error"));
+      const reload = document.querySelector<HTMLButtonElement>(
+        ".qwenpaw-boot__reload",
+      )!;
+      reload.click();
+      vi.resetModules();
+      const { initializeConsoleHost } = await import(
+        "../features/platform-web/consoleHost"
+      );
+      const { useWebWorkspace, webRequest } = await import(
+        "../features/platform-web/client"
+      );
+      await initializeConsoleHost();
+      const timedOut = expect(webRequest("/host/reload", {})).rejects.toThrow(
+        "Platform request timed out",
+      );
+      await firstReload;
+      expect(handshake).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(15_000);
+      await timedOut;
+      expect(reload.disabled).toBe(false);
+
+      history.replaceState(null, "", "/settings?tab=relay#diagnostics");
+      const retried = webRequest("/host/reload", {});
+      reload.click();
+      await expect(retried).resolves.toBe(true);
+      expect(routes[routes.length - 1]).toBe("/settings?tab=relay#diagnostics");
+      expect(reloads).toEqual([1, 2]);
+      expect(handshake).toHaveBeenCalledTimes(2);
+      expect(useWebWorkspace.getState().target?.id).toBe("workspace-2");
+
+      const disconnected = expect(webRequest("/targets")).rejects.toThrow(
+        "Platform connection closed",
+      );
+      await targetsRequested;
+      channels[1].port1.close();
+      await disconnected;
+      await expect(webRequest("/host/reload", {})).resolves.toBe(true);
+      expect(handshake).toHaveBeenCalledTimes(3);
+      expect(reloads).toEqual([1, 2, 3]);
+    } finally {
+      window.dispatchEvent(new Event("pagehide"));
+      history.replaceState(null, "", originalUrl);
+      meta.remove();
+      channels.forEach(({ port1, port2 }) => {
+        port1.close();
+        port2.close();
+      });
+    }
   });
 
   it("keeps the observed failed dependency distinct from the entry build", async () => {
