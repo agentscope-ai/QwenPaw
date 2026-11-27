@@ -1,4 +1,5 @@
 import { request } from "../request";
+import { consoleHost } from "../../features/platform-web/context";
 import type {
   ProviderInfo,
   ModelPoolPage,
@@ -87,9 +88,19 @@ export const providerApi = {
   },
   listProviders: () => {
     if (listProvidersPromise) return listProvidersPromise;
-    listProvidersPromise = request<ProviderInfo[]>("/models").finally(() => {
-      listProvidersPromise = null;
-    });
+    listProvidersPromise = request<ProviderInfo[]>("/models")
+      .then((providers) =>
+        consoleHost?.target.kind === "bound"
+          ? providers.map((provider) =>
+              provider.id === "openrouter"
+                ? { ...provider, supports_oauth: false }
+                : provider,
+            )
+          : providers,
+      )
+      .finally(() => {
+        listProvidersPromise = null;
+      });
     return listProvidersPromise;
   },
 
