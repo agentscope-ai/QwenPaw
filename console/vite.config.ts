@@ -7,6 +7,10 @@ import {
   chatScrollPolicyOptimizer,
   chatScrollPolicyPlugin,
 } from "./scripts/chat-scroll-policy-plugin";
+import {
+  markdownStrikethroughOptimizer,
+  markdownStrikethroughPlugin,
+} from "./scripts/markdown-strikethrough-plugin";
 import { normalizeConsoleBasename } from "./src/utils/consoleBasename";
 
 // Vitest-only plugin: transforms .css imports inside node_modules to empty
@@ -67,6 +71,7 @@ export default defineConfig(({ command, mode }) => {
         },
       } satisfies Plugin,
       chatScrollPolicyPlugin,
+      markdownStrikethroughPlugin,
       ...(desktop
         ? [
             {
@@ -202,7 +207,9 @@ export default defineConfig(({ command, mode }) => {
     },
     optimizeDeps: {
       include: ["diff"],
-      esbuildOptions: { plugins: [chatScrollPolicyOptimizer] },
+      esbuildOptions: {
+        plugins: [chatScrollPolicyOptimizer, markdownStrikethroughOptimizer],
+      },
     },
     build: {
       ...(desktop ? { outDir: "dist-tauri" } : {}),

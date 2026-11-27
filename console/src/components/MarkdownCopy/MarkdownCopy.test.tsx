@@ -11,19 +11,22 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
 
+const mockXMarkdownProps: Array<Record<string, unknown>> = [];
+
 // Mock XMarkdown and MermaidCodeBlock to avoid heavy deps
 vi.mock("@ant-design/x-markdown", () => ({
-  XMarkdown: ({
-    content,
-    style,
-  }: {
+  XMarkdown: (props: {
     content: string;
     style?: React.CSSProperties;
-  }) => (
-    <div data-testid="x-markdown" style={style}>
-      {content}
-    </div>
-  ),
+    config?: unknown;
+  }) => {
+    mockXMarkdownProps.push(props);
+    return (
+      <div data-testid="x-markdown" style={props.style}>
+        {props.content}
+      </div>
+    );
+  },
 }));
 
 vi.mock("../RenderableCodeBlock", () => ({
@@ -49,10 +52,12 @@ Object.defineProperty(window, "isSecureContext", {
 });
 
 import { MarkdownCopy } from "./MarkdownCopy";
+import { DOUBLE_TILDE_MARKED_CONFIG } from "../../utils/markdownStrikethrough";
 
 describe("MarkdownCopy", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockXMarkdownProps.length = 0;
   });
 
   it("renders markdown content in preview mode by default", () => {
@@ -61,6 +66,7 @@ describe("MarkdownCopy", () => {
       backgroundColor: "var(--app-surface)",
       color: "var(--app-text)",
     });
+    expect(mockXMarkdownProps[0]?.config).toBe(DOUBLE_TILDE_MARKED_CONFIG);
   });
 
   it("allows custom markdown viewer styles to override the theme defaults", () => {

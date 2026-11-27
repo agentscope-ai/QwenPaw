@@ -23,6 +23,7 @@ import {
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DOUBLE_TILDE_REMARK_GFM_OPTIONS } from "../../../utils/markdownStrikethrough";
 import {
   applyMarkdownAction,
   type MarkdownToolbarAction,
@@ -215,7 +216,7 @@ export const MarkdownComposer = forwardRef<
           <div className={`${styles.body} ${styles.composerPreview}`}>
             {value.trim() ? (
               <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
+                remarkPlugins={[[remarkGfm, DOUBLE_TILDE_REMARK_GFM_OPTIONS]]}
                 components={videoMarkdownComponents}
               >
                 {value}
