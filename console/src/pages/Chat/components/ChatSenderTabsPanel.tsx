@@ -1,3 +1,4 @@
+import { MESSAGE_QUEUE_ENABLED } from "../chatFeatures";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { message, Tooltip } from "antd";
@@ -84,7 +85,8 @@ export default function ChatSenderTabsPanel({
   );
 
   const hasBg = sessionTasks.length > 0;
-  const hasQueue = queueItems.length > 0;
+  // Hide the queue temporarily; retain its panel and stored items for reuse.
+  const hasQueue = MESSAGE_QUEUE_ENABLED && queueItems.length > 0;
   const hasRunningBg = runningTasks.length > 0;
   const isPausedOrError = runState === "paused" || runState === "error";
 

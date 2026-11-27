@@ -9,6 +9,9 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+
+from qwenpaw.app.chats.provider_migration import _qoder_lineage
+
 import pytest
 
 from qwenpaw.portability.providers.qoder import QoderMigrationProvider

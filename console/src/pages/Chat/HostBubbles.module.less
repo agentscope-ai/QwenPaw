@@ -1,3 +1,22 @@
+.deferredHistoryContent {
+  min-height: calc(48px * var(--app-font-scale));
+  contain: layout paint style;
+}
+
+.historyMarkdown {
+  overflow-anchor: none;
+}
+
+.loadOlderMarkdown {
+  margin-bottom: 12px;
+  border: 0;
+  padding: 0;
+  color: var(--app-primary-color);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
 .completionWarning {
   display: flex;
   align-items: flex-start;
@@ -129,5 +148,15 @@
   iframe {
     -webkit-user-select: none;
     user-select: none;
+  }
+}
+
+.emptyResponseActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+
+  &:not(:empty) {
+    margin-top: 8px;
   }
 }

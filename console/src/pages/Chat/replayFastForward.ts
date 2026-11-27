@@ -31,6 +31,16 @@ const IDLE_TIMEOUT = Symbol("idle-timeout");
 
 const isMarker = (event: string): boolean => event.trim() === REPLAY_END_EVENT;
 
+function isReconnectRequired(event: string): boolean {
+  if (!event.includes("reconnect_required")) return false;
+  const data = event.trim().replace(/^data:\s*/, "");
+  try {
+    return JSON.parse(data)?.type === "reconnect_required";
+  } catch {
+    return false;
+  }
+}
+
 /** Split buffered text into complete SSE events and the partial tail. */
 function splitEvents(buf: string): { events: string[]; rest: string } {
   const parts = buf.split("\n\n");
@@ -41,6 +51,7 @@ function splitEvents(buf: string): { events: string[]; rest: string } {
 export function wrapReplayFastForward(
   response: Response,
   idleFlushMs: number = DEFAULT_IDLE_FLUSH_MS,
+  onReconnectRequired?: () => void,
 ): Response {
   const body = response.body;
   if (!response.ok || !body) return response;
@@ -53,6 +64,17 @@ export function wrapReplayFastForward(
   /** Complete replayed events awaiting the single fast-forward flush. */
   let replayEvents: string[] = [];
   let buffering = true;
+  let reconnectNotified = false;
+
+  const observeEvents = (events: string[]) => {
+    if (
+      !reconnectNotified &&
+      events.some((event) => isReconnectRequired(event))
+    ) {
+      reconnectNotified = true;
+      onReconnectRequired?.();
+    }
+  };
 
   const encodeEvents = (events: string[]): Uint8Array =>
     encoder.encode(events.map((e) => `${e}\n\n`).join(""));
@@ -102,6 +124,7 @@ export function wrapReplayFastForward(
             // complete events in the tail, and the partial tail as-is.
             textBuf += decoder.decode();
             const { events, rest } = splitEvents(textBuf);
+            observeEvents(events);
             const out = [...replayEvents, ...events].filter(
               (e) => !isMarker(e),
             );
@@ -114,6 +137,7 @@ export function wrapReplayFastForward(
           textBuf += decoder.decode(result.value, { stream: true });
           const { events, rest } = splitEvents(textBuf);
           textBuf = rest;
+          observeEvents(events);
 
           if (buffering) {
             let sawMarker = false;

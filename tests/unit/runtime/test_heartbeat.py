@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.runtime.executor import AgentExecutor
+from qwenpaw.runtime.steer import SteerOutput
 from qwenpaw.runtime.heartbeat import (
     _iter_with_heartbeat,
     _HEARTBEAT_TICK,
@@ -103,3 +106,62 @@ async def test_closing_wrapper_cancels_pending_source() -> None:
     await asyncio.sleep(0)
 
     assert source_cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_executor_close_releases_suspended_source_without_gc():
+    closed = asyncio.Event()
+
+    async def source():
+        try:
+            yield SteerOutput("boundary")
+            pytest.fail("closing must not request another model step")
+        finally:
+            closed.set()
+
+    # Keep a strong reference so garbage collection cannot close the source.
+    raw = source()
+    agent = SimpleNamespace(reply_stream=lambda **kwargs: raw)
+    stream = AgentExecutor(agent, None).run([])
+    try:
+        assert await anext(stream) == "boundary"
+        await stream.aclose()
+        assert closed.is_set()
+        assert raw.ag_frame is None
+    finally:
+        await raw.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["primary", "close"])
+async def test_executor_cleanup_preserves_primary_failure(failure):
+    class Source:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if failure == "close":
+                return SteerOutput("boundary")
+            return SimpleNamespace(type="test")
+
+        async def aclose(self):
+            raise RuntimeError("cleanup failure")
+
+    async def translate(event):
+        raise LookupError("primary failure")
+        yield
+
+    raw = Source()
+    agent = SimpleNamespace(reply_stream=lambda **kwargs: raw)
+    envelope = SimpleNamespace(translate_event=translate)
+    stream = AgentExecutor(agent, envelope).run([])
+    try:
+        if failure == "close":
+            assert await anext(stream) == "boundary"
+            with pytest.raises(RuntimeError, match="cleanup failure"):
+                await stream.aclose()
+        else:
+            with pytest.raises(LookupError, match="primary failure"):
+                await anext(stream)
+    finally:
+        await stream.aclose()

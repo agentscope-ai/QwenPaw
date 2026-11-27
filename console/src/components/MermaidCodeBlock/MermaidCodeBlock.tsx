@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import mermaid from "mermaid";
+import type { Mermaid } from "mermaid";
 import { CircleAlert } from "lucide-react";
 import { useTheme } from "../../contexts/ThemeContext";
 import styles from "./index.module.less";
@@ -7,7 +7,7 @@ import styles from "./index.module.less";
 let initializedTheme: "light" | "dark" | null = null;
 let idCounter = 0;
 
-function ensureMermaidInit(isDark: boolean) {
+function ensureMermaidInit(mermaid: Mermaid, isDark: boolean) {
   const theme = isDark ? "dark" : "light";
   if (initializedTheme === theme) return;
 
@@ -71,17 +71,17 @@ export function MermaidCodeBlock({ chart }: MermaidCodeBlockProps) {
       return;
     }
 
-    ensureMermaidInit(isDark);
-
     let cancelled = false;
     const id = `mermaid-${Date.now()}-${idCounter++}`;
     setSvg("");
     setError("");
     setIsRendering(true);
 
-    mermaid
-      .render(id, trimmedChart)
-      .then(({ svg: rendered }) => {
+    import("mermaid")
+      .then(async ({ default: mermaid }) => {
+        if (cancelled) return;
+        ensureMermaidInit(mermaid, isDark);
+        const { svg: rendered } = await mermaid.render(id, trimmedChart);
         if (!cancelled) {
           setSvg(rendered);
           setError("");

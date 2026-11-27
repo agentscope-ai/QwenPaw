@@ -8,6 +8,7 @@ Base Channel: bound to AgentRequest/AgentResponse, unified by process.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import time
@@ -590,6 +591,9 @@ class BaseChannel(ABC):
             owner=self._workspace,
             channel_id=self.channel,
             on_finished=self._workspace.chat_manager.mark_chat_finished,
+            can_start=lambda: self._workspace.chat_manager.can_start_run(
+                chat.id,
+            ),
         )
 
         if is_new:
@@ -2078,31 +2082,48 @@ class BaseChannel(ABC):
         *,
         emit_sse: bool = True,
     ) -> List[str]:
-        """Resolve, persist, and optionally emit a ``turn_usage`` SSE."""
+        """Finalize workspace usage and optionally emit its SSE view."""
         if not session_id:
             return []
         try:
-            from ...token_usage.turn_usage import commit_turn_usage
+            import importlib
 
-            workspace = self._workspace
-            user_id = getattr(request, "user_id", "") or ""
-            channel = getattr(request, "channel", "") or self.channel
-            turn, ctx = await commit_turn_usage(
-                session=getattr(workspace, "session", None),
-                agent_id=getattr(workspace, "agent_id", "default"),
-                session_id=session_id,
-                user_id=user_id,
-                channel=channel,
+            turn_usage = importlib.import_module(
+                "qwenpaw.token_usage.turn_usage",
             )
+            workspace = self._workspace
+            finalizer = getattr(
+                workspace,
+                "finalize_turn_usage",
+                None,
+            )
+            if inspect.iscoroutinefunction(finalizer):
+                turn, ctx = await finalizer(  # pylint: disable=not-callable
+                    request,
+                )
+            else:
+                turn, ctx, _ = await turn_usage.resolve_turn_usage(
+                    session_id=session_id,
+                    agent_id=(
+                        getattr(workspace, "agent_id", "default")
+                        if workspace is not None
+                        else "default"
+                    ),
+                    session=None,
+                    user_id=getattr(request, "user_id", "") or "",
+                    channel=(getattr(request, "channel", "") or self.channel),
+                )
             if turn is None and ctx is None:
                 return []
             self._on_turn_usage_ready(turn, ctx)
             if turn:
                 logger.info(
-                    f"{self.channel} turn usage: "
-                    f"prompt_tokens={turn.get('prompt_tokens', 0)} "
-                    f"completion_tokens={turn.get('completion_tokens', 0)} "
-                    f"total_tokens={turn.get('total_tokens', 0)}",
+                    "%s turn usage: prompt_tokens=%s "
+                    "completion_tokens=%s total_tokens=%s",
+                    self.channel,
+                    turn.get("prompt_tokens", 0),
+                    turn.get("completion_tokens", 0),
+                    turn.get("total_tokens", 0),
                 )
             if not emit_sse:
                 return []

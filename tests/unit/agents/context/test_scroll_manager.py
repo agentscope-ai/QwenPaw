@@ -26,6 +26,10 @@ from agentscope.model import ChatModelBase, ChatResponse, FinishedReason
 
 from qwenpaw.agents.context.base import ContextManager
 from qwenpaw.agents.context.scroll import manager as scroll_manager_module
+from qwenpaw.agents.context.scroll.continuation_summary import (
+    ContinuationSummary,
+)
+from qwenpaw.agents.context.scroll.eviction_index import Leaf
 from qwenpaw.agents.context.scroll.history import HistoryStore
 from qwenpaw.agents.context.scroll.manager import ScrollContextManager
 from qwenpaw.agents.context.scroll.recall_tool import (
@@ -2562,3 +2566,24 @@ def test_tool_input_round_trips_to_db(store: HistoryStore):
         "WHERE tool_call_id='call-9'",
     ).fetchone()
     assert row["tool_input"] == '{"pattern": "x"}'
+
+
+def test_empty_restore_discards_previous_scroll_state(store):
+    """Reset removes live state while keeping the append-only archive."""
+    manager = make_manager(store)
+    manager._persist_new(FakeAgent([user("keep archived")]))
+    assert manager.to_dict() != make_manager(store).to_dict()
+    manager._index.add_eviction(
+        [Leaf(seq=1, headline="old")],
+        seq_lo=1,
+        seq_hi=1,
+    )
+    manager._continuation_summary = ContinuationSummary(
+        covered_seq=(1, 1),
+        active_task="old",
+        status="in_progress",
+    )
+    count = store.count("s1")
+    manager.load_state({})
+    assert manager.to_dict() == make_manager(store).to_dict()
+    assert store.count("s1") == count

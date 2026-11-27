@@ -1,6 +1,7 @@
 import { describe, it, test, expect, vi } from "vitest";
 import {
   extractCopyableText,
+  extractTranscriptTurnId,
   extractUserMessageText,
   buildModelError,
   toStoredName,
@@ -140,6 +141,28 @@ describe("extractCopyableText", () => {
     };
 
     expect(extractCopyableText(response)).toBe("");
+  });
+});
+
+describe("extractTranscriptTurnId", () => {
+  it("reads the turn from a historical response id", () => {
+    expect(extractTranscriptTurnId({ id: "history-response:turn-2" })).toBe(
+      "turn-2",
+    );
+  });
+
+  it("falls back to transcript position metadata", () => {
+    expect(
+      extractTranscriptTurnId({
+        output: [
+          {
+            metadata: {
+              qwenpaw_transcript_position: { turn_id: "turn-3" },
+            },
+          },
+        ],
+      }),
+    ).toBe("turn-3");
   });
 });
 
