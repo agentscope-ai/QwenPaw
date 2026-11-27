@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -23,6 +24,7 @@ from .models import (
     SessionSource,
 )
 from .repo import BaseChatRepository
+from .transcript_catalog import resolve_session_database_path
 from ..channels.schema import DEFAULT_CHANNEL
 from ...constant import SECRET_DIR
 from ...providers.thinking import ThinkingPreference
@@ -77,7 +79,7 @@ class ChatManager:  # pylint: disable=too-many-public-methods
     """Manages chat specifications in repository.
 
     Only handles ChatSpec CRUD operations.
-    Does NOT manage Redis session state - that's handled by SafeJSONSession.
+    Runtime state is owned by the workspace DatabaseSession service.
 
     Similar to CronManager's role in crons module.
     """
@@ -115,6 +117,15 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         self._on_session_closed = callback
 
     # ----- Read Operations -----
+
+    async def can_start_run(self, chat_id: str) -> bool:
+        """Validate a resolved chat again at run registration time."""
+        chat = await self.get_chat(chat_id)
+        return chat is not None
+
+    async def can_start_session(self, _identity: tuple[str, str, str]) -> bool:
+        """Allow workspace writes unless TaskTracker holds a delete lock."""
+        return True
 
     async def list_chats(
         self,
@@ -209,7 +220,15 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                 f"get_or_create_chat: Creating new chat for "
                 f"session_id={session_id}, source={source}",
             )
+            database = await run_sync_io(
+                resolve_session_database_path,
+                self._repo.path.parent,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
             spec = ChatSpec(
+                **({"id": database.stem} if database is not None else {}),
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
@@ -237,11 +256,56 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             Chat spec
         """
         async with self._lock:
+            if spec.session_id:
+                for existing in (await self._repo.load()).chats:
+                    if (
+                        existing.session_id == spec.session_id
+                        and existing.user_id == spec.user_id
+                        and existing.channel == spec.channel
+                        and existing.id != spec.id
+                    ):
+                        return existing
+            database = await run_sync_io(
+                resolve_session_database_path,
+                self._repo.path.parent,
+                session_id=spec.session_id,
+                user_id=spec.user_id,
+                channel=spec.channel,
+            )
+            if database is not None:
+                spec = spec.model_copy(update={"storage_id": database.stem})
             if spec.group_id is None:
                 spec = spec.model_copy(
                     update={"group_id": _default_group_id(spec.source)},
                 )
             await self._validate_group_id_locked(spec.group_id)
+            if spec.parent_chat_id:
+                chats = (await self._repo.load()).chats
+                by_id = {chat.id: chat for chat in chats}
+                parent = by_id.get(spec.parent_chat_id)
+                if parent is not None:
+                    root_id = parent.fork_name_root_id or parent.id
+                    base = re.sub(
+                        r"\s*(?:\([0-9]+\)|（[0-9]+）)$",
+                        "",
+                        parent.name,
+                    ).rstrip()
+                    pattern = re.compile(
+                        rf"{re.escape(base)} (?:\(([0-9]+)\)|（([0-9]+)）)$",
+                    )
+                    numbers = [
+                        int(match.group(1) or match.group(2))
+                        for chat in chats
+                        if chat.fork_name_root_id == root_id
+                        and (match := pattern.fullmatch(chat.name))
+                    ]
+                    number = max(numbers, default=0) + 1
+                    spec = spec.model_copy(
+                        update={
+                            "name": f"{base} ({number})",
+                            "fork_name_root_id": root_id,
+                        },
+                    )
             await self._repo.upsert_chat(spec)
             return spec
 
@@ -411,6 +475,8 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             exclude_none=True,
             exclude_unset=True,
         )
+        if "name" in updates and updates["name"] != existing.name:
+            updates["fork_name_root_id"] = existing.id
         merged = existing.model_copy(update=updates)
         if patch.model_fields_set != {"group_id"}:
             merged.updated_at = datetime.now(timezone.utc)
@@ -680,10 +746,17 @@ class ChatManager:  # pylint: disable=too-many-public-methods
     ) -> bool:
         if not await self._repo.delete_chats(chat_ids):
             return False
+        await self.cleanup_deleted_chat_targets(identities)
+        return True
+
+    async def cleanup_deleted_chat_targets(
+        self,
+        identities: set[tuple[str, str, str]],
+    ) -> None:
+        """Remove shell targets after their chat mappings are committed."""
         for identity in identities:
             path = self._shell_target_path(*identity)
             await run_sync_io(path.unlink, missing_ok=True)
-        return True
 
     # ----- Archive Operations -----
 

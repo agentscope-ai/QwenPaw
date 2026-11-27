@@ -972,7 +972,7 @@ class PluginContext:  # pylint: disable=protected-access
         from ._messages import from_host, to_host
         from ._replies import to_reply
         from ._identity import from_runtime
-        from ..hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+        from .._session_signals import SESSION_SAVE_SUCCEEDED_KEY
         from ..runtime.hooks import (
             HookBase,
             HookAction,

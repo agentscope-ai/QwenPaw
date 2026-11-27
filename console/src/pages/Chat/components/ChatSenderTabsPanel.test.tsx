@@ -1,3 +1,4 @@
+vi.mock("../chatFeatures", () => ({ MESSAGE_QUEUE_ENABLED: true }));
 // @vitest-environment jsdom
 /**
  * ChatSenderTabsPanel tests — the two-tab strip the composer renders above the

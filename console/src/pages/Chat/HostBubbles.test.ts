@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { renderHook } from "@testing-library/react";
 import { AgentScopeRuntimeMessageType } from "@agentscope-ai/chat";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
 import { isToolLikeResponseMessageType } from "./responseMessageTypes";
@@ -28,14 +29,18 @@ describe("host card SDK contract", () => {
 
     const requestProps = { data: {} };
     const requestElement = HostRequestCard(requestProps);
-    const responseElement = HostResponseCard(responseProps);
+    const { result, rerender } = renderHook(() =>
+      HostResponseCard(responseProps),
+    );
+    const responseElement = result.current;
     // The response card is wrapped so tool cards learn whether the turn
     // ended; its content must stay memoized behind that wrapper.
-    const responseContent = responseElement.props.children;
+    const responseContent = responseElement.props.children.props.children[0];
 
     expect(requestElement.type).toBe(HostRequestCard(requestProps).type);
+    rerender();
     expect(responseContent.type).toBe(
-      HostResponseCard(responseProps).props.children.type,
+      result.current.props.children.props.children[0].type,
     );
     expect(requestElement.type).toHaveProperty(
       "$$typeof",

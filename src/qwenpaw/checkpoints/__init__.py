@@ -5,7 +5,8 @@ A workspace-scoped shadow Git store under ``checkpoints/`` supports optional
 automatic snapshots and exposes timeline / snapshot / restore / gc / reset
 through the ``/checkpoint`` slash command.
 
-This package is 2.0-only and does not read legacy session formats.
+New checkpoints use database snapshots. Restore retains read-only support for
+the JSON session snapshots created by earlier releases.
 """
 
 from __future__ import annotations
