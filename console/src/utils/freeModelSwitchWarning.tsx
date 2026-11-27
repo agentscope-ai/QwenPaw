@@ -79,7 +79,7 @@ export async function confirmFreeModelSwitch({
           </div>
         </div>
       ),
-      okText: t("common.confirm"),
+      okText: t("confirmation.useModel"),
       cancelText: t("common.cancel"),
       onOk: () => {
         if (dontShowAgain) {

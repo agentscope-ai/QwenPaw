@@ -288,7 +288,7 @@ describe("ImportConflictModal outcomes", () => {
     const { baseElement } = setup(makeMeta());
 
     const [cancel, replace] = footerButtons(baseElement);
-    expect(replace.textContent).toBe("backup.importReplace");
+    expect(replace.textContent).toBe("confirmation.overwriteBackup");
     expect(cancel.textContent).toBe("common.cancel");
     expect(replace.className).toContain("ant-btn-dangerous");
     expect(replace.className).toContain("ant-btn-primary");
@@ -351,7 +351,7 @@ describe("ImportConflictModal outcomes", () => {
     for (const key of [
       "backup.importConflictTitle",
       "backup.importConflictDesc",
-      "backup.importReplace",
+      "confirmation.overwriteBackup",
       "backup.name:",
       "backup.createdAt:",
       "common.cancel",

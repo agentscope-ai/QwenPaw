@@ -151,6 +151,9 @@ class _FakeGovernor:
     def audit(self, tc_spec: ToolCallSpec, decision: Any) -> None:
         pass
 
+    def is_builtin_ask(self, _tc_spec: ToolCallSpec) -> bool:
+        return False
+
 
 def _make_tool(governor, request_context=None, name="edit_file"):
     """Build a minimal stand-in for a PolicyGuardedTool instance."""

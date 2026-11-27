@@ -44,7 +44,12 @@ import {
 import type { BackupMeta } from "@/api/types/backup";
 
 const runnerStore = vi.hoisted(() => {
-  const initial = { loading: false, progress: 0, progressMsg: "" };
+  const initial = {
+    loading: false,
+    failed: false,
+    progress: 0,
+    progressMsg: "",
+  };
   let state: typeof initial = { ...initial };
   const listeners = new Set<() => void>();
   const notify = () => listeners.forEach((l) => l());
@@ -68,7 +73,11 @@ const runnerStore = vi.hoisted(() => {
     resume: vi.fn(),
     cancel: vi.fn(),
     reset: vi.fn(),
-    lastOptions: null as null | { onSuccess: () => void; onClose: () => void },
+    lastOptions: null as null | {
+      onSuccess: () => void;
+      onClose: () => void;
+      resumeActiveOnStartFailure?: boolean;
+    },
   };
 });
 
@@ -94,6 +103,7 @@ vi.mock("../shared/useBackupRunner", async () => {
     useBackupRunner: (options: {
       onSuccess: () => void;
       onClose: () => void;
+      resumeActiveOnStartFailure?: boolean;
     }) => {
       runnerStore.lastOptions = options;
       const state = useSyncExternalStore(
@@ -278,10 +288,35 @@ describe("SilentBackupModal", () => {
   });
 
   it("cancels from the footer danger button", () => {
+    runnerStore.set({ loading: true });
     renderModal({ target: makeTarget() });
 
-    fireEvent.click(screen.getByRole("button", { name: "common.cancel" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "confirmation.cancelBackup" }),
+    );
     expect(runnerStore.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces progress with failure guidance and allows closing", () => {
+    runnerStore.set({ loading: true });
+    const onClose = vi.fn();
+    const onSuccess = vi.fn();
+    renderModal({ target: makeTarget(), onClose, onSuccess });
+    expect(screen.getByTestId("backup-progress")).toBeInTheDocument();
+
+    act(() => runnerStore.set({ loading: false, failed: true }));
+
+    expect(screen.getByRole("dialog")).toHaveAccessibleName(
+      "backup.preRestoreBackupFailed",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "backup.preRestoreBackupFailedHint",
+    );
+    expect(screen.queryByTestId("backup-progress")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(runnerStore.cancel).not.toHaveBeenCalled();
   });
 
   it("offers exactly one footer button while running", () => {
@@ -293,7 +328,7 @@ describe("SilentBackupModal", () => {
     // closable is false, so the footer cancel button is the only button there.
     const footerButtons = screen.getAllByRole("button");
     expect(footerButtons).toHaveLength(1);
-    expect(footerButtons[0]).toHaveTextContent("common.cancel");
+    expect(footerButtons[0]).toHaveTextContent("confirmation.cancelBackup");
   });
 
   it("shows the runner progress in the body", () => {
@@ -319,6 +354,7 @@ describe("SilentBackupModal", () => {
 
     expect(typeof runnerStore.lastOptions?.onSuccess).toBe("function");
     expect(typeof runnerStore.lastOptions?.onClose).toBe("function");
+    expect(runnerStore.lastOptions?.resumeActiveOnStartFailure).toBe(false);
 
     runnerStore.lastOptions!.onSuccess();
     runnerStore.lastOptions!.onClose();

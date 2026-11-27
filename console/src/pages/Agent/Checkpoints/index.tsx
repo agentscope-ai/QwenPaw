@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
+  Checkbox,
   Descriptions,
   Drawer,
   Dropdown,
@@ -77,6 +78,9 @@ export default function CheckpointsPage() {
   const [gcSettingsOpen, setGcSettingsOpen] = useState(false);
   const [gcSettingsLoading, setGcSettingsLoading] = useState(false);
   const [gcSettingsSaving, setGcSettingsSaving] = useState(false);
+  const [resetAgent, setResetAgent] = useState<string | null>(null);
+  const [resetConfirmed, setResetConfirmed] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [gcSettingsForm] = Form.useForm<CheckpointGcSettings>();
   const loadVersion = useRef(0);
 
@@ -128,6 +132,8 @@ export default function CheckpointsPage() {
     setSelected(null);
     setSession("all");
     setSnapshotSession("");
+    setResetAgent(null);
+    setResetConfirmed(false);
     void load(false, controller.signal);
     return () => controller.abort();
   }, [selectedAgent, load]);
@@ -222,6 +228,7 @@ export default function CheckpointsPage() {
       : "checkpoints.gc.success";
     try {
       const preview = await checkpointsApi.previewGc(body);
+      if (useAgentStore.getState().selectedAgent !== selectedAgent) return;
       modal.confirm({
         title: t(titleKey),
         content: t(descriptionKey, {
@@ -230,7 +237,9 @@ export default function CheckpointsPage() {
         okText: t(confirmKey),
         cancelText: t("common.cancel"),
         okButtonProps: { danger: true },
+        autoFocusButton: "cancel",
         onOk: async () => {
+          if (useAgentStore.getState().selectedAgent !== selectedAgent) return;
           const result = await checkpointsApi.gc(body);
           message.success(t(successKey, { count: result.deleted_refs.length }));
           await load(true);
@@ -275,20 +284,33 @@ export default function CheckpointsPage() {
     }
   };
 
-  const reset = () =>
-    modal.confirm({
-      title: t("checkpoints.reset.title"),
-      content: t("checkpoints.reset.description"),
-      okText: t("checkpoints.reset.confirm"),
-      cancelText: t("common.cancel"),
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        await checkpointsApi.reset();
-        setSelected(null);
-        message.success(t("checkpoints.reset.success"));
-        await load(true);
-      },
-    });
+  const openReset = () => {
+    setResetConfirmed(false);
+    setResetAgent(selectedAgent);
+  };
+
+  const reset = async () => {
+    if (
+      !resetConfirmed ||
+      resetting ||
+      resetAgent !== useAgentStore.getState().selectedAgent
+    ) {
+      return;
+    }
+    setResetting(true);
+    try {
+      await checkpointsApi.reset();
+      if (resetAgent !== useAgentStore.getState().selectedAgent) return;
+      setResetAgent(null);
+      setSelected(null);
+      message.success(t("checkpoints.reset.success"));
+      await load(true);
+    } catch (caught) {
+      message.error((caught as Error).message);
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const openRestore = () => {
     setRestoreOpen(true);
@@ -362,7 +384,7 @@ export default function CheckpointsPage() {
                     danger: true,
                     icon: <RotateCcw size={15} />,
                     label: t("checkpoints.reset.action"),
-                    onClick: reset,
+                    onClick: openReset,
                   },
                 ],
               }}
@@ -532,6 +554,30 @@ export default function CheckpointsPage() {
           </div>
         )}
       </Drawer>
+
+      <Modal
+        open={resetAgent !== null && resetAgent === selectedAgent}
+        title={t("checkpoints.reset.title")}
+        onCancel={() => setResetAgent(null)}
+        onOk={reset}
+        okText={t("checkpoints.reset.confirm")}
+        cancelText={t("common.cancel")}
+        confirmLoading={resetting}
+        okButtonProps={{ danger: true, disabled: !resetConfirmed }}
+        cancelButtonProps={{ disabled: resetting }}
+        closable={!resetting}
+        keyboard={!resetting}
+        maskClosable={false}
+      >
+        <p>{t("checkpoints.reset.description")}</p>
+        <Checkbox
+          checked={resetConfirmed}
+          disabled={resetting}
+          onChange={(event) => setResetConfirmed(event.target.checked)}
+        >
+          {t("confirmation.acknowledgeCheckpointReset")}
+        </Checkbox>
+      </Modal>
 
       <Modal
         open={snapshotOpen}

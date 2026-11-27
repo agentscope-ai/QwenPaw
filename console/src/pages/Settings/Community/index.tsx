@@ -132,6 +132,7 @@ export default function CommunitySettings() {
       okText: t("community.disconnect"),
       cancelText: t("common.cancel"),
       okButtonProps: { danger: true },
+      autoFocusButton: "cancel",
       onOk: () =>
         run(async () => {
           await communityConnectionApi.disconnect();
@@ -349,6 +350,8 @@ export default function CommunitySettings() {
                               content: t("community.clearPasswordDescription"),
                               okText: t("community.clearPassword"),
                               cancelText: t("common.cancel"),
+                              okButtonProps: { danger: true },
+                              autoFocusButton: "cancel",
                               onOk: () =>
                                 run(async () => {
                                   await communityConnectionApi.clearPassword();

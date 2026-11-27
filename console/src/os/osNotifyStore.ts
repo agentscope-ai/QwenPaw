@@ -30,6 +30,7 @@ export interface OsNotifyItem {
    *  approve/deny directly via commandsApi.sendApprovalCommand. */
   requestId?: string;
   rootSessionId?: string;
+  canApproveOnce?: boolean;
 }
 
 const HISTORY_CAP = 50;
@@ -68,6 +69,7 @@ interface OsNotifyState {
   ) => void;
   dismissToast: (id: string) => void;
   dismissItem: (id: string) => void;
+  requireApprovalReview: (id: string) => void;
   setCenter: (open: boolean) => void;
   markAllRead: () => void;
   clearHistory: () => void;
@@ -171,6 +173,13 @@ export const useOsNotify = create<OsNotifyState>((set, get) => ({
       toasts: s.toasts.filter((t) => t.id !== id),
       history: s.history.filter((h) => h.id !== id),
     })),
+
+  requireApprovalReview: (id) =>
+    set((s) => {
+      const update = (item: OsNotifyItem) =>
+        item.id === id ? { ...item, canApproveOnce: false } : item;
+      return { toasts: s.toasts.map(update), history: s.history.map(update) };
+    }),
 
   setCenter: (open) =>
     set((s) => ({

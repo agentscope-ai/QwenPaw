@@ -7,6 +7,23 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import en from "../../locales/en.json";
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string, values: Record<string, string> = {}) => {
+      const template = key.split(".").reduce<unknown>((value, part) => {
+        return (value as Record<string, unknown> | undefined)?.[part];
+      }, en);
+      return typeof template === "string"
+        ? template.replace(
+            /\{\{(\w+)\}\}/g,
+            (match, name) => values[name] ?? match,
+          )
+        : key;
+    },
+  }),
+}));
 
 const gitMocks = vi.hoisted(() => ({
   status: vi.fn(),
@@ -180,7 +197,7 @@ describe("GitPanel", () => {
     );
   });
 
-  it("discards an unstaged file through the confirm popover", async () => {
+  it("discards only the unstaged changes of a tracked file after confirmation", async () => {
     const user = userEvent.setup();
     gitMocks.status.mockResolvedValue(
       makeStatus({
@@ -190,18 +207,69 @@ describe("GitPanel", () => {
     render(<GitPanel />);
     await waitFor(() => expect(screen.getByText("b.ts")).toBeInTheDocument());
 
-    const row = screen
-      .getByText("b.ts")
-      .closest("[class*='fileRow']") as HTMLElement;
-    // Row button order: [View diff, Discard, Stage]
-    await user.click(within(row).getAllByRole("button")[1]);
-    await waitFor(() =>
-      expect(screen.getByText("Discard")).toBeInTheDocument(),
+    await user.click(
+      screen.getByRole("button", { name: "Discard file changes: b.ts" }),
     );
-    await user.click(screen.getByText("Discard"));
+    expect(
+      screen.getByText("Unstaged changes to b.ts will be lost."),
+    ).toBeInTheDocument();
+    expect(gitMocks.discard).not.toHaveBeenCalled();
+    await user.click(
+      screen.getByRole("button", { name: "Discard file changes" }),
+    );
     await waitFor(() =>
       expect(gitMocks.discard).toHaveBeenCalledWith(["b.ts"], undefined),
     );
+  });
+
+  it("warns that deleting an untracked file is permanent and lets users keep it", async () => {
+    const user = userEvent.setup();
+    gitMocks.status.mockResolvedValue(
+      makeStatus({
+        changes: [{ path: "dir/new.ts", status: "?", staged: false }],
+      }),
+    );
+    render(<GitPanel chatId="chat-1" />);
+
+    const trigger = await screen.findByRole("button", {
+      name: "Delete untracked item: dir/new.ts",
+    });
+    await user.click(trigger);
+    expect(
+      screen.getByText(
+        "This permanently deletes dir/new.ts. For a folder, Git also deletes its untracked contents. Git cannot recover what is deleted.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Keep item" }));
+    expect(gitMocks.discard).not.toHaveBeenCalled();
+
+    await user.click(trigger);
+    await user.click(
+      screen.getByRole("button", { name: "Delete untracked item" }),
+    );
+    expect(gitMocks.discard).toHaveBeenCalledExactlyOnceWith(
+      ["dir/new.ts"],
+      "chat-1",
+    );
+  });
+
+  it("uses the same irreversible deletion warning for an untracked folder", async () => {
+    const user = userEvent.setup();
+    gitMocks.status.mockResolvedValue(
+      makeStatus({
+        changes: [{ path: "new-folder", status: "?", staged: false }],
+      }),
+    );
+    render(<GitPanel />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Delete untracked item: new-folder",
+      }),
+    );
+    expect(
+      screen.getByText(/permanently deletes new-folder.*untracked contents/),
+    ).toBeInTheDocument();
+    expect(gitMocks.discard).not.toHaveBeenCalled();
   });
 
   it("opens the diff viewer for a file", async () => {
@@ -376,8 +444,9 @@ describe("GitPanel", () => {
       .getByText("first commit")
       .closest("[class*='logEntry']") as HTMLElement;
     await user.click(within(logEntry).getAllByRole("button")[1]);
-    await waitFor(() => expect(screen.getByText("Revert")).toBeInTheDocument());
-    await user.click(screen.getByText("Revert"));
+    await user.click(
+      await screen.findByRole("button", { name: "Revert this commit" }),
+    );
     await waitFor(() => expect(gitMocks.revert).toHaveBeenCalled());
   });
 
@@ -405,8 +474,9 @@ describe("GitPanel", () => {
     );
 
     await user.click(within(logEntry).getAllByRole("button")[1]);
-    await waitFor(() => expect(screen.getByText("Revert")).toBeInTheDocument());
-    await user.click(screen.getByText("Revert"));
+    await user.click(
+      await screen.findByRole("button", { name: "Revert this commit" }),
+    );
     await waitFor(() =>
       expect(gitMocks.revert).toHaveBeenCalledWith("abc123", undefined),
     );
@@ -474,7 +544,7 @@ describe("GitPanel", () => {
 
     const nameInput = await screen.findByPlaceholderText("branch-name");
     await user.type(nameInput, "my-branch");
-    await user.click(screen.getByText("Create & Switch"));
+    await user.click(screen.getByRole("button", { name: "Create and switch" }));
 
     await waitFor(() =>
       expect(gitMocks.checkout).toHaveBeenCalledWith(
@@ -499,7 +569,7 @@ describe("GitPanel", () => {
     await user.click(screen.getByText("New branch"));
 
     await screen.findByPlaceholderText("branch-name");
-    await user.click(screen.getByText("Create & Switch"));
+    await user.click(screen.getByRole("button", { name: "Create and switch" }));
     await settle();
     expect(gitMocks.checkout).not.toHaveBeenCalled();
   });
@@ -560,7 +630,7 @@ describe("GitPanel", () => {
 
     const nameInput = await screen.findByPlaceholderText("branch-name");
     await user.type(nameInput, "my-branch");
-    await user.click(screen.getByText("Create & Switch"));
+    await user.click(screen.getByRole("button", { name: "Create and switch" }));
 
     await waitFor(() =>
       expect(gitMocks.checkout).toHaveBeenCalledWith(

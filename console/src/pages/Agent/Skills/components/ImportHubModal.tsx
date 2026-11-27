@@ -123,7 +123,7 @@ export function ImportHubModal({
             loading={importing}
             disabled={!canImport}
           >
-            {t("common.confirm")}
+            {t("skills.importSkills")}
           </Button>
         </div>
       }

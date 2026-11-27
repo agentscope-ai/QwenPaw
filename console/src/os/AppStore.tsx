@@ -119,7 +119,8 @@ export default function AppStore() {
     osModal.confirm({
       title: t("os.uninstallConfirmTitle", "Uninstall app?"),
       content: p.name,
-      okText: t("os.uninstall", "Uninstall"),
+      okText: t("confirmation.uninstallApp"),
+      autoFocusButton: "cancel",
       okButtonProps: { danger: true },
       cancelText: t("common.cancel", "Cancel"),
       onOk: async () => {

@@ -225,12 +225,14 @@ export function useSkillPool() {
   ].some((skill) => skill.status === "outdated");
 
   const confirmOverwrite = useCallback(
-    (title: string, content: ReactNode) =>
+    (title: string, okText: string, content: ReactNode) =>
       new Promise<boolean>((resolve) => {
         Modal.confirm({
           title,
           content,
-          okText: t("common.confirm"),
+          okText,
+          okButtonProps: { danger: true },
+          autoFocusButton: "cancel",
           cancelText: t("common.cancel"),
           onOk: () => resolve(true),
           onCancel: () => resolve(false),
@@ -641,6 +643,13 @@ export function useSkillPool() {
           : t("skillPool.overwriteTargetsContent");
         const confirmed = await confirmOverwrite(
           title,
+          t(
+            allBuiltinUpgrades
+              ? "confirmation.updateSkills"
+              : allLanguageSwitch
+              ? "confirmation.changeSkillLanguage"
+              : "confirmation.overwriteSkills",
+          ),
           <div style={{ display: "grid", gap: 8 }}>
             <div>{subtitle}</div>
             {conflicts.map((conflict) => (
@@ -816,7 +825,9 @@ export function useSkillPool() {
               ))}
             </div>
           ),
-          okText: t("common.confirm"),
+          okText: t("confirmation.useSourceVersion"),
+          okButtonProps: { danger: true },
+          autoFocusButton: "cancel",
           cancelText: t("common.cancel"),
           onOk: async () => {
             await handleImportBuiltins(selections, true);
@@ -840,6 +851,7 @@ export function useSkillPool() {
       if (skill.builtin_language === normalized) return;
       const confirmed = await confirmOverwrite(
         t("skillPool.builtinLanguageChangeTitle"),
+        t("confirmation.changeSkillLanguage"),
         t("skillPool.builtinLanguageChangeContent", {
           name: skill.name,
           language:
@@ -959,6 +971,7 @@ export function useSkillPool() {
       if (affected.length > 0) {
         const confirmed = await confirmOverwrite(
           t("skillPool.renameAffectsTitle"),
+          t("confirmation.renameAndSync"),
           <div style={{ display: "grid", gap: 8 }}>
             <div>
               {t("skillPool.renameAffectsContent", {
@@ -1079,6 +1092,7 @@ export function useSkillPool() {
       if (mode === "edit" && detail?.reason === "conflict") {
         const confirmed = await confirmOverwrite(
           t("skillPool.overwriteConfirm"),
+          t("confirmation.overwritePoolSkills"),
           <div style={{ display: "grid", gap: 8 }}>
             <div>{t("skills.overwriteExistingList")}</div>
             <ul style={{ margin: 0, paddingLeft: 20 }}>
@@ -1133,7 +1147,8 @@ export function useSkillPool() {
         : skill.source === "builtin"
         ? t("skillPool.deleteBuiltinConfirm")
         : t("skillPool.deleteConfirm"),
-      okText: t("common.delete"),
+      okText: t("confirmation.deletePoolSkill"),
+      autoFocusButton: "cancel",
       cancelText: t("common.cancel"),
       okType: "danger",
       onOk: async () => {
@@ -1290,8 +1305,9 @@ export function useSkillPool() {
             )}
           </>
         ),
-        okText: t("common.delete"),
+        okText: t("confirmation.deleteSelectedSkills"),
         okType: "danger",
+        autoFocusButton: "cancel",
         cancelText: t("common.cancel"),
         onOk: () => resolve(true),
         onCancel: () => resolve(false),

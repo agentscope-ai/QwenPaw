@@ -1,0 +1,20 @@
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--app-space-2);
+
+  button:global(.ant-btn) {
+    margin: 0;
+    max-width: 100%;
+    min-height: 40px;
+    height: auto;
+    white-space: normal;
+  }
+}
+
+@media (any-pointer: coarse) {
+  .actions button:global(.ant-btn) {
+    min-height: var(--app-hit-touch);
+  }
+}

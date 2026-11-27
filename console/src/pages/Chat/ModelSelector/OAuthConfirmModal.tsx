@@ -184,7 +184,7 @@ export function OAuthConfirmModal({
           <div className={styles.oauthModalActions}>
             <Button onClick={onCancel}>{t("common.cancel")}</Button>
             <Button type="primary" onClick={handleContinue}>
-              {t("modelSelector.oauthContinue")}
+              {t("confirmation.openAuthorization")}
             </Button>
           </div>
         </div>
@@ -197,7 +197,9 @@ export function OAuthConfirmModal({
           <p className={styles.oauthModalDescription}>
             {t("modelSelector.oauthWaitingDescription")}
           </p>
-          <Button onClick={onCancel}>{t("common.cancel")}</Button>
+          <Button onClick={onCancel}>
+            {t(flow ? "confirmation.cancelAuthorization" : "common.close")}
+          </Button>
         </div>
       )}
     </Modal>

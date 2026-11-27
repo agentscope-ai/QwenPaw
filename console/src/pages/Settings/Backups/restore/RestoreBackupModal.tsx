@@ -338,7 +338,7 @@ export default function RestoreBackupModal({
         onOk={handleOk}
         confirmLoading={loading}
         okButtonProps={{ disabled: okDisabled, danger: true }}
-        okText={t("common.confirm")}
+        okText={t("confirmation.restoreBackup")}
         destroyOnHidden
         centered
         width={680}
@@ -564,6 +564,7 @@ export default function RestoreBackupModal({
         </div>
       </Modal>
       <BackupTrustDialog
+        action="restore"
         open={!!trustPrompt}
         mode={trustPrompt?.mode ?? "legacy"}
         backupName={backup.name}

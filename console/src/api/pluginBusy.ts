@@ -25,6 +25,7 @@ export async function requestWithPluginBusyConfirmation(
       okText: i18n.t(`pluginManager.busy.${action}.confirm`),
       cancelText: i18n.t(`pluginManager.busy.${action}.cancel`),
       okType: "danger",
+      autoFocusButton: "cancel",
       onOk: () => resolve(true),
       onCancel: () => resolve(false),
       afterClose: () => resolve(false),

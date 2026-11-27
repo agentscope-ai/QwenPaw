@@ -7,13 +7,15 @@
  *   2. A slide-in Notification Center panel (toggled from the menu-bar bell)
  *      listing the full notification history with a clear-all action.
  */
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { App } from "antd";
 import { ShieldAlert, Inbox, Bell, X, Trash2 } from "lucide-react";
 import { useOsWindows } from "./osWindowStore";
+import { useOsRoute } from "./osRouteStore";
 import { STORE_APP } from "./osApps";
 import { commandsApi } from "../api/modules/commands";
+import { ApiError } from "../api/request";
 import {
   useOsNotify,
   type OsNotifyItem,
@@ -48,6 +50,7 @@ function formatTime(ms: number): string {
 /** Open the Inbox window on the tab that matches the notification kind. */
 function useOpenInbox() {
   const open = useOsWindows((s) => s.open);
+  const openApp = useOsRoute((s) => s.openApp);
   return (item: OsNotifyItem) => {
     const tab = item.kind === "approval" ? "approvals" : "messages";
     const sourceType =
@@ -61,6 +64,11 @@ function useOpenInbox() {
       /* storage unavailable — Inbox falls back to its default tab */
     }
     if (INBOX_ROUTE === STORE_APP.routeId) return; // guard (never true)
+    if (item.kind === "approval" && item.requestId) {
+      const query = new URLSearchParams({ tab, approval: item.requestId });
+      openApp(INBOX_ROUTE, `/inbox?${query}`);
+      return;
+    }
     // Geometry comes from the app registry manifest, like every entry point.
     open(INBOX_ROUTE);
     window.dispatchEvent(
@@ -76,11 +84,16 @@ function ApprovalActions({ item }: { item: OsNotifyItem }) {
   const { t } = useTranslation();
   const { message } = App.useApp();
   const dismissItem = useOsNotify((s) => s.dismissItem);
+  const requireApprovalReview = useOsNotify((s) => s.requireApprovalReview);
+  const setCenter = useOsNotify((s) => s.setCenter);
+  const openInbox = useOpenInbox();
+  const submitting = useRef(false);
   const [busy, setBusy] = useState(false);
 
   const act = async (action: "approve" | "deny", e: MouseEvent) => {
     e.stopPropagation();
-    if (busy || !item.requestId) return;
+    if (submitting.current || !item.requestId || !item.canApproveOnce) return;
+    submitting.current = true;
     setBusy(true);
     try {
       await commandsApi.sendApprovalCommand(
@@ -88,19 +101,44 @@ function ApprovalActions({ item }: { item: OsNotifyItem }) {
         item.requestId,
         item.rootSessionId || "",
       );
-      // Only drop the notification once the backend accepted the command —
-      // the approval is still pending otherwise and must stay actionable.
       dismissItem(item.id);
     } catch (err) {
-      message.error(
-        err instanceof Error
-          ? err.message
-          : t("os.approvalActionFailed", "Action failed, please retry"),
-      );
+      if (
+        err instanceof ApiError &&
+        (err.status === 404 || err.status === 409)
+      ) {
+        dismissItem(item.id);
+        message.warning(t("approval.unavailable"));
+      } else if (!(err instanceof ApiError) || err.status >= 500) {
+        requireApprovalReview(item.id);
+        message.error(t("approval.submitUnconfirmed"));
+      } else {
+        message.error(err.message);
+      }
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
+
+  if (!item.canApproveOnce) {
+    return (
+      <div
+        className={styles.notifyActions}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          className={styles.notifyApproveBtn}
+          onClick={() => {
+            openInbox(item);
+            setCenter(false);
+          }}
+        >
+          {t("confirmation.reviewApproval")}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.notifyActions} onClick={(e) => e.stopPropagation()}>

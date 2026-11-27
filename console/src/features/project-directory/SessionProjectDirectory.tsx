@@ -1148,7 +1148,7 @@ export default function SessionProjectDirectory({
                 size="small"
                 loading={createDirectoryLoading}
                 disabled={!newDirectoryName.trim()}
-                aria-label={t("common.confirm")}
+                aria-label={t("projectDirectory.createDirectory")}
                 icon={<Check size={14} />}
                 onClick={() => void createDirectory()}
               />

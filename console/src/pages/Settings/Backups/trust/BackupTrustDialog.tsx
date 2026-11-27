@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
  * explicit before the backend accepts or signs a foreign/legacy archive.
  */
 interface Props {
+  action: "import" | "restore";
   open: boolean;
   mode: "foreign" | "legacy";
   backupName?: string;
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export default function BackupTrustDialog({
+  action,
   open,
   mode,
   backupName,
@@ -42,7 +44,11 @@ export default function BackupTrustDialog({
       onCancel={onCancel}
       confirmLoading={confirmLoading}
       okButtonProps={{ danger: true }}
-      okText={t("common.confirm")}
+      okText={t(
+        action === "import"
+          ? "confirmation.trustImport"
+          : "confirmation.trustRestore",
+      )}
       cancelText={t("common.cancel")}
       centered
     >
@@ -54,7 +60,9 @@ export default function BackupTrustDialog({
           t("backup.unknownBackupName", { defaultValue: "Backup archive" })
         }
         description={
-          isLegacy
+          action === "import"
+            ? t("confirmation.trustImportHint")
+            : isLegacy
             ? t("backup.trustLegacyDesc", {
                 defaultValue:
                   "This older backup has no local signature. Only continue if you trust where it came from; this instance will sign it before restore.",

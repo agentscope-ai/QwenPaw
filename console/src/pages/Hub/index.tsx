@@ -860,7 +860,10 @@ export default function HubPage() {
                                             "hub.runtimes.disableDescription",
                                           ),
                                           okButtonProps: { danger: true },
-                                          okText: t("hub.actions.disable"),
+                                          okText: t(
+                                            "confirmation.disableRuntime",
+                                          ),
+                                          autoFocusButton: "cancel",
                                           onOk: () =>
                                             runRuntimeAction(
                                               runtime.runtime_id,
@@ -887,6 +890,11 @@ export default function HubPage() {
                                           content: t(
                                             "hub.runtimes.rebuildDescription",
                                           ),
+                                          okText: t(
+                                            "confirmation.rebuildRuntime",
+                                          ),
+                                          okButtonProps: { danger: true },
+                                          autoFocusButton: "cancel",
                                           onOk: () =>
                                             runRuntimeAction(
                                               runtime.runtime_id,
@@ -915,6 +923,10 @@ export default function HubPage() {
                                         content: t(
                                           "hub.runtimes.removeDescription",
                                         ),
+                                        okText: t(
+                                          "confirmation.removeRegistration",
+                                        ),
+                                        autoFocusButton: "cancel",
                                         okButtonProps: { danger: true },
                                         onOk: () =>
                                           runRuntimeAction(
@@ -1044,6 +1056,10 @@ export default function HubPage() {
                                       content: t(
                                         "hub.credentials.deleteDescription",
                                       ),
+                                      okText: t(
+                                        "confirmation.deleteCredential",
+                                      ),
+                                      autoFocusButton: "cancel",
                                       okButtonProps: { danger: true },
                                       onOk: async () => {
                                         await hubApi.deleteCredential(

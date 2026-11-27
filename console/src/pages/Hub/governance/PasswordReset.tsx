@@ -29,6 +29,7 @@ export default function PasswordReset({ user }: { user: HubUser }) {
         destroyOnHidden
         confirmLoading={busy}
         onOk={() => form.submit()}
+        okText={t("hub.governance.password.reset")}
         afterClose={() => form.resetFields()}
       >
         <p>{t("hub.governance.password.hint")}</p>

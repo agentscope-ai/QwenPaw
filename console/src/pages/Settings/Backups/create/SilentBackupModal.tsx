@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Button, Modal } from "antd";
+import { Alert, Button, Modal } from "antd";
 import { useTranslation } from "react-i18next";
 import type { BackupMeta } from "@/api/types/backup";
 import { useBackupRunner } from "../shared/useBackupRunner";
@@ -27,7 +27,11 @@ export default function SilentBackupModal({
   onSuccess,
 }: Props) {
   const { t } = useTranslation();
-  const runner = useBackupRunner({ onSuccess, onClose });
+  const runner = useBackupRunner({
+    onSuccess,
+    onClose,
+    resumeActiveOnStartFailure: false,
+  });
 
   useEffect(() => {
     if (!target) return;
@@ -38,29 +42,45 @@ export default function SilentBackupModal({
       scope,
       agents,
     });
-    // runner.start is stable (doesn't change between renders)
+    // Start one snapshot for the selected restore target.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 
   return (
     <Modal
-      title={t("backup.creatingPreRestoreBackup")}
+      title={t(
+        runner.failed
+          ? "backup.preRestoreBackupFailed"
+          : "backup.creatingPreRestoreBackup",
+      )}
       open={target !== null}
-      onCancel={runner.cancel}
+      onCancel={runner.loading ? runner.cancel : onClose}
       footer={
-        <Button danger onClick={runner.cancel}>
-          {t("common.cancel")}
-        </Button>
+        runner.loading ? (
+          <Button danger loading={runner.cancelling} onClick={runner.cancel}>
+            {t(
+              runner.cancelling
+                ? "confirmation.cancellingBackup"
+                : "confirmation.cancelBackup",
+            )}
+          </Button>
+        ) : (
+          <Button onClick={onClose}>{t("common.close")}</Button>
+        )
       }
       destroyOnHidden
       centered
       closable={false}
       maskClosable={false}
     >
-      <BackupProgress
-        progress={runner.progress}
-        progressMsg={runner.progressMsg}
-      />
+      {runner.failed ? (
+        <Alert type="error" message={t("backup.preRestoreBackupFailedHint")} />
+      ) : (
+        <BackupProgress
+          progress={runner.progress}
+          progressMsg={runner.progressMsg}
+        />
+      )}
     </Modal>
   );
 }

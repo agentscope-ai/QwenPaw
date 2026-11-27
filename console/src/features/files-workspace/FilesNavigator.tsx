@@ -627,10 +627,13 @@ export default function FilesNavigator({
       modal.confirm({
         title: t("files.changeDirectoryTitle"),
         content: t("files.changeDirectoryWarning"),
-        okText: t("common.confirm"),
-        cancelText: t("common.cancel"),
+        okText: t("confirmation.discardAndSwitch"),
+        cancelText: t("common.keepEditing"),
+        autoFocusButton: "cancel",
+        okButtonProps: { danger: true },
         onOk: () => resolve(true),
         onCancel: () => resolve(false),
+        afterClose: () => resolve(false),
       });
     });
   }, [modal, scopeKey, t]);

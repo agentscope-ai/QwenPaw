@@ -262,14 +262,17 @@ export function FileGuardSection({
                       <code className={local.confirmPath}>{path}</code>
                     }
                     onConfirm={() => handleRemove(path)}
-                    okText={t("common.delete")}
+                    okText={t("confirmation.removeFileProtection")}
                     cancelText={t("common.cancel")}
+                    okButtonProps={{ danger: true }}
                   >
                     <Button
                       type="text"
                       danger
                       icon={<DeleteOutlined size={16} />}
-                      aria-label={`${t("common.delete")}: ${path}`}
+                      aria-label={`${t(
+                        "confirmation.removeFileProtection",
+                      )}: ${path}`}
                     />
                   </Popconfirm>
                 </motion.li>

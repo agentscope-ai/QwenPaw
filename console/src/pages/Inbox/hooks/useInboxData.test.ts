@@ -548,6 +548,29 @@ describe("useInboxData", () => {
     expect(result.current.pushMessages.map((m) => m.id)).toEqual(["b"]);
   });
 
+  it("identifies the successful IDs after a partial deletion", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "a" }), event({ id: "b" })],
+      total: 2,
+      unread_count: 2,
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => expect(result.current.pushMessages).toHaveLength(2));
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "a" })],
+      total: 1,
+      unread_count: 1,
+    });
+    mocks.deleteInboxEvent.mockRejectedValueOnce(new Error("offline"));
+
+    await act(async () => {
+      expect(await result.current.deleteMessages(["a", "b"])).toEqual(["b"]);
+    });
+    expect(result.current.pushMessages.map((message) => message.id)).toEqual([
+      "a",
+    ]);
+  });
+
   it("re-syncs list and badge from server data on the next poll after delete", async () => {
     vi.useFakeTimers();
     mocks.getInboxEvents.mockResolvedValue({
@@ -583,13 +606,11 @@ describe("useInboxData", () => {
     vi.useRealTimers();
   });
 
-  it("returns zero deleted for an empty id list without API calls", async () => {
+  it("returns no deleted IDs for an empty id list without API calls", async () => {
     const { result } = renderHook(() => useInboxData());
-    let deleted = -1;
     await act(async () => {
-      deleted = await result.current.deleteMessages(["", "  "]);
+      expect(await result.current.deleteMessages(["", "  "])).toEqual([]);
     });
-    expect(deleted).toBe(0);
     expect(mocks.deleteInboxEvent).not.toHaveBeenCalled();
   });
 

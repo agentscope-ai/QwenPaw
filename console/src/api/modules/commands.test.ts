@@ -19,6 +19,22 @@ describe("commandsApi", () => {
     vi.clearAllMocks();
   });
 
+  it("checks the specific pending request with a fresh, root-scoped read", async () => {
+    vi.mocked(request).mockResolvedValue({
+      pending_approvals: [{ request_id: "target" }],
+    });
+    await expect(
+      commandsApi.isApprovalPending("target", "root/+1"),
+    ).resolves.toBe(true);
+    await expect(
+      commandsApi.isApprovalPending("other", "root/+1"),
+    ).resolves.toBe(false);
+    expect(request).toHaveBeenLastCalledWith(
+      "/approval/list?session_id=root%2F%2B1",
+      { cache: "no-store" },
+    );
+  });
+
   it("checkCommand returns boolean is_control_command (true)", async () => {
     vi.mocked(request).mockResolvedValue({
       is_control_command: true,

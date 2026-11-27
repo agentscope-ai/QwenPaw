@@ -4,11 +4,11 @@
  * user-visible contract: which icon and which label each notification kind
  * gets, that approval banners keep their quick approve/deny actions while
  * inbox banners do not, that the approval command is sent with the id and
- * session taken from the item, that a rejected command surfaces the backend
- * message and KEEPS the banner actionable (the approval is still pending),
- * that a successful one drops it, that inbox banners auto dismiss on a timer
- * while approval banners never do, that clicking a banner records which Inbox
- * tab to open and survives an unavailable localStorage, and the Notification
+ * session taken from the item, that ambiguous failures require Inbox review,
+ * that expired or resolved requests are removed, that inbox banners auto
+ * dismiss on a timer while approval banners never do, and that clicking a
+ * banner records which Inbox tab to open and survives an unavailable
+ * localStorage, and the Notification
  * Center panel's empty state, clear-all and close actions.
  *
  * Two environment facts drive the assertions here, both measured rather than
@@ -33,6 +33,7 @@
 import { act, cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
+import { ApiError } from "../api/request";
 
 const h = vi.hoisted(() => ({ send: vi.fn() }));
 
@@ -50,6 +51,7 @@ vi.mock("react-i18next", () => ({
 import NotificationCenter from "./NotificationCenter";
 import { useOsNotify, type OsNotifyItem } from "./osNotifyStore";
 import { useOsWindows } from "./osWindowStore";
+import { useOsRoute } from "./osRouteStore";
 
 const INBOX_TAB_KEY = "qwenpaw.inbox.activeTab";
 
@@ -63,6 +65,7 @@ function makeItem(overrides: Partial<OsNotifyItem> = {}): OsNotifyItem {
     read: false,
     requestId: "req-1",
     rootSessionId: "sess-1",
+    canApproveOnce: true,
     ...overrides,
   };
 }
@@ -191,6 +194,21 @@ describe("NotificationCenter - banners", () => {
 });
 
 describe("NotificationCenter - approval actions", () => {
+  it("routes requests with unknown or broader effects to the Inbox", () => {
+    seedStore({ toasts: [makeItem({ canApproveOnce: false })] });
+    renderWithProviders(<NotificationCenter />);
+
+    expect(screen.queryByText("Approve")).toBeNull();
+    expect(screen.queryByText("Deny")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "confirmation.reviewApproval" }),
+    );
+    expect(window.localStorage.getItem(INBOX_TAB_KEY)).toBe("approvals");
+    expect(useOsRoute.getState().targets["core.inbox"].path).toBe(
+      "/inbox?tab=approvals&approval=req-1",
+    );
+    expect(h.send).not.toHaveBeenCalled();
+  });
   it("offers approve and deny only when the item carries a request id", () => {
     seedStore({ toasts: [makeItem()] });
     renderWithProviders(<NotificationCenter />);
@@ -258,34 +276,56 @@ describe("NotificationCenter - approval actions", () => {
     );
   });
 
-  it("keeps the banner actionable when the command fails and shows the backend message", async () => {
-    h.send.mockRejectedValue(new Error("gateway is down"));
-    seedStore({ toasts: [makeItem({ id: "ap:stay" })] });
-    renderWithProviders(<NotificationCenter />);
+  it.each([new TypeError("Disconnected"), new ApiError(502, "Bad gateway")])(
+    "requires Inbox review in both surfaces after an ambiguous failure: %s",
+    async (error) => {
+      h.send.mockRejectedValue(error);
+      const item = makeItem();
+      seedStore({ toasts: [item], history: [item] });
+      renderWithProviders(<NotificationCenter />);
 
-    fireEvent.click(screen.getByText("Approve"));
-    await act(async () => {
-      await Promise.resolve();
-    });
+      await act(async () => {
+        fireEvent.click(screen.getByText("Approve"));
+      });
+      expect(
+        await screen.findByText("approval.submitUnconfirmed"),
+      ).toBeInTheDocument();
+      act(() => useOsNotify.getState().setCenter(true));
+      expect(screen.queryByText("Approve")).toBeNull();
+      expect(screen.queryByText("Deny")).toBeNull();
+      const reviewButtons = screen.getAllByRole("button", {
+        name: "confirmation.reviewApproval",
+      });
+      expect(reviewButtons).toHaveLength(2);
+      fireEvent.click(reviewButtons[0]);
+      expect(useOsRoute.getState().targets["core.inbox"].path).toBe(
+        "/inbox?tab=approvals&approval=req-1",
+      );
+      expect(h.send).toHaveBeenCalledOnce();
+    },
+  );
 
-    expect(useOsNotify.getState().toasts.map((t) => t.id)).toContain("ap:stay");
-    expect(await screen.findByText("gateway is down")).toBeInTheDocument();
-  });
+  it.each([404, 409])(
+    "removes an unavailable approval after HTTP %s",
+    async (status) => {
+      h.send.mockRejectedValue(new ApiError(status, "Request unavailable"));
+      const item = makeItem();
+      seedStore({ toasts: [item], history: [item] });
+      renderWithProviders(<NotificationCenter />);
 
-  it("shows the generic fallback when the rejection is not an Error", async () => {
-    h.send.mockRejectedValue("plain string failure");
-    seedStore({ toasts: [makeItem()] });
-    renderWithProviders(<NotificationCenter />);
+      await act(async () => {
+        fireEvent.click(screen.getByText("Deny"));
+      });
 
-    fireEvent.click(screen.getByText("Deny"));
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    expect(
-      await screen.findByText("Action failed, please retry"),
-    ).toBeInTheDocument();
-  });
+      expect(screen.queryByText("Approve")).toBeNull();
+      expect(screen.queryByText("Deny")).toBeNull();
+      expect(useOsNotify.getState().history).toEqual([]);
+      expect(
+        await screen.findByText("approval.unavailable"),
+      ).toBeInTheDocument();
+      expect(h.send).toHaveBeenCalledOnce();
+    },
+  );
 
   it("disables both actions while a command is in flight", async () => {
     const gate = deferred<unknown>();
@@ -317,8 +357,8 @@ describe("NotificationCenter - approval actions", () => {
     expect(useOsNotify.getState().toasts).toHaveLength(0);
   });
 
-  it("re-enables both actions after a failure so the user can retry", async () => {
-    h.send.mockRejectedValue(new Error("transient"));
+  it("re-enables both actions after a definite rejection", async () => {
+    h.send.mockRejectedValue(new ApiError(403, "Permission denied"));
     seedStore({ toasts: [makeItem()] });
     renderWithProviders(<NotificationCenter />);
 
@@ -327,6 +367,7 @@ describe("NotificationCenter - approval actions", () => {
       await Promise.resolve();
     });
 
+    expect(await screen.findByText("Permission denied")).toBeInTheDocument();
     expect(screen.getByText("Approve")).not.toBeDisabled();
     expect(screen.getByText("Deny")).not.toBeDisabled();
 

@@ -77,7 +77,9 @@ describe("BroadcastModal cancel handling", () => {
     await user.click(
       screen.getByRole("button", { name: "skillPool.allWorkspaces" }),
     );
-    await user.click(screen.getByRole("button", { name: "OK" }));
+    await user.click(
+      screen.getByRole("button", { name: "confirmation.loadSkillsToAgents" }),
+    );
     await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1));
 
     await user.click(

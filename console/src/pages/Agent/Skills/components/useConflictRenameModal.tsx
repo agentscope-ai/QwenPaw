@@ -61,6 +61,7 @@ export function useConflictRenameModal(): {
       open={items.length > 0}
       title={t("skillPool.multiConflictTitle")}
       onOk={handleOk}
+      okText={t("confirmation.useNewNames")}
       onCancel={cancelConflictRenameModal}
       zIndex={2100}
     >

@@ -163,11 +163,14 @@ export default function InboxPage() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab");
+  const requestedApproval = searchParams.get("approval");
   const [activeTab, setActiveTab] = useState<TabKey>(() =>
     requestedTab === "approvals" || requestedTab === "messages"
       ? requestedTab
       : resolveInitialTab(),
   );
+  const [verifiedApprovalLink, setVerifiedApprovalLink] = useState<string>();
+  const focusedApprovalRef = useRef<HTMLDivElement>(null);
   const [mailAclDrawerOpen, setMailAclDrawerOpen] = useState(false);
   const {
     pendingCount,
@@ -287,7 +290,14 @@ export default function InboxPage() {
     setApprovals((prev) =>
       prev.filter((item) => item.request_id !== requestId),
     );
-    message.success(t("approval.denied"));
+    message.success(
+      t(
+        pendingApprovals.find((item) => item.request_id === requestId)
+          ?.approval_behavior === "session_app"
+          ? "approval.appDenied"
+          : "approval.denied",
+      ),
+    );
   };
 
   const handleCancelTask = async (rootSessionId: string) => {
@@ -385,8 +395,10 @@ export default function InboxPage() {
       setSearchParams(
         (params) => {
           const next = new URLSearchParams(params);
+          if (next.has("approval") && detail?.tab) next.set("tab", detail.tab);
           if (source) next.set("source", source);
           else next.delete("source");
+          next.delete("approval");
           return next;
         },
         { replace: true },
@@ -397,6 +409,44 @@ export default function InboxPage() {
     window.addEventListener(INBOX_OPEN_EVENT, handleOpen);
     return () => window.removeEventListener(INBOX_OPEN_EVENT, handleOpen);
   }, [setSearchParams]);
+
+  useEffect(() => {
+    if (!requestedApproval || requestedTab !== "approvals") return;
+    let cancelled = false;
+    // Only shared polling snapshots populate the approval list.
+    void commandsApi
+      .isApprovalPending(requestedApproval)
+      .then((pending) => {
+        if (cancelled) return;
+        if (!pending) {
+          message.warning(t("approval.unavailable"));
+          return;
+        }
+        setVerifiedApprovalLink(location.key);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          message.error(t("approval.checkStatusFailed"));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [location.key, requestedApproval, requestedTab, t]);
+
+  useEffect(() => {
+    const card = focusedApprovalRef.current;
+    if (
+      activeTab !== "approvals" ||
+      verifiedApprovalLink !== location.key ||
+      !card
+    ) {
+      return;
+    }
+    card.focus({ preventScroll: true });
+    card.scrollIntoView?.({ block: "nearest" });
+    setVerifiedApprovalLink(undefined);
+  }, [activeTab, location.key, verifiedApprovalLink, pendingApprovals]);
 
   const changeSourceFilter = (value: string | undefined) => {
     setSelectedSourceTypeFilter(value);
@@ -463,10 +513,14 @@ export default function InboxPage() {
 
   const handleBatchDeleteMessages = async () => {
     if (!selectedMessageIds.length) return;
-    const deletedCount = await deleteMessages(selectedMessageIds);
-    setSelectedMessageIds([]);
-    if (deletedCount > 0) {
-      message.success(t("inbox.batchDeleteSuccess", { count: deletedCount }));
+    const deletedIds = await deleteMessages(selectedMessageIds);
+    if (deletedIds.length > 0) {
+      const deleted = new Set(deletedIds);
+      setSelectedMessageIds((prev) => prev.filter((id) => !deleted.has(id)));
+      message.success(t("inbox.batchDeleteSuccess", { count: deleted.size }));
+    }
+    if (deletedIds.length < selectedMessageIds.length) {
+      message.error(t("communityInbox.deleteFailed"));
     }
   };
 
@@ -555,8 +609,9 @@ export default function InboxPage() {
                     title={t("inbox.batchDeleteConfirm", {
                       count: selectedMessageIds.length,
                     })}
-                    onConfirm={() => void handleBatchDeleteMessages()}
-                    okText={t("common.confirm")}
+                    onConfirm={handleBatchDeleteMessages}
+                    okText={t("confirmation.deleteSelectedMessages")}
+                    okButtonProps={{ danger: true }}
                     cancelText={t("common.cancel")}
                     disabled={selectedMessageIds.length <= 0}
                   >
@@ -672,57 +727,60 @@ export default function InboxPage() {
           {pendingApprovals.length > 0 ? (
             <div className={styles.cardList}>
               {pendingApprovals.map((approval) => (
-                <GlobalApprovalCard
+                <div
                   key={approval.request_id}
-                  requestId={approval.request_id}
-                  agentId={approval.agent_id}
-                  ownerAgentId={approval.owner_agent_id}
-                  showInboxAgentContext
-                  toolName={approval.tool_display_name || approval.tool_name}
-                  toolSource={approval.tool_source}
-                  severity={approval.severity}
-                  findingsCount={approval.findings_count}
-                  findingsSummary={approval.findings_summary}
-                  toolParams={approval.tool_params}
-                  reasoning={approval.reasoning}
-                  createdAt={approval.created_at}
-                  timeoutSeconds={approval.timeout_seconds}
-                  sessionId={approval.session_id}
-                  rootSessionId={approval.root_session_id}
-                  isGeneralized={approval.is_generalized}
-                  exactTarget={approval.exact_target}
-                  similarTarget={approval.similar_target}
-                  onApprove={(_reqId, scope) =>
-                    handleApproveRequest(
-                      approval.request_id,
-                      approval.root_session_id,
-                      scope,
-                    )
+                  className={styles.focusedApproval}
+                  tabIndex={-1}
+                  ref={
+                    requestedApproval === approval.request_id
+                      ? focusedApprovalRef
+                      : undefined
                   }
-                  onDeny={() =>
-                    handleRejectRequest(
-                      approval.request_id,
-                      approval.root_session_id,
-                    )
-                  }
-                  onCancel={() => {
-                    void handleCancelTask(approval.root_session_id);
-                  }}
-                  onAcknowledge={(requestId) => {
-                    return commandsApi
-                      .sendApprovalCommand(
-                        "deny",
-                        requestId,
+                >
+                  <GlobalApprovalCard
+                    requestId={approval.request_id}
+                    agentId={approval.agent_id}
+                    ownerAgentId={approval.owner_agent_id}
+                    showInboxAgentContext
+                    toolName={approval.tool_display_name || approval.tool_name}
+                    toolSource={approval.tool_source}
+                    severity={approval.severity}
+                    findingsCount={approval.findings_count}
+                    findingsSummary={approval.findings_summary}
+                    toolParams={approval.tool_params}
+                    reasoning={approval.reasoning}
+                    createdAt={approval.created_at}
+                    timeoutSeconds={approval.timeout_seconds}
+                    sessionId={approval.session_id}
+                    rootSessionId={approval.root_session_id}
+                    isGeneralized={approval.is_generalized}
+                    exactTarget={approval.exact_target}
+                    similarTarget={approval.similar_target}
+                    approvalBehavior={approval.approval_behavior}
+                    onApprove={(_reqId, scope) =>
+                      handleApproveRequest(
+                        approval.request_id,
+                        approval.root_session_id,
+                        scope,
+                      )
+                    }
+                    onDeny={() =>
+                      handleRejectRequest(
+                        approval.request_id,
                         approval.root_session_id,
                       )
-                      .catch(() => undefined)
-                      .then(() => {
-                        setApprovals((prev) =>
-                          prev.filter((item) => item.request_id !== requestId),
-                        );
-                      });
-                  }}
-                />
+                    }
+                    onCancel={() => {
+                      void handleCancelTask(approval.root_session_id);
+                    }}
+                    onAcknowledge={(requestId) => {
+                      setApprovals((prev) =>
+                        prev.filter((item) => item.request_id !== requestId),
+                      );
+                      return Promise.resolve();
+                    }}
+                  />
+                </div>
               ))}
             </div>
           ) : (
@@ -760,7 +818,14 @@ export default function InboxPage() {
         <MailProcessingPauses />
         <Tabs
           activeKey={activeTab}
-          onChange={(key) => setActiveTab(key as TabKey)}
+          onChange={(key) => {
+            setActiveTab(key as TabKey);
+            if (!requestedApproval) return;
+            const next = new URLSearchParams(searchParams);
+            next.delete("approval");
+            next.set("tab", key);
+            setSearchParams(next, { replace: true });
+          }}
           items={tabItems}
           className={styles.inboxTabs}
           tabBarExtraContent={

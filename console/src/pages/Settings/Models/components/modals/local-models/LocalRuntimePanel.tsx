@@ -85,7 +85,8 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
             model: serverStatus?.model_name ?? t("models.localLlamacppName"),
           })
         : t("models.localRuntimeUpdateConfirmContent"),
-      okText: t("common.confirm"),
+      okText: t("confirmation.updateEngine"),
+      autoFocusButton: "cancel",
       cancelText: t("common.cancel"),
       onOk: onStart,
     });

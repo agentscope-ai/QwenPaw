@@ -340,7 +340,12 @@ export function usePluginManager() {
         title: t("pluginManager.confirmTitle"),
         content: t("pluginManager.uninstallConfirm", { name: plugin.name }),
         okType: "danger",
-        okText: t("pluginManager.uninstall"),
+        okText: t(
+          plugin.plugin_type === "app"
+            ? "confirmation.uninstallApp"
+            : "confirmation.uninstallPlugin",
+        ),
+        autoFocusButton: "cancel",
         cancelText: t("common.cancel"),
         onOk: async () => {
           setUninstallingId(plugin.id);

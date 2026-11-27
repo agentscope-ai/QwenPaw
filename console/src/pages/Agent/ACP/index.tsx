@@ -563,7 +563,8 @@ function ACPPage() {
     Modal.confirm({
       title: t("acp.deleteTitle", { name: activeKey }),
       content: t("acp.deleteConfirm"),
-      okText: t("common.delete"),
+      okText: t("confirmation.deleteIntegration"),
+      autoFocusButton: "cancel",
       cancelText: t("common.cancel"),
       okButtonProps: { danger: true },
       async onOk() {

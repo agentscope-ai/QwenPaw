@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Button,
   Input,
@@ -30,6 +31,7 @@ import {
   Minus,
   FileDiff,
   RotateCcw,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { gitApi } from "../../api/modules/git";
@@ -64,6 +66,7 @@ function StatusBadge({ status }: { status: string }) {
 // ---------------------------------------------------------------------------
 
 export default function GitPanel({ chatId }: { chatId?: string }) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -423,7 +426,7 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
                         file={f}
                         onStage={() => void handleStage(f)}
                         onDiff={() => void handleShowDiff(f)}
-                        onDiscard={() => void handleDiscard(f)}
+                        onDiscard={() => handleDiscard(f)}
                         actionIcon={<Plus size={11} />}
                         actionTip="Stage"
                       />
@@ -470,11 +473,13 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
                             </button>
                           </Tooltip>
                           <Popconfirm
-                            title={`Revert commit "${c.message}"?`}
-                            description="This creates a new commit that undoes these changes."
+                            title={t("confirmation.revertCommit")}
+                            description={`${c.message} — ${t(
+                              "confirmation.revertCommitHint",
+                            )}`}
                             onConfirm={() => void handleRevert(c)}
-                            okText="Revert"
-                            cancelText="Cancel"
+                            okText={t("confirmation.revertCommit")}
+                            cancelText={t("common.cancel")}
                             placement="topRight"
                           >
                             <Tooltip title="Revert this commit">
@@ -554,7 +559,7 @@ export default function GitPanel({ chatId }: { chatId?: string }) {
           setNewBranchModal(false);
           setNewBranchName("");
         }}
-        okText="Create & Switch"
+        okText={t("confirmation.createAndSwitchBranch")}
         width={360}
       >
         <Input
@@ -577,7 +582,7 @@ interface FileRowProps {
   file: GitChangedFile;
   onStage: () => void;
   onDiff: () => void;
-  onDiscard?: () => void;
+  onDiscard?: () => Promise<void>;
   actionIcon: React.ReactNode;
   actionTip: string;
 }
@@ -590,7 +595,14 @@ function FileRow({
   actionIcon,
   actionTip,
 }: FileRowProps) {
+  const { t } = useTranslation();
   const name = file.path.split("/").pop() ?? file.path;
+  const untracked = file.status === "?";
+  const discardLabel = t(
+    untracked
+      ? "confirmation.deleteUntrackedItem"
+      : "confirmation.discardFileChanges",
+  );
   return (
     <div className={styles.fileRow}>
       <StatusBadge status={file.status} />
@@ -605,17 +617,30 @@ function FileRow({
         </Tooltip>
         {onDiscard && (
           <Popconfirm
-            title="Discard changes?"
-            description={`Discard all changes in ${file.path}?`}
+            title={discardLabel}
+            description={t(
+              untracked
+                ? "confirmation.deleteUntrackedItemHint"
+                : "confirmation.discardFileChangesHint",
+              { path: file.path },
+            )}
             onConfirm={onDiscard}
-            okText="Discard"
-            cancelText="Cancel"
+            okText={discardLabel}
+            cancelText={t(
+              untracked
+                ? "confirmation.keepUntrackedItem"
+                : "confirmation.keepFileChanges",
+            )}
             okButtonProps={{ danger: true }}
             placement="topRight"
           >
-            <Tooltip title="Discard changes">
-              <button type="button" className={styles.iconBtn}>
-                <RotateCcw size={11} />
+            <Tooltip title={discardLabel}>
+              <button
+                type="button"
+                className={styles.iconBtn}
+                aria-label={`${discardLabel}: ${file.path}`}
+              >
+                {untracked ? <Trash2 size={11} /> : <RotateCcw size={11} />}
               </button>
             </Tooltip>
           </Popconfirm>

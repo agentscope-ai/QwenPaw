@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Button, Input, Tooltip } from "@agentscope-ai/design";
-import { Switch } from "antd";
+import { Popconfirm, Switch } from "antd";
 import {
   ShieldCheck,
   ShieldX,
@@ -232,14 +232,28 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
 
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {canRevoke && clientKey && (
-            <Button size="small" onClick={handleRevoke} loading={isRevoking}>
-              <span
-                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-              >
-                <Unlink size={12} />
-                {t("mcp.oauth.revoke")}
-              </span>
-            </Button>
+            <Popconfirm
+              key={clientKey}
+              title={t("confirmation.revokeMcpOAuth")}
+              description={t("confirmation.revokeMcpOAuthHint")}
+              onConfirm={handleRevoke}
+              okText={t("confirmation.revokeMcpOAuth")}
+              cancelText={t("common.cancel")}
+              okButtonProps={{ danger: true }}
+            >
+              <Button size="small" danger loading={isRevoking}>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <Unlink size={12} />
+                  {t("confirmation.revokeMcpOAuth")}
+                </span>
+              </Button>
+            </Popconfirm>
           )}
           <Button
             size="small"

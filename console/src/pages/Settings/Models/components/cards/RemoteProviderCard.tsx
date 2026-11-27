@@ -47,8 +47,9 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
       className: styles.modelConfirmModal,
       title: t("models.deleteProvider"),
       content: t("models.deleteProviderConfirm", { name: provider.name }),
-      okText: t("common.delete"),
+      okText: t("confirmation.deleteProvider"),
       okButtonProps: { danger: true },
+      autoFocusButton: "cancel",
       cancelText: t("models.cancel"),
       onOk: async () => {
         try {

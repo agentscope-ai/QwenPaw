@@ -327,8 +327,9 @@ function CronJobsPage() {
     Modal.confirm({
       title: t("cronJobs.confirmDelete"),
       content: t("cronJobs.deleteConfirm"),
-      okText: t("cronJobs.deleteText"),
-      okType: "primary",
+      okText: t("confirmation.deleteJob"),
+      okType: "danger",
+      autoFocusButton: "cancel",
       cancelText: t("cronJobs.cancelText"),
       onOk: async () => {
         await deleteJob(jobId);
@@ -357,7 +358,7 @@ function CronJobsPage() {
     Modal.confirm({
       title: t("cronJobs.importReviewTitle"),
       content: t("cronJobs.importReviewContent", { name: job.name }),
-      okText: t("cronJobs.importReviewConfirm"),
+      okText: t("cronJobs.importReviewApprove"),
       okType: "primary",
       cancelText: t("cronJobs.cancelText"),
       onOk: async () => {

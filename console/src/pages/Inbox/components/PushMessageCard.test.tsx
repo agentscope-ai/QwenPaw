@@ -392,7 +392,7 @@ describe("PushMessageCard interactions", () => {
     const { container } = mount(message());
     const { popover } = openPopconfirm(container);
     expect(popover.textContent).toContain("inbox.deleteMessageConfirm");
-    expect(popover.textContent).toContain("common.confirm");
+    expect(popover.textContent).toContain("confirmation.deleteMessage");
     expect(popover.textContent).toContain("common.cancel");
   });
 

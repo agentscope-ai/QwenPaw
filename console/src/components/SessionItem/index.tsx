@@ -279,7 +279,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
       {
         key: "delete",
         icon: <Trash2 size={14} />,
-        label: t("chat.contextMenu.delete", "Delete"),
+        label: t("confirmation.deleteSession", "Delete session"),
         danger: true,
         onClick: () => onDelete?.(sessionId),
       },

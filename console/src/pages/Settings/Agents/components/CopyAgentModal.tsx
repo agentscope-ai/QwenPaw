@@ -59,7 +59,7 @@ export function CopyAgentModal({
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={confirmLoading}
-      okText={t("common.confirm")}
+      okText={t("confirmation.copyAgent")}
       cancelText={t("common.cancel")}
       destroyOnHidden
     >

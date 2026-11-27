@@ -182,9 +182,9 @@ function EnvironmentsPage() {
   };
   const removeVariable = (key: string) => {
     Modal.confirm({
-      title: t("environments.resetVariable"),
-      content: t("environments.deleteConfirm", { name: key }),
-      okText: t("common.reset"),
+      title: t("confirmation.resetEnvTitle", { name: key }),
+      content: t("confirmation.resetEnvHint"),
+      okText: t("confirmation.resetEnv"),
       cancelText: t("common.cancel"),
       onOk: () => executeRemove(key, true),
     });
@@ -316,6 +316,7 @@ function EnvironmentsPage() {
                           <Pencil size={16} />
                         </button>
                         <DeleteAction
+                          confirmText={t("confirmation.deleteEnv")}
                           label={t("environments.deleteConfirm", {
                             name: item.key,
                           })}

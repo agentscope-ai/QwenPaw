@@ -570,7 +570,9 @@ describe("CreateBackupModal - while a backup runs", () => {
     // okButtonProps becomes display:none while running.
     expect(screen.queryByTestId("modal-ok")).toBeNull();
     const footerSlot = screen.getByTestId("modal-footer-slot");
-    expect(within(footerSlot).getByText("common.cancel")).toBeTruthy();
+    expect(
+      within(footerSlot).getByText("confirmation.cancelBackup"),
+    ).toBeTruthy();
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -593,7 +595,7 @@ describe("CreateBackupModal - while a backup runs", () => {
     fireEvent.click(screen.getByTestId("modal-ok"));
 
     const footerSlot = screen.getByTestId("modal-footer-slot");
-    fireEvent.click(within(footerSlot).getByText("common.cancel"));
+    fireEvent.click(within(footerSlot).getByText("confirmation.cancelBackup"));
     expect(runnerStore.cancel).toHaveBeenCalledTimes(1);
   });
 });

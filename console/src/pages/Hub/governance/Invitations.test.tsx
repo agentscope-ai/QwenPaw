@@ -41,7 +41,13 @@
  * BudgetEditor's mode Select.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, waitFor, fireEvent, act } from "@testing-library/react";
+import {
+  render,
+  waitFor,
+  fireEvent,
+  act,
+  within,
+} from "@testing-library/react";
 import { App } from "antd";
 
 import type { InviteBatch } from "../../../api/modules/hubGovernance";
@@ -1079,15 +1085,19 @@ describe("Invitations", () => {
       );
     });
 
-    it("closes on OK", async () => {
+    it("closes using the result dialog's Close button", async () => {
       const { codes } = await openCodesModal([{ code: "ONE" }]);
-      fireEvent.click(modalOk(codes));
+      fireEvent.click(
+        within(codes as HTMLElement).getByRole("button", {
+          name: "common.close",
+        }),
+      );
       await waitFor(() => expect(visibleModalCount(CODES_TITLE)).toBe(0));
     });
 
-    it("closes on cancel", async () => {
+    it("closes from the window dismiss control", async () => {
       const { codes } = await openCodesModal([{ code: "ONE" }]);
-      fireEvent.click(modalCancel(codes));
+      fireEvent.click(codes.querySelector(".ant-modal-close")!);
       await waitFor(() => expect(visibleModalCount(CODES_TITLE)).toBe(0));
     });
 

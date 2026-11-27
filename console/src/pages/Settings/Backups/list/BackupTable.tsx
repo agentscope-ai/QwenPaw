@@ -84,14 +84,12 @@ export default function BackupTable({
 
   /** Deletes a single backup by ID and refreshes the list on success. */
   const handleDelete = async (id: string) => {
-    try {
-      await api.deleteBackups([id]);
-      message.success(t("backup.deleteSuccess"));
-      onRefresh();
-    } catch (error) {
-      message.error(t("backup.deleteFailed"));
-      throw error;
+    const result = await api.deleteBackups([id]);
+    if (!result.deleted.includes(id)) {
+      throw new Error(result.failed.find((entry) => entry.id === id)?.reason);
     }
+    message.success(t("backup.deleteSuccess"));
+    onRefresh();
   };
 
   /**
@@ -102,9 +100,10 @@ export default function BackupTable({
     Modal.confirm({
       title: t("backup.exportWarningTitle"),
       content: t("backup.exportWarningContent"),
-      okText: t("backup.exportConfirm"),
+      okText: t("confirmation.exportBackup"),
       cancelText: t("common.cancel"),
       okButtonProps: { danger: true },
+      autoFocusButton: "cancel",
       centered: true,
       onOk: async () => {
         try {
@@ -170,7 +169,11 @@ export default function BackupTable({
             {t("backup.export")}
           </Button>
           <DeleteAction
-            label={t("backup.deleteConfirm")}
+            label={t("backup.deleteConfirm", {
+              name: record.name,
+              id: record.id,
+            })}
+            confirmText={t("confirmation.deleteBackup")}
             onConfirm={() => handleDelete(record.id)}
           />
         </span>
@@ -240,7 +243,11 @@ export default function BackupTable({
           {t("backup.export")}
         </Button>
         <DeleteAction
-          label={t("backup.deleteConfirm")}
+          label={t("backup.deleteConfirm", {
+            name: backup.name,
+            id: backup.id,
+          })}
+          confirmText={t("confirmation.deleteBackup")}
           onConfirm={() => handleDelete(backup.id)}
         />
       </div>

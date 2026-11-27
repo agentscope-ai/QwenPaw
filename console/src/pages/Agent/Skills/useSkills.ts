@@ -517,9 +517,10 @@ export function useSkills() {
     if (!owner) return false;
     const confirmed = await new Promise<boolean>((resolve) => {
       Modal.confirm({
-        title: t("common.confirm"),
+        title: `${t("confirmation.deleteSkill")} · ${skill.name}`,
         content: t("skills.deleteConfirm"),
-        okText: t("common.delete"),
+        okText: t("confirmation.deleteSkill"),
+        autoFocusButton: "cancel",
         okType: "danger",
         cancelText: t("common.cancel"),
         onOk: () => resolve(ownsMutationOwner(owner)),

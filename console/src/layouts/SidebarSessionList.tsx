@@ -62,6 +62,7 @@ import type { ChatGroup } from "../api/types/chat";
 import { useAppMessage } from "../hooks/useAppMessage";
 import { useSessionAttention } from "../hooks/useSessionAttention";
 import { useAgentStore } from "../stores/agentStore";
+import sessionApi from "../pages/Chat/sessionApi";
 import styles from "./sidebarSessionList.module.less";
 
 /**
@@ -278,7 +279,7 @@ export default function SidebarSessionList({
   onSessionClick: onSessionClickProp,
 }: SidebarSessionListProps = {}) {
   const { t } = useTranslation();
-  const { message } = useAppMessage();
+  const { message, modal } = useAppMessage();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const location = useLocation();
   const currentSessionId = getSessionIdFromPath(location.pathname) ?? undefined;
@@ -385,6 +386,33 @@ export default function SidebarSessionList({
     onSessionClick,
   });
 
+  const confirmDeleteSession = useCallback(
+    (sessionId: string) => {
+      const session = sortedSessions.find((item) => item.id === sessionId);
+      if (!session) return;
+      const owner = sessionApi.getActiveOwner();
+      modal.confirm({
+        title: t("confirmation.deleteSession"),
+        content: t("confirmation.deleteConversationHint", {
+          name: session.name || t("chat.newChat"),
+        }),
+        okText: t("confirmation.deleteSession"),
+        cancelText: t("common.cancel"),
+        okButtonProps: { danger: true },
+        autoFocusButton: "cancel",
+        onOk: async () => {
+          if (!sessionApi.isActiveOwner(owner)) return;
+          try {
+            await handleDelete(sessionId);
+          } catch {
+            message.error(t("sessions.deleteFailed"));
+          }
+        },
+      });
+    },
+    [sortedSessions, modal, t, handleDelete, message],
+  );
+
   const unseenSessionIds = useSessionAttention(
     selectedAgent,
     sortedSessions,
@@ -446,7 +474,9 @@ export default function SidebarSessionList({
           "chat.groups.deleteHint",
           "Conversations will return to their built-in group.",
         ),
+        okText: t("confirmation.deleteGroup"),
         okButtonProps: { danger: true },
+        autoFocusButton: "cancel",
         onOk: async () => {
           await deleteGroup(groupId);
           await refreshSessions();
@@ -788,7 +818,7 @@ export default function SidebarSessionList({
       t,
       handleSessionClick,
       handleEditStart,
-      handleDelete,
+      handleDelete: confirmDeleteSession,
       handleArchiveToggle,
       handlePinToggle,
       handleMove,
@@ -812,7 +842,7 @@ export default function SidebarSessionList({
       t,
       handleSessionClick,
       handleEditStart,
-      handleDelete,
+      confirmDeleteSession,
       handleArchiveToggle,
       handlePinToggle,
       handleMove,

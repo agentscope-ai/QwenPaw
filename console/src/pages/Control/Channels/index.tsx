@@ -244,6 +244,7 @@ function ChannelsPage() {
                 }),
                 okText: t("channels.botConflictConfirm"),
                 okButtonProps: { danger: true },
+                autoFocusButton: "cancel",
                 cancelText: t("common.cancel"),
                 onOk: () => settle(true),
                 onCancel: () => settle(false),

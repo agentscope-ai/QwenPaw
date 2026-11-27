@@ -49,7 +49,9 @@ describe("ImportBuiltinModal removed language", () => {
 
       expect(screen.getByText("skillPool.statusRemoved")).toBeInTheDocument();
       await user.click(screen.getByText("alpha"));
-      await user.click(screen.getByRole("button", { name: "OK" }));
+      await user.click(
+        screen.getByRole("button", { name: "skillPool.importBuiltin" }),
+      );
 
       expect(onConfirm).toHaveBeenCalledExactlyOnceWith([
         { skill_name: "alpha", language: availableLanguage },

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Input, Switch, Tag, Empty } from "antd";
+import { Button, Input, Switch, Tag, Empty, Popconfirm } from "antd";
 import { Eye, Pencil, Trash2, ChevronRight, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
@@ -16,7 +16,7 @@ interface RuleTableProps {
   onToggleAutoDeny: (ruleId: string, currentlyAutoDeny: boolean) => void;
   onPreviewRule: (rule: MergedRule) => void;
   onEditRule: (rule: MergedRule) => void;
-  onDeleteRule: (ruleId: string) => void;
+  onDeleteRule: (ruleId: string) => Promise<void>;
 }
 
 export function RuleTable({
@@ -176,14 +176,27 @@ export function RuleTable({
                         icon={<Pencil size={16} />}
                         onClick={() => onEditRule(rule)}
                       />
-                      <Button
-                        type="text"
-                        danger
+                      <Popconfirm
+                        title={t("confirmation.deleteSecurityRule")}
+                        description={t("confirmation.deleteSecurityRuleHint", {
+                          name: rule.id,
+                        })}
                         disabled={!enabled}
-                        aria-label={`${t("security.rules.delete")}: ${rule.id}`}
-                        icon={<Trash2 size={16} />}
-                        onClick={() => onDeleteRule(rule.id)}
-                      />
+                        onConfirm={() => onDeleteRule(rule.id)}
+                        okText={t("confirmation.deleteSecurityRule")}
+                        cancelText={t("common.cancel")}
+                        okButtonProps={{ danger: true }}
+                      >
+                        <Button
+                          type="text"
+                          danger
+                          disabled={!enabled}
+                          aria-label={`${t(
+                            "confirmation.deleteSecurityRule",
+                          )}: ${rule.id}`}
+                          icon={<Trash2 size={16} />}
+                        />
+                      </Popconfirm>
                     </>
                   )}
                 </div>

@@ -11,6 +11,18 @@ export interface ApprovalCommandResponse {
 }
 
 export const commandsApi = {
+  isApprovalPending: async (requestId: string, rootSessionId?: string) => {
+    const query = rootSessionId
+      ? `?${new URLSearchParams({ session_id: rootSessionId })}`
+      : "";
+    const { pending_approvals } = await request<{
+      pending_approvals: Array<{ request_id: string }>;
+    }>(`/approval/list${query}`, { cache: "no-store" });
+    return pending_approvals.some(
+      (approval) => approval.request_id === requestId,
+    );
+  },
+
   /** Check if text is a system control command */
   checkCommand: async (text: string): Promise<boolean> => {
     const response = await request<CommandCheckResponse>("/commands/check", {

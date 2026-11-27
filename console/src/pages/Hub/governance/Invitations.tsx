@@ -121,6 +121,9 @@ export default function Invitations() {
               onClick={() =>
                 modal.confirm({
                   title: t("hub.governance.invitations.revokeTitle"),
+                  okText: t("confirmation.revokeUnusedInvites"),
+                  autoFocusButton: "cancel",
+                  okButtonProps: { danger: true },
                   onOk: async () => {
                     await request(
                       `admin/invite-batches/${batch.id}/revoke`,
@@ -141,6 +144,7 @@ export default function Invitations() {
         open={open}
         onCancel={() => setOpen(false)}
         onOk={() => form.submit()}
+        okText={t("confirmation.createInvites")}
         confirmLoading={busy}
         closeIcon={<X size={18} />}
         destroyOnHidden
@@ -228,7 +232,9 @@ export default function Invitations() {
         title={t("hub.governance.invitations.codesTitle")}
         open={codes.length > 0}
         onCancel={() => setCodes([])}
-        onOk={() => setCodes([])}
+        footer={
+          <Button onClick={() => setCodes([])}>{t("common.close")}</Button>
+        }
         width={720}
       >
         <pre className={styles.codes}>{codes.join("\n")}</pre>

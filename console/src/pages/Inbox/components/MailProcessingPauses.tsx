@@ -7,6 +7,7 @@ import {
   mailAccessControlApi,
   type MailProcessingPause,
 } from "../../../api/modules/mailAccessControl";
+import { ApiError } from "../../../api/request";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 
 /** Live safety controls remain available even if the inbox alert was deleted. */
@@ -20,6 +21,7 @@ export function MailProcessingPauses() {
   const {
     data: pauses = [],
     error,
+    mutate,
     refresh,
   } = useRequest(mailAccessControlApi.getMailProcessingPauses, {
     pollingInterval: 6000,
@@ -37,7 +39,19 @@ export function MailProcessingPauses() {
         selected.pause_id,
       );
       message.success(t("inbox.mailProcessingResumed"));
+      setSelected(null);
     } catch (failure) {
+      if (failure instanceof ApiError && failure.status === 409) {
+        setSelected(null);
+        mutate(
+          (current) =>
+            current?.filter(
+              (pause) =>
+                pause.agent_id !== selected.agent_id ||
+                pause.pause_id !== selected.pause_id,
+            ),
+        );
+      }
       if (
         failure instanceof Error &&
         failure.message.includes("mcp_plugin_unavailable")
@@ -46,7 +60,6 @@ export function MailProcessingPauses() {
       }
       message.error(t("inbox.mailProcessingResumeFailed"));
     } finally {
-      setSelected(null);
       submittingRef.current = false;
       setSubmitting(false);
       refresh();

@@ -155,12 +155,12 @@ export const MCPClientCard = React.memo(function MCPClientCard({
       {!readOnly && (
         <>
           <Modal
-            title={t("common.confirm")}
+            title={`${t("confirmation.deleteClient")} · ${client.name}`}
             open={deleteModalOpen}
             onOk={confirmDelete}
             onCancel={() => setDeleteModalOpen(false)}
-            okText={t("common.confirm")}
-            cancelText={t("common.close")}
+            okText={t("confirmation.deleteClient")}
+            cancelText={t("common.cancel")}
             okButtonProps={{ danger: true }}
           >
             <p>{t("mcp.deleteConfirm")}</p>

@@ -128,7 +128,15 @@ const setup = (
 ) => {
   const h: Handlers = { onConfirm: vi.fn(), onCancel: vi.fn() };
   const view = render(
-    noMotion(<BackupTrustDialog open mode="foreign" {...h} {...over} />),
+    noMotion(
+      <BackupTrustDialog
+        open
+        action="restore"
+        mode="foreign"
+        {...h}
+        {...over}
+      />,
+    ),
   );
   return { ...view, ...h };
 };
@@ -151,6 +159,7 @@ describe("BackupTrustDialog - open switch", () => {
   it("leaves the document empty when it was never opened", () => {
     render(
       <BackupTrustDialog
+        action="restore"
         open={false}
         mode="foreign"
         onConfirm={() => {}}
@@ -169,6 +178,7 @@ describe("BackupTrustDialog - open switch", () => {
     const { rerender } = render(
       noMotion(
         <BackupTrustDialog
+          action="restore"
           open
           mode="legacy"
           backupName="b.zip"
@@ -182,6 +192,7 @@ describe("BackupTrustDialog - open switch", () => {
     rerender(
       noMotion(
         <BackupTrustDialog
+          action="restore"
           open={false}
           mode="legacy"
           backupName="b.zip"
@@ -288,7 +299,7 @@ describe("BackupTrustDialog - footer", () => {
     const [cancel, confirm] = footerButtons();
     expect(footerButtons().length).toBe(2);
     expect(cancel.textContent).toBe("common.cancel");
-    expect(confirm.textContent).toBe("common.confirm");
+    expect(confirm.textContent).toBe("confirmation.trustRestore");
     // okButtonProps={{ danger: true }} is the product telling the user this is
     // the destructive choice, so the style class is part of the contract.
     expect(confirm.className).toContain("ant-btn-dangerous");
@@ -388,6 +399,7 @@ describe("BackupTrustDialog - decisions", () => {
     rerender(
       noMotion(
         <BackupTrustDialog
+          action="import"
           open
           mode="legacy"
           backupName="b.zip"
@@ -400,6 +412,8 @@ describe("BackupTrustDialog - decisions", () => {
       'backup.trustLegacyTitle:{"defaultValue":"Trust legacy backup?"}',
     );
     expect(alertMessage()).toBe("b.zip");
+    expect(alertDescription()).toBe("confirmation.trustImportHint");
+    expect(footerButtons()[1]).toHaveTextContent("confirmation.trustImport");
     fireEvent.click(footerButtons()[1]);
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });

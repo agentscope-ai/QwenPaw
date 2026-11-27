@@ -140,7 +140,8 @@ export function PushMessageCard(props: PushMessageCardProps) {
             onCancel={(event) => {
               event?.stopPropagation();
             }}
-            okText={t("common.confirm")}
+            okText={t("confirmation.deleteMessage")}
+            okButtonProps={{ danger: true }}
             cancelText={t("common.cancel")}
           >
             <Button

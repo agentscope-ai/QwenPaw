@@ -96,11 +96,15 @@ export default function CreateBackupModal({
           : { disabled: !name.trim() }
       }
       cancelText={t("common.cancel")}
-      okText={t("common.confirm")}
+      okText={t("backup.createTitle")}
       footer={
         runner.loading ? (
-          <Button danger onClick={runner.cancel}>
-            {t("common.cancel")}
+          <Button danger loading={runner.cancelling} onClick={runner.cancel}>
+            {t(
+              runner.cancelling
+                ? "confirmation.cancellingBackup"
+                : "confirmation.cancelBackup",
+            )}
           </Button>
         ) : undefined
       }

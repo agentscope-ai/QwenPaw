@@ -18,6 +18,8 @@ import { renderWithProviders } from "@/test/common_setup";
 // ---- Hoisted mocks ---------------------------------------------------------
 
 const mockSessionListData = vi.hoisted(() => vi.fn());
+const mockDeleteConfirmation = vi.hoisted(() => vi.fn());
+const mockActiveOwner = vi.hoisted(() => ({ generation: 1 }));
 const mockChatGroups = vi.hoisted(() => vi.fn());
 const mockCollapsedGroups = vi.hoisted(() => vi.fn());
 const mockSelectedAgent = vi.hoisted(() => ({ current: "agent-1" }));
@@ -113,17 +115,22 @@ vi.mock("../components/SessionItem", () => ({
     name,
     sessionId,
     onClick,
+    onDelete,
   }: {
     name: string;
     sessionId: string;
     onClick: (id: string) => void;
+    onDelete: (id: string) => void;
   }) => (
-    <button
-      data-testid={`session-item-${sessionId}`}
-      onClick={() => onClick(sessionId)}
-    >
-      {name}
-    </button>
+    <>
+      <button
+        data-testid={`session-item-${sessionId}`}
+        onClick={() => onClick(sessionId)}
+      >
+        {name}
+      </button>
+      <button onClick={() => onDelete(sessionId)}>Delete {name}</button>
+    </>
   ),
 }));
 
@@ -183,6 +190,7 @@ vi.mock("../api/modules/chat", () => ({
 
 vi.mock("../hooks/useAppMessage", () => ({
   useAppMessage: () => ({
+    modal: { confirm: mockDeleteConfirmation },
     message: {
       success: vi.fn(),
       error: vi.fn(),
@@ -190,6 +198,14 @@ vi.mock("../hooks/useAppMessage", () => ({
       warning: vi.fn(),
     },
   }),
+}));
+
+vi.mock("../pages/Chat/sessionApi", () => ({
+  default: {
+    getActiveOwner: () => ({ generation: mockActiveOwner.generation }),
+    isActiveOwner: (owner: typeof mockActiveOwner) =>
+      owner.generation === mockActiveOwner.generation,
+  },
 }));
 
 vi.mock("../stores/agentStore", () => ({
@@ -322,6 +338,32 @@ describe("SidebarSessionList", () => {
     });
     expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
+  });
+
+  it("deletes the named session only after confirmation in the same workspace", async () => {
+    const handleDelete = vi.fn().mockResolvedValue(undefined);
+    mockData([sessionA, sessionB], { handleDelete });
+    renderWithProviders(<SidebarSessionList />);
+
+    const trigger = await screen.findByRole("button", {
+      name: "Delete Alpha Chat",
+    });
+    fireEvent.click(trigger);
+    expect(handleDelete).not.toHaveBeenCalled();
+    const stale = mockDeleteConfirmation.mock.calls[0][0];
+    expect(stale).toMatchObject({
+      autoFocusButton: "cancel",
+      okText: "confirmation.deleteSession",
+      okButtonProps: { danger: true },
+    });
+
+    mockActiveOwner.generation++;
+    await stale.onOk();
+    expect(handleDelete).not.toHaveBeenCalled();
+
+    fireEvent.click(trigger);
+    await mockDeleteConfirmation.mock.calls[1][0].onOk();
+    expect(handleDelete).toHaveBeenCalledExactlyOnceWith(sessionA.id);
   });
 
   it("initializes older unpinned groups as collapsed", async () => {

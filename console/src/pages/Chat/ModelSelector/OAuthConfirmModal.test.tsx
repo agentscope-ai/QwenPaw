@@ -106,7 +106,7 @@ const DESCRIPTION = `modelSelector.oauthDescription:${JSON.stringify({
 const CONNECTED = `modelSelector.oauthConnected:${JSON.stringify({
   provider: PROVIDER_NAME,
 })}`;
-const CONTINUE_LABEL = "modelSelector.oauthContinue";
+const CONTINUE_LABEL = "confirmation.openAuthorization";
 const CANCEL_LABEL = "common.cancel";
 const WAITING_TITLE = "modelSelector.oauthWaiting";
 const WAITING_DESCRIPTION = "modelSelector.oauthWaitingDescription";
@@ -275,7 +275,7 @@ describe("OAuthConfirmModal starting the flow", () => {
     const modal = screen.getByTestId("oauth-modal");
     expect(modal.getAttribute("data-closable")).toBe("false");
     expect(modal.getAttribute("data-mask-closable")).toBe("false");
-    expect(screen.getByRole("button", { name: CANCEL_LABEL })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "common.close" })).toBeTruthy();
   });
 
   it("ignores a repeated continue click while the first start is in flight", async () => {

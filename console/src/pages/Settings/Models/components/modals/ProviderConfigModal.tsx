@@ -617,34 +617,30 @@ export function ProviderConfigModal({
 
   const handleRevoke = () => {
     const confirmContent = isActiveLlmProvider
-      ? t("models.revokeConfirmContent", { name: provider.name })
+      ? t("confirmation.clearActiveProviderKeyHint", { name: provider.name })
       : t("models.revokeConfirmSimple", { name: provider.name });
 
     Modal.confirm({
       className: styles.modelConfirmModal,
-      title: t("models.revokeAuthorization"),
+      title: t("confirmation.clearLocalKey"),
       content: confirmContent,
-      okText: t("models.revokeAuthorization"),
+      okText: t("confirmation.clearLocalKey"),
       okButtonProps: { danger: true },
+      autoFocusButton: "cancel",
       cancelText: t("models.cancel"),
       onOk: async () => {
         try {
           await api.configureProvider(provider.id, { api_key: "" });
           await onSaved();
           onClose();
-          if (isActiveLlmProvider) {
-            message.success(
-              t("models.authorizationRevoked", { name: provider.name }),
-            );
-          } else {
-            message.success(
-              t("models.authorizationRevokedSimple", { name: provider.name }),
-            );
-          }
+          message.success(
+            t("confirmation.localKeyCleared", { name: provider.name }),
+          );
         } catch (error) {
           const errMsg =
             error instanceof Error ? error.message : t("models.failedToRevoke");
           message.error(errMsg);
+          throw error;
         }
       },
     });
@@ -662,7 +658,7 @@ export function ProviderConfigModal({
           <div className={styles.modalFooterLeft}>
             {provider.api_key && (
               <Button danger size="small" onClick={handleRevoke}>
-                {t("models.revokeAuthorization")}
+                {t("confirmation.clearLocalKey")}
               </Button>
             )}
             {provider.support_connection_check && (
