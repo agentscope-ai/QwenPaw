@@ -58,7 +58,7 @@ class RelayNodeConnectionService:
                 dpop_nonce=ticket.next_credential_dpop_nonce,
             )
             state = replace(state, registered_node=registered)
-            await asyncio.to_thread(self._store.save, state)
+            await self._store.save_async(state)
         await self._transport.run(
             websocket_url=ticket.websocket_url,
             ticket=ticket.token,
