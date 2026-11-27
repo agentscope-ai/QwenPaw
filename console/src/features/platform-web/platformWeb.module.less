@@ -1,0 +1,52 @@
+.workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 180px;
+  height: var(--app-hit-desktop);
+  min-height: var(--app-hit-desktop);
+  svg {
+    flex-shrink: 0;
+  }
+  @media (max-width: 768px) {
+    max-width: 132px;
+    height: var(--app-hit-touch);
+    padding: 0 8px;
+    gap: 6px;
+    .workspaceName {
+      max-width: 60px;
+    }
+  }
+}
+.refresh {
+  width: var(--app-hit-desktop);
+  min-width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
+  flex-shrink: 0;
+  @media (max-width: 768px) {
+    width: var(--app-hit-touch);
+    min-width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+  }
+}
+.workspace.menuWorkspace {
+  width: 100%;
+  max-width: none;
+  justify-content: flex-start;
+  .workspaceName {
+    flex: 1;
+    max-width: none;
+    text-align: left;
+  }
+}
+.workspaceMenu {
+  max-height: min(70dvh, 480px);
+  max-width: calc(100vw - 32px);
+  overflow-y: auto;
+}
+.workspaceName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
