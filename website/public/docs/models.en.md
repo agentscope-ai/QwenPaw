@@ -22,8 +22,6 @@ QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes
 
 ## QwenPaw Local (llama.cpp) Configuration
 
-> QwenPaw Local is currently still in the testing phase, and there may be issues with stability and GPU compatibility. If you are looking for a more stable local model experience or need GPU acceleration, it is recommended to use Ollama or LM Studio as your local model provider in the short term.
-
 On a fresh installation, **Settings → Models → Local & Custom** lists Ollama and LM Studio. These connect to services that you run separately. To have QwenPaw manage llama.cpp and its GGUF files instead:
 
 ![Local & Custom before installing QwenPaw Local](https://img.alicdn.com/imgextra/i3/O1CN01jnH9eVHuqvF3FPfU_!!6000000002438-2-tps-1600-1000.png)
@@ -33,7 +31,11 @@ On a fresh installation, **Settings → Models → Local & Custom** lists Ollama
 3. Download a recommended model, or choose ModelScope or Hugging Face and enter a GGUF repository ID. Already have the weights? [Import your GGUF files](./models#Local-Models) instead of downloading them again.
 4. Click **Start** beside the downloaded model. Flash sets the default chat model; Piccolo sets the default decision model. The two share one server: wait for active requests to finish before switching. **Stop** shuts down the server without deleting the weights.
 
+QwenPaw Local runs on Metal on Apple Silicon, on CUDA when the installed runtime includes a CUDA backend, and on the CPU otherwise. The engine panel shows the detected accelerator, for example `Metal · Apple M5 Max`. To force CPU inference, open **Advanced Local Settings** and turn off **GPU acceleration**; the setting applies the next time the local server starts.
+
 When QwenPaw restarts, it tries to restore a previously started local model selected by an enabled agent. If you use only cloud models, llama.cpp stays stopped.
+
+Runtime auto-update is on by default. QwenPaw checks periodically and installs a newer llama.cpp runtime when no local server is running; a running server is left untouched and the update is deferred to the next idle check. Turn off **Automatically update engine runtimes** in **Advanced Local Settings** to disable it.
 
 ### Local Piccolo decision models
 

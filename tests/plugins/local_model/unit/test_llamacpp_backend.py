@@ -681,16 +681,139 @@ Available devices:
 
 
 @pytest.mark.asyncio
+async def test_get_accelerator_info_detects_metal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    calls: list[str] = []
+
+    async def fake_list_devices() -> list[str]:
+        calls.append("list")
+        return ["MTL0: Apple M5 Max (110100 MiB, 110100 MiB free)"]
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(downloader, "list_devices", fake_list_devices)
+
+    expected = {"accelerator": "metal", "device_name": "Apple M5 Max"}
+    assert await downloader.get_accelerator_info() == expected
+    # The probe is cached so repeated status polls do not spawn a process.
+    assert await downloader.get_accelerator_info() == expected
+    assert calls == ["list"]
+
+
+@pytest.mark.asyncio
+async def test_get_accelerator_info_ignores_unknown_backends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+
+    async def fake_list_devices() -> list[str]:
+        return ["Vulkan0: AMD Radeon (16384 MiB, 16384 MiB free)"]
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (True, ""),
+    )
+    monkeypatch.setattr(downloader, "list_devices", fake_list_devices)
+
+    assert await downloader.get_accelerator_info() == {
+        "accelerator": "cpu",
+        "device_name": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_accelerator_info_reports_cpu_without_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+
+    async def fail_list_devices() -> list[str]:
+        raise AssertionError("devices must not be probed without a runtime")
+
+    monkeypatch.setattr(
+        downloader,
+        "check_llamacpp_installation",
+        lambda: (False, "llama.cpp is not installed"),
+    )
+    monkeypatch.setattr(downloader, "list_devices", fail_list_devices)
+
+    assert await downloader.get_accelerator_info() == {
+        "accelerator": "cpu",
+        "device_name": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_server_process_can_force_cpu(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    commands: list[list[str]] = []
+
+    def fake_popen(command, **_kwargs):
+        commands.append(list(command))
+        return _FakeServerProcess()
+
+    monkeypatch.setattr(downloader_module.subprocess, "Popen", fake_popen)
+    await downloader._create_server_process(
+        tmp_path / "demo.gguf",
+        None,
+        "demo-model",
+        9001,
+        4096,
+        gpu_acceleration=False,
+    )
+
+    command = commands[0]
+    assert command[command.index("--gpu-layers") + 1] == "0"
+
+
+@pytest.mark.asyncio
+async def test_create_server_process_defaults_to_auto_gpu_layers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    commands: list[list[str]] = []
+
+    def fake_popen(command, **_kwargs):
+        commands.append(list(command))
+        return _FakeServerProcess()
+
+    monkeypatch.setattr(downloader_module.subprocess, "Popen", fake_popen)
+    await downloader._create_server_process(
+        tmp_path / "demo.gguf",
+        None,
+        "demo-model",
+        9001,
+        4096,
+        gpu_acceleration=True,
+    )
+
+    command = commands[0]
+    assert command[command.index("--gpu-layers") + 1] == "auto"
+
+
+@pytest.mark.asyncio
 async def test_get_version_reads_stderr_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     downloader = _build_downloader(monkeypatch)
+    calls: list[list[str]] = []
 
     def fake_run(
         command: list[str],
         **_kwargs: Any,
     ) -> subprocess.CompletedProcess:
         del _kwargs
+        calls.append(command)
         return subprocess.CompletedProcess(
             args=command,
             returncode=0,
@@ -728,6 +851,9 @@ built with AppleClang 15.0.0.15000309 for Darwin arm64""",
     )
 
     assert await downloader.get_version() == "8514"
+    # Status polling reuses the cached value instead of spawning the runtime.
+    assert await downloader.get_version() == "8514"
+    assert len(calls) == 1
 
 
 @pytest.mark.asyncio

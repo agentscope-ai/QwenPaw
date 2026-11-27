@@ -22,8 +22,6 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 ## QwenPaw Local (llama.cpp) 配置
 
-> QwenPaw Local 目前仍处于测试阶段，稳定性以及对 GPU 的兼容性存在问题，如果追求稳定或是需要使用 GPU 加速，短期内建议使用 Ollama 或 LM Studio 作为本地模型提供商。
-
 全新安装时，**设置 → 模型 → 本地 & 自定义** 中有 Ollama 和 LM Studio，它们连接的是你单独运行的服务。如果希望由 QwenPaw 管理 llama.cpp 和 GGUF 文件，请按以下步骤操作：
 
 ![安装 QwenPaw Local 之前的本地提供商列表](https://img.alicdn.com/imgextra/i4/O1CN01knTfR9R1sgL3FPfU_!!6000000004916-2-tps-1600-1000.png)
@@ -33,7 +31,11 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 3. 下载推荐模型，或选择 ModelScope、Hugging Face 并填写 GGUF 仓库 ID。如果已有权重，可以[手动导入 GGUF](./models#本地模型)，不必重复下载。
 4. 点击已下载模型旁的 **启动**。Flash 会成为默认对话模型，Piccolo 会成为默认决策模型。两者共用一个服务，切换前请等待当前请求完成。**停止** 只关闭服务，不删除权重。
 
+QwenPaw Local 在 Apple Silicon 上使用 Metal；当所安装的运行库包含 CUDA 后端时使用 CUDA，否则使用 CPU。引擎面板会显示检测到的加速器，例如 `Metal · Apple M5 Max`。如需强制使用 CPU 推理，请打开 **本地模型进阶配置**，关闭 **GPU 加速**；该设置会在下一次启动本地服务时生效。
+
 重启 QwenPaw 时，如果启用的智能体仍选用已启动过的本地模型，QwenPaw 会尝试恢复该模型。只使用云模型时，llama.cpp 不会随 App 启动。
+
+运行库自动更新默认开启。QwenPaw 会定期检查，并在没有本地服务运行时安装较新的 llama.cpp 运行库；正在运行的服务不会被中断，更新会延后到下一次空闲检查。可在 **本地模型进阶配置** 中关闭 **自动更新引擎运行库**。
 
 ### 使用本地 Piccolo 决策模型
 

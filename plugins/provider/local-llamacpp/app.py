@@ -26,6 +26,8 @@ class ConfigRequest(BaseModel):
     max_context_length: int | None = Field(default=None, ge=32768)
     port: int | None = Field(default=None, ge=1, le=65535)
     generate_kwargs: dict | None = None
+    gpu_acceleration: bool | None = None
+    auto_update: bool | None = None
 
 
 class DownloadProgress(BaseModel):
@@ -105,6 +107,8 @@ def create_app(provider):
         installable, install_message = await run_sync(
             manager.check_installability,
         )
+        accelerator = await manager.get_accelerator()
+        version = await manager.get_version()
         result = {
             "available": False,
             "installable": installable,
@@ -112,6 +116,9 @@ def create_app(provider):
             "port": None,
             "model_name": None,
             "message": None,
+            "accelerator": accelerator["accelerator"],
+            "device_name": accelerator["device_name"],
+            "version": version,
         }
         if not installable:
             result["message"] = (
@@ -270,6 +277,10 @@ def create_app(provider):
             await manager.set_max_context_length(payload.max_context_length)
         if "port" in payload.model_fields_set:
             await manager.set_port(payload.port)
+        if payload.gpu_acceleration is not None:
+            await manager.set_gpu_acceleration(payload.gpu_acceleration)
+        if payload.auto_update is not None:
+            await manager.set_auto_update(payload.auto_update)
         if payload.generate_kwargs is not None:
             await provider.handle.update(
                 generate_kwargs=payload.generate_kwargs,
