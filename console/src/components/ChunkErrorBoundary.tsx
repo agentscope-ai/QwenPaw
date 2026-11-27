@@ -22,7 +22,10 @@ import {
 import type { ChunkDiagnostic } from "../utils/chunkDiagnostics";
 import { waitForChunkServerReady } from "../utils/chunkServerReadiness";
 import { copyText } from "../utils/clipboard";
-import { isPlatformWebApp, webRequest } from "../features/platform-web/client";
+import {
+  redactConsoleGrant,
+  reloadConsole,
+} from "../features/platform-web/hostBridge";
 import styles from "./ChunkErrorBoundary.module.less";
 
 interface Props {
@@ -176,10 +179,14 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       return;
     }
     const reloading = reloadAfterChunkError((decision) => {
+      if (generation !== this.diagnosticGeneration) return;
       completed.automaticReloadAttempted = decision.reason === "reload";
       completed.automaticReload = decision;
       saveChunkDiagnostic(completed);
-      this.setState({ diagnostic: { ...completed } });
+      this.setState({
+        diagnostic: { ...completed },
+        recovering: decision.reason === "reload",
+      });
     });
     if (!reloading) this.setState({ recovering: false });
   };
@@ -227,15 +234,17 @@ export class ChunkErrorBoundary extends Component<Props, State> {
   reloadPage = async () => {
     this.diagnosticGeneration += 1;
     this.readinessController?.abort();
-    if (!isPlatformWebApp) {
-      window.location.reload();
-      return;
-    }
-    this.setState({ recovering: true, restartError: "" });
     try {
-      await webRequest("/host/reload", {});
+      const pending = reloadConsole();
+      if (pending) {
+        this.setState({ recovering: true, restartError: "" });
+        await pending;
+      }
     } catch (error) {
-      this.setState({ recovering: false, restartError: String(error) });
+      this.setState({
+        recovering: false,
+        restartError: redactConsoleGrant(String(error)),
+      });
     }
   };
 
