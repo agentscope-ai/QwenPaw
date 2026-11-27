@@ -8,6 +8,7 @@ export interface SteerReceipt {
   append_seq: number;
   revision: number;
   status: string;
+  created_at?: number;
   reason?: string;
   message?: TimelineMessage;
 }
@@ -23,12 +24,23 @@ export interface TimelineRow<T> {
   messages: T[];
   content?: unknown[];
   status?: string;
+  createdAt?: number;
   messageId?: string;
   reason?: string;
 }
 const position = (m: TimelineMessage) =>
   (m.metadata?.qwenpaw_transcript_position as { ordinal?: number } | undefined)
     ?.ordinal;
+
+const messageCreatedAt = (message: TimelineMessage) => {
+  const timestamp = message.metadata?.timestamp;
+  if (typeof timestamp === "number" && Number.isFinite(timestamp)) {
+    return timestamp > 10_000_000_000 ? timestamp / 1000 : timestamp;
+  }
+  if (typeof timestamp !== "string") return undefined;
+  const milliseconds = Date.parse(timestamp);
+  return Number.isNaN(milliseconds) ? undefined : milliseconds / 1000;
+};
 
 export function projectTurnTimeline<T extends TimelineMessage>(
   messages: T[],
@@ -58,6 +70,7 @@ export function projectTurnTimeline<T extends TimelineMessage>(
         messageId: msg.id,
         messages: [msg],
         status: "applied",
+        createdAt: messageCreatedAt(msg),
         content: msg.content || [],
       });
       continue;
@@ -97,6 +110,7 @@ export function projectTurnTimeline<T extends TimelineMessage>(
       messages: [],
       content: receipt.content,
       status: receipt.status === "applied" ? "syncing" : receipt.status,
+      createdAt: receipt.created_at,
       reason: receipt.reason,
     };
     const laterIds = new Set(

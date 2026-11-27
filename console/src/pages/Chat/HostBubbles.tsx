@@ -702,6 +702,7 @@ function SteerResponseCard(
               <VendorRequestCard
                 data={
                   {
+                    created_at: row.createdAt,
                     input: [
                       {
                         role: "user",
