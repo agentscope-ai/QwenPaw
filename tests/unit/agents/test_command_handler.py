@@ -1027,7 +1027,7 @@ async def test_compact_uses_manual_force_context_config() -> None:
 async def test_compact_failure_suggests_retrying() -> None:
     agent = _make_agent()
     message = _msg("user", "Keep this context")
-    agent.state.context = [message]
+    agent.state = AgentState(context=[message], summary="")
     agent.context_config = None
     error = TimeoutError("model timed out")
     agent.compress_context = AsyncMock(side_effect=error)

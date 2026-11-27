@@ -400,6 +400,27 @@
 
 /* Chat messages scrollable area */
 .chatMessagesArea {
+  // Keep the SDK reverse list and the forward history window geometrically
+  // identical, including the gaps around the SDK's short-list filler.
+  --chat-message-gap: 24px;
+  --chat-message-edge: 16px;
+  --chat-message-header-space: 70px;
+
+  :global(.qwenpaw-chat-anywhere-message-list .qwenpaw-bubble-list-order-desc) {
+    gap: var(--chat-message-gap);
+    padding-top: var(--chat-message-edge);
+
+    &::before {
+      height: var(--chat-message-edge);
+      flex-basis: var(--chat-message-edge);
+    }
+
+    &::after {
+      height: var(--chat-message-header-space);
+      flex-basis: var(--chat-message-header-space);
+    }
+  }
+
   position: relative;
   flex: 1;
   min-height: 0;
@@ -425,7 +446,6 @@
   &.wideMode {
     --chat-wide-gutter: clamp(20px, 2%, 32px);
     --chat-history-max-width: none;
-    --chat-history-padding: var(--chat-wide-gutter);
     --chat-history-navigation-right: 12px;
 
     :global {

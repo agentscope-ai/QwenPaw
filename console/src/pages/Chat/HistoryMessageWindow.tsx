@@ -545,7 +545,9 @@ export function HistoryMessageWindowCard() {
             <div className={styles.window}>
               <div
                 ref={scrollRef}
-                className={styles.list}
+                // Share the SDK's responsive sizing and scrollbar gutter without
+                // opting into its live, reverse-order scroll controller.
+                className={`${styles.list} qwenpaw-bubble-list-scroll qwenpaw-bubble-list`}
                 data-history-message-window="true"
                 data-history-loading={String(current.loading)}
                 onScroll={updateActiveMessage}

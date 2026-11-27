@@ -468,7 +468,7 @@ function DefaultHostResponseCard({
     return null;
 
   return (
-    <>
+    <div style={{ width: "100%", minWidth: 0 }}>
       {avatar ? (
         <Flex align="center" gap={8} style={{ marginBottom: 8 }}>
           <Avatar src={avatar} />
@@ -567,7 +567,7 @@ function DefaultHostResponseCard({
           <ResponseActions data={data} messageId={messageId} isLast={isLast} />
         )
       ) : null}
-    </>
+    </div>
   );
 }
 

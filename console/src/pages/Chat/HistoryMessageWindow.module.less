@@ -20,41 +20,32 @@
   --ant-color-fill-secondary: var(--app-fill);
 }
 
-.list {
-  height: 100%;
-  overflow-y: auto;
+.list:global(.qwenpaw-bubble-list) {
+  display: block;
+  padding-block: 0;
   overscroll-behavior: contain;
   overflow-anchor: none;
-  scrollbar-gutter: stable both-edges;
   background: transparent;
-  scrollbar-width: thin;
-  scrollbar-color: var(--app-scrollbar-thumb) transparent;
-}
 
-.list::-webkit-scrollbar {
-  width: 8px;
-}
-
-.list::-webkit-scrollbar-thumb {
-  border-radius: 4px;
-  background: var(--app-scrollbar-thumb);
+  &::before,
+  &::after {
+    content: none !important;
+    display: none !important;
+  }
 }
 
 .page {
   display: flex;
   box-sizing: border-box;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--chat-message-gap);
   width: 100%;
-  max-width: var(--chat-history-max-width, 960px);
-  min-width: 300px;
-  margin: 0 auto;
-  padding: 70px 16px 40px;
-  padding-inline: var(--chat-history-padding, 16px);
-
-  &[data-last-turn="true"] {
-    padding-bottom: 0;
-  }
+  min-width: 0;
+  padding-block: calc(
+      var(--chat-message-edge) + var(--chat-message-header-space) +
+        var(--chat-message-gap)
+    )
+    calc(var(--chat-message-edge) + 2 * var(--chat-message-gap));
 
   > :global(.qwenpaw-bubble) {
     flex-shrink: 0;
@@ -258,11 +249,6 @@
 }
 
 @media (max-width: 768px) {
-  .page {
-    min-width: 0;
-    padding-inline: 16px;
-  }
-
   .navigation {
     display: none;
   }
