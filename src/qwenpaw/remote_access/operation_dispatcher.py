@@ -92,8 +92,9 @@ class RelayLocalApi:
     async def close(self) -> None:
         """Close the binding's shared pool after transport shutdown."""
         if self._owns_client and self._client is not None:
-            await self._client.aclose()
+            client = self._client
             self._client = None
+            await client.aclose()
 
     def dispatcher(self) -> RelayOperationDispatcher:
         """Expose one transport contract for the existing Console API."""
