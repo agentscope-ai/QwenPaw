@@ -18,6 +18,7 @@ from qwenpaw.app.chats.utils import (
     _normalize_msg_timestamp,
     _resolve_content_url,
     agentscope_msg_to_message,
+    build_env_context,
     clean_display_text,
     strip_injected_skill_block,
 )
@@ -656,3 +657,72 @@ def test_clean_title_keeps_long_title():
     long_title = "x" * 200
     result = _clean_title(long_title)
     assert result == long_title
+
+
+# ---------------------------------------------------------------------------
+# build_env_context() prefix cache stability
+# ---------------------------------------------------------------------------
+
+
+class TestBuildEnvContextOrdering:
+    """build_env_context() must emit reusable fields before dynamic ones.
+
+    Tool schemas and env_context are the largest prefix segments in the LLM
+    request. Stable content (About, GitHub, Docs) and values that stay the
+    same across turns (OS, shell, directories, agent identity) must appear
+    before per-session request fields (channel, user, session_id) and the
+    current date, so KV cache misses stay confined to the trailing tokens.
+    """
+
+    def _line_index(self, ctx: str, needle: str) -> int:
+        for i, line in enumerate(ctx.split("\n")):
+            if needle in line:
+                return i
+        raise AssertionError(f"{needle!r} not found in:\n{ctx}")
+
+    def test_stable_fields_precede_request_fields(self):
+        """Identity and environment lines appear before per-session lines."""
+        ctx = build_env_context(
+            session_id="test-session-123",
+            user_id="user-42",
+            user_name="Alice",
+            channel="console",
+            working_dir="/home/alice/project",
+        )
+        stable = ["About:", "GitHub:", "Docs:", "OS:"]
+        dynamic = ["Channel:", "User Name:", "User ID:", "Session ID:"]
+        assert max(self._line_index(ctx, f) for f in stable) < min(
+            self._line_index(ctx, f) for f in dynamic
+        )
+
+    def test_dynamic_fields_preserved(self):
+        """All provided per-session fields appear in the output."""
+        ctx = build_env_context(
+            session_id="abc-123",
+            user_id="uid-99",
+            user_name="Alice",
+            channel="console",
+            working_dir="/home/alice/project",
+        )
+        assert "Session ID: abc-123" in ctx
+        assert "User ID: uid-99" in ctx
+        assert "User Name: Alice" in ctx
+        assert "Channel: console" in ctx
+        assert "Working directory: /home/alice/project" in ctx
+
+    def test_current_date_is_last(self):
+        """The date changes over time, so it must sit at the very end."""
+        ctx = build_env_context(
+            session_id="test-session",
+            working_dir="/tmp",
+        )
+        inner = ctx.split("\n")[1:-1]  # strip the ==== boundary lines
+        assert inner[-1].startswith("- Current date:")
+
+    def test_agent_identity_precedes_session_fields(self):
+        """Agent identity is stable per agent and precedes session values."""
+        ctx = build_env_context(agent_id="agent-1", session_id="s-1")
+        assert self._line_index(ctx, "Agent Identity:") < self._line_index(
+            ctx,
+            "Session ID:",
+        )
