@@ -379,3 +379,64 @@ async def test_unknown_stream_retires_to_durable_receipt(
         ] == "unknown"
     assert len(updates) == 1
     await open_route(restored, identity, "D123")
+
+
+async def test_file_upload_decodes_percent_encoded_locator_name(slack):
+    _, peer, identity, platform = slack
+    handle = (await receive(slack))["response_handle"]
+    path = platform._media_dir / "附件 报告.docx"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"outbound-file")
+    locator = path.as_uri()
+    assert "%E9%99%84" in locator and "%20" in locator
+    client = platform._client
+    uploads = []
+
+    async def get_upload_url(**kwargs):
+        uploads.append(("url", kwargs))
+        return {
+            "ok": True,
+            "upload_url": "https://files.slack.com/upload/v1/x",
+            "file_id": "F1",
+        }
+
+    async def complete_upload(**kwargs):
+        uploads.append(("complete", kwargs))
+        return {"ok": True}
+
+    class Response:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class Session:
+        closed = False
+
+        def post(self, url, **kwargs):
+            uploads.append(("post", kwargs["data"]))
+            return Response()
+
+    async def session():
+        return Session()
+
+    client.files_getUploadURLExternal = get_upload_url
+    client.files_completeUploadExternal = complete_upload
+    platform._sender._get_http_session = session
+    assert (
+        await send(
+            peer,
+            identity,
+            handle,
+            parts=[{"type": "file", "file_url": locator}],
+        )
+    )["state"] == "acknowledged"
+    assert uploads[0] == (
+        "url",
+        {"filename": "附件 报告.docx", "length": len(b"outbound-file")},
+    )
+    assert uploads[1] == ("post", b"outbound-file")
+    assert uploads[2][1]["files"] == [{"id": "F1", "title": "附件 报告.docx"}]

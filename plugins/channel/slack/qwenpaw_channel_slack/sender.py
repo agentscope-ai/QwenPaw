@@ -303,7 +303,13 @@ class SlackSender:
         )
         filename = _part_value(part, "filename", None)
         if not filename and url and not url.startswith("data:"):
-            filename = os.path.basename(url) or "file"
+            # Locators are percent-encoded; show the decoded name.
+            local_path = _resolve_local_file_path(url)
+            filename = (
+                os.path.basename(local_path)
+                if local_path
+                else unquote(os.path.basename(urlparse(url).path))
+            ) or "file"
         filename = filename or "file"
 
         if not url:
