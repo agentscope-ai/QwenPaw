@@ -146,7 +146,23 @@
   background: var(--app-surface);
   color: var(--app-text-secondary);
   transform: translateX(-50%);
+  transition:
+    color 120ms cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 120ms cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 120ms cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
+
+  &:hover,
+  &:focus-visible {
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-soft);
+    color: var(--app-accent-text);
+  }
+
+  &:focus-visible {
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
+  }
 }
 
 .navigationDirectory {

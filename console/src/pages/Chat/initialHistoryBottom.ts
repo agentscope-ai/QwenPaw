@@ -1,12 +1,15 @@
 /** Follow initial layout changes only until the user takes control. */
-export function followInitialHistoryBottom(scroll: HTMLElement): () => void {
+export function followInitialHistoryPosition(
+  scroll: HTMLElement,
+  position: () => void,
+): () => void {
   const surface =
     scroll.closest<HTMLElement>(".qwenpaw-chat-anywhere-layout-right") ??
     scroll;
   let active = true;
   const align = () => {
     if (active && scroll.clientHeight > 0) {
-      scroll.scrollTop = scroll.scrollHeight;
+      position();
     }
   };
   const stop = () => {
@@ -17,6 +20,7 @@ export function followInitialHistoryBottom(scroll: HTMLElement): () => void {
     surface.removeEventListener("touchstart", stop, true);
     surface.removeEventListener("keydown", stop, true);
     scroll.removeEventListener("chat-message-window-rendered", align);
+    scroll.removeEventListener("chat-history-navigated", stop);
   };
   const observer =
     typeof ResizeObserver === "undefined" ? null : new ResizeObserver(align);
@@ -30,6 +34,13 @@ export function followInitialHistoryBottom(scroll: HTMLElement): () => void {
   });
   surface.addEventListener("keydown", stop, true);
   scroll.addEventListener("chat-message-window-rendered", align);
+  scroll.addEventListener("chat-history-navigated", stop);
   align();
   return stop;
+}
+
+export function followInitialHistoryBottom(scroll: HTMLElement): () => void {
+  return followInitialHistoryPosition(scroll, () => {
+    scroll.scrollTop = scroll.scrollHeight;
+  });
 }
