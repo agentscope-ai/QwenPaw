@@ -239,10 +239,10 @@ def test_update_reports_up_to_date(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize(
-    "base_url",
+    "service_url",
     ["http://127.0.0.1:8088", "http://example.com:8088"],
 )
-def test_probe_service_ignores_proxy_env(monkeypatch, base_url) -> None:
+def test_probe_service_ignores_proxy_env(monkeypatch, service_url) -> None:
     captured = {}
     real_client = httpx.Client
 
@@ -256,10 +256,10 @@ def test_probe_service_ignores_proxy_env(monkeypatch, base_url) -> None:
         )
 
     monkeypatch.setattr(httpx, "Client", create_client)
-    result = _probe_service(base_url)
+    result = _probe_service(service_url)
 
     assert result.is_running is True
-    assert result.base_url == base_url
+    assert result.base_url == service_url
     assert result.version == "1.2.3"
     assert captured["trust_env"] is False
 

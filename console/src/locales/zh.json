@@ -161,6 +161,7 @@
     "genericTitle": "页面出现异常",
     "genericSubTitle": "渲染此页面时发生了意外错误。",
     "reload": "刷新页面",
+    "reloadFailed": "无法刷新控制台，请重试。",
     "details": "查看错误详情",
     "copy": "复制错误信息",
     "copied": "错误信息已复制",
@@ -2240,7 +2241,7 @@
     "deleteConfirm": "确定要删除此会话吗？",
     "batchDeleteConfirm": "确定要删除选中的 {{count}} 个会话吗？",
     "deleteSuccess": "会话删除成功",
-    "deleteFailed": "会话删除失败",
+    "deleteFailed": "删除失败，请重试",
     "batchDeleteSuccess": "成功删除 {{count}} 个会话",
     "batchDeleteFailed": "批量删除会话失败",
     "saveSuccess": "会话保存成功",
@@ -4150,6 +4151,19 @@
     "system": "跟随系统"
   },
   "chat": {
+    "fork": "分叉",
+    "forkBoundary": "从 {{name}} 分支到这里",
+    "forkParent": "原会话",
+    "forkParentUnavailable": "原会话不可用",
+    "forkTitle": "从此轮创建分支？",
+    "forkDescription": "新建的独立会话将包含此轮及之前的全部对话。",
+    "forkCreated": "已创建分支",
+    "forkFailed": "创建分支失败",
+    "forkPreparing": "正在准备分叉",
+    "forkUnavailable": "此轮对话无法分叉",
+    "forkUnsupported": "当前智能体后端不支持分叉",
+    "forkBoundaryMissing": "此轮缺少已完成的原生分叉边界，暂时无法分叉",
+    "sessionLoadFailed": "会话加载失败，请重新打开此会话。",
     "quoteFollowUp": "引用并追问",
     "longTextPaste": {
       "title": "粘贴长文本",
@@ -4169,6 +4183,13 @@
     "newTask": "新建任务",
     "newChat": "新对话",
     "chatHistoryTooltip": "聊天历史",
+    "olderHistoryLoadFailed": "无法加载更早的消息",
+    "messageNavigation": {
+      "title": "导航 ({{count}})",
+      "locate": "在目录中定位当前消息",
+      "userMessage": "用户消息",
+      "bottom": "滚动到底部"
+    },
     "messageDisplay": {
       "stepsRunning": "正在执行中… · {{count}} 个步骤",
       "stepsCanceled": "已取消 · {{count}} 个步骤",
@@ -4375,7 +4396,26 @@
     },
     "regenerate": "重新生成",
     "regenerateUnavailable": "该历史回合没有请求标识，请发送新消息继续。",
+    "canceledWithoutReply": "用户取消无回复",
     "turnCanceled": "已停止",
+    "steer": {
+      "unsupportedBackend": "当前智能体不支持运行中修正，输入已保留，请等待任务结束。",
+      "statusUnknown": "运行状态暂时无法确认，输入已保留，请稍后重试。",
+      "emptyInput": "请输入文字或添加附件。",
+      "unavailable": "暂时无法修正当前任务：{{reason}}",
+      "failed": "修正未能应用",
+      "reason": { "cancelled": "任务已停止" },
+      "user": "用户修正",
+      "submitting": "正在提交",
+      "accepted": "已接收，等待下一步",
+      "applied": "已注入",
+      "syncing": "已注入，正在同步",
+      "unknown": "提交状态待确认",
+      "pluginBusy": "任务执行中，请在输入框提交修正，或等待完成后重试此操作。",
+      "sync_failed": "消息同步失败，请重试",
+      "retry": "重试同步",
+      "resolvePrevious": "上一条修正状态待确认，请先重试原文本。"
+    },
     "outputTruncated": "模型已达到输出上限，当前回答不完整。请让模型继续回答，或提高输出上限。"
   },
   "security": {

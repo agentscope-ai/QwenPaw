@@ -1,4 +1,5 @@
 import { getApiUrl } from "../api/config";
+import { consoleHostOrigin } from "../features/platform-web/hostBridge";
 
 const REQUEST_TIMEOUT_MS = 2500;
 const READINESS_TIMEOUT_MS = 30_000;
@@ -117,6 +118,7 @@ export async function waitForChunkServerReady(
   if (signal.aborted) return { ...report, outcome: "cancelled" };
   const page = new URL(window.location.href);
   if (
+    consoleHostOrigin() !== undefined ||
     !/^https?:$/.test(page.protocol) ||
     !["localhost", "127.0.0.1", "[::1]"].includes(page.hostname) ||
     (resourceUrl && new URL(resourceUrl, page).origin !== page.origin)

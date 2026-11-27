@@ -11,9 +11,12 @@ vi.mock("@agentscope-ai/chat", () => ({}));
 
 import sessionApi, { __test__ as T } from "./index";
 import api, { type ChatHistory, type ChatSpec } from "../../../api";
+import { chatApi } from "../../../api/modules/chat";
 import { createSdkSessionAdapter } from "../sdkSessionAdapter";
+import { prefetchChatHistory } from "../chatRoutePrefetch";
 import { groupChatsByDate } from "../../../utils/chatGroups";
 import type { ExtendedSession } from "../../../stores/sessionListStore";
+import { useSessionListStore } from "../../../stores/sessionListStore";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -37,6 +40,57 @@ function createdChat(id: string): ChatSpec {
     meta: {},
   };
 }
+
+describe("running session discovery", () => {
+  beforeEach(() => {
+    sessionApi.resetForTests();
+    sessionApi.setActiveAgent("A");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionApi.resetForTests();
+  });
+
+  it("preserves running discovery and confirmed forks across stale lists and owners", async () => {
+    const listChats = vi
+      .spyOn(api, "listChats")
+      .mockResolvedValue([
+        { ...createdChat("running-chat"), status: "running" },
+      ]);
+
+    await expect(sessionApi.getSessionList()).resolves.toEqual([
+      expect.objectContaining({
+        id: "running-chat",
+        status: "running",
+        generating: true,
+      }),
+    ]);
+    const owner = sessionApi.getActiveOwner();
+    const stale = deferred<ChatSpec[]>();
+    listChats.mockReturnValueOnce(stale.promise);
+    const pending = sessionApi.getSessionList();
+    const child = { ...createdChat("fork-chat"), name: "Parent (1)" };
+    sessionApi.registerForkedChat(child, owner);
+    sessionApi.registerForkedChat(child, owner);
+    expect(useSessionListStore.getState().sessions.map((s) => s.id)).toEqual([
+      "fork-chat",
+      "running-chat",
+    ]);
+    stale.resolve([]);
+    await expect(pending).resolves.toEqual([
+      expect.objectContaining({ id: "fork-chat", name: "Parent (1)" }),
+      expect.objectContaining({ id: "running-chat", generating: true }),
+    ]);
+    listChats.mockRejectedValueOnce(new Error("offline"));
+    await expect(sessionApi.getSessionList()).rejects.toThrow("offline");
+    expect(useSessionListStore.getState().sessions[0].id).toBe("fork-chat");
+    sessionApi.setActiveAgent("B");
+    const before = useSessionListStore.getState().sessions;
+    sessionApi.registerForkedChat(createdChat("late-fork"), owner);
+    expect(useSessionListStore.getState().sessions).toBe(before);
+  });
+});
 
 describe("createSession owner-epoch singleflight", () => {
   beforeEach(() => {
@@ -67,6 +121,77 @@ describe("createSession owner-epoch singleflight", () => {
     sessionApi.setVisibleSession(null);
     expect(useTurnUsageStore.getState().activeTurn).toBeNull();
   });
+
+  it("reuses cold-route history instead of requesting the Chat twice", async () => {
+    const history = {
+      messages: [],
+      status: "idle",
+    } as ChatHistory;
+    const prefetched = vi.spyOn(chatApi, "getChat").mockResolvedValue(history);
+    const fallback = vi.spyOn(api, "getChat").mockResolvedValue(history);
+    const controller = new AbortController();
+
+    prefetchChatHistory("prefetched-chat", "A", controller.signal);
+    await sessionApi.getSession("prefetched-chat");
+
+    expect(prefetched).toHaveBeenCalledOnce();
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "prepares migrated fork IDs without blocking or replacing history (switch=%s)",
+    async (switchAgent) => {
+      const pending =
+        deferred<Awaited<ReturnType<typeof api.getChatMessages>>>();
+      const legacy = msg({
+        id: "stable-assistant",
+        role: "assistant",
+        content: "tool result",
+      });
+      vi.spyOn(api, "getChat").mockResolvedValue({
+        messages: [legacy],
+        status: "idle",
+        history: { has_more: false, migration_pending: true },
+      });
+      const pages = vi
+        .spyOn(api, "getChatMessages")
+        .mockReturnValue(pending.promise);
+      const session = await sessionApi.getSession("legacy-chat");
+      const visible = JSON.stringify(session?.messages);
+      const prepared = sessionApi.getPreparedForkTurnId("legacy-chat", [
+        "stable-assistant",
+      ]);
+      await sessionApi.getSession("legacy-chat");
+      expect(pages).toHaveBeenCalledOnce();
+      expect(pages).toHaveBeenCalledWith(
+        "legacy-chat",
+        expect.objectContaining({ wait_for_migration: true, agentId: "A" }),
+      );
+      if (switchAgent) sessionApi.setActiveAgent("B");
+      pending.resolve({
+        messages: [
+          {
+            ...legacy,
+            metadata: {
+              qwenpaw_transcript_position: {
+                turn_id: "legacy:1",
+                turn_seq: 1,
+                ordinal: 0,
+              },
+            },
+          },
+        ],
+        has_more: false,
+      });
+      expect(await prepared).toBe(switchAgent ? undefined : "legacy:1");
+      expect(JSON.stringify(session?.messages)).toBe(visible);
+      expect(
+        await sessionApi.getPreparedForkTurnId("legacy-chat", [
+          "unrelated-message",
+        ]),
+      ).toBeUndefined();
+    },
+  );
 
   it("shares concurrent first sends and publishes the created Chat once", async () => {
     const pending = deferred<ChatSpec>();
@@ -315,6 +440,796 @@ describe("bound session history owner epochs", () => {
     expect(observer).toHaveBeenCalledExactlyOnceWith(chatId, session);
     expect(adapter.isReady(chatId)).toBe(true);
   });
+});
+
+describe("durable transcript pagination", () => {
+  beforeEach(() => {
+    sessionApi.resetForTests();
+    sessionApi.setActiveAgent("A");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionApi.resetForTests();
+  });
+
+  it("loads the complete user index and jumps through an opaque anchor", async () => {
+    const chatId = "77777777-7777-4777-8777-777777777777";
+    const getUserMessages = vi
+      .spyOn(api, "getChatUserMessages")
+      .mockResolvedValueOnce({
+        items: [
+          {
+            message_id: "user-3",
+            preview: "three",
+            created_at: "2026-10-23T03:00:00Z",
+            anchor: "anchor-3",
+          },
+        ],
+        has_more: true,
+        next_before: "index-cursor",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            message_id: "user-1",
+            preview: "one",
+            created_at: "2026-10-23T01:00:00Z",
+            anchor: "anchor-1",
+          },
+          {
+            message_id: "user-2",
+            preview: "two",
+            created_at: "2026-10-23T02:00:00Z",
+            anchor: "anchor-2",
+          },
+        ],
+        has_more: false,
+        next_before: null,
+      });
+    const getMessages = vi.spyOn(api, "getChatMessages").mockResolvedValue({
+      messages: [msg({ id: "user-1", content: "one" })],
+      has_more: false,
+      next_before: null,
+    });
+
+    const firstIndexPage = await sessionApi.loadUserMessageIndexPage(chatId);
+    expect(getUserMessages).toHaveBeenCalledTimes(1);
+    expect(firstIndexPage.items.map((item) => item.messageId)).toEqual([
+      "user-3",
+    ]);
+    const olderIndexPage = await sessionApi.loadUserMessageIndexPage(
+      chatId,
+      firstIndexPage.before,
+    );
+    const index = [...olderIndexPage.items, ...firstIndexPage.items];
+    const target = await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "anchor-1",
+      "user-1",
+    );
+
+    expect(index.map((item) => item.messageId)).toEqual([
+      "user-1",
+      "user-2",
+      "user-3",
+    ]);
+    expect(getUserMessages).toHaveBeenNthCalledWith(2, chatId, {
+      before: "index-cursor",
+      limit: 50,
+      signal: undefined,
+      include_app_owned: false,
+    });
+    expect(getMessages).toHaveBeenCalledWith(chatId, {
+      before: "anchor-1",
+      limit: 5,
+      signal: undefined,
+      include_app_owned: false,
+    });
+    expect(target.messages[0]).toMatchObject({
+      id: "user-1",
+      role: "user",
+    });
+  });
+
+  it("keeps an anchor opened while a latest refresh is in flight", async () => {
+    const chatId = "66666666-6666-4666-8666-666666666666";
+    const refresh = deferred<ChatHistory>();
+    vi.spyOn(api, "getChat")
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "latest-before" })],
+        status: "idle",
+        history: { has_more: true, next_before: "before-refresh" },
+      })
+      .mockReturnValueOnce(refresh.promise);
+    vi.spyOn(api, "getChatMessages").mockResolvedValue({
+      messages: [msg({ id: "old-user" })],
+      has_more: true,
+      next_before: "old-cursor",
+    });
+
+    await sessionApi.getSession(chatId);
+    const pendingRefresh = sessionApi.refreshSession(chatId);
+    await sessionApi.loadHistoryAtAnchor(chatId, "old-anchor", "old-user");
+    refresh.resolve({
+      messages: [msg({ id: "latest-after" })],
+      status: "idle",
+      history: { has_more: true, next_before: "after-refresh" },
+    });
+    await pendingRefresh;
+
+    expect(sessionApi.isBrowsingHistory(chatId)).toBe(true);
+    expect(
+      sessionApi.showLatestHistory(chatId)?.map((message) => message.id),
+    ).toEqual(["latest-after"]);
+  });
+
+  it("continues a split user message and stops at its beginning", async () => {
+    const chatId = "44444444-4444-4444-8444-444444444444";
+    const fragment = (contentStart: number) =>
+      msg({
+        id: "target-user",
+        metadata: {
+          qwenpaw_history_fragment: {
+            content_start: contentStart,
+            content_end: contentStart + 1,
+            content_total: 3,
+          },
+        },
+      });
+    const getMessages = vi
+      .spyOn(api, "getChatMessages")
+      .mockResolvedValueOnce({
+        messages: [fragment(1)],
+        has_more: true,
+        next_before: "user-fragment-cursor",
+      })
+      .mockResolvedValueOnce({
+        messages: [fragment(0)],
+        has_more: true,
+        next_before: "older-turn-cursor",
+      })
+      .mockResolvedValueOnce({
+        messages: [fragment(1)],
+        has_more: true,
+        next_before: "user-fragment-cursor",
+      });
+
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+      undefined,
+      "append-newer",
+    );
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+      undefined,
+      "append-newer",
+    );
+    expect(getMessages).toHaveBeenNthCalledWith(2, chatId, {
+      before: "user-fragment-cursor",
+      limit: 1,
+      signal: undefined,
+      include_app_owned: false,
+    });
+
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+      undefined,
+      "append-newer",
+    );
+    expect(getMessages).toHaveBeenNthCalledWith(3, chatId, {
+      after_message_id: "target-user",
+      limit: 1,
+      signal: undefined,
+      include_app_owned: false,
+    });
+  });
+
+  it.each([
+    ["text", { text_start: 4, text_end: 8, text_total: 8 }],
+    [
+      "serialized content",
+      { serialized_start: 4, serialized_end: 8, serialized_total: 8 },
+    ],
+  ])("continues a user fragment split inside %s", async (_kind, offset) => {
+    const chatId = "55555555-5555-4555-8555-555555555555";
+    const getMessages = vi.spyOn(api, "getChatMessages").mockResolvedValue({
+      messages: [
+        msg({
+          id: "target-user",
+          metadata: {
+            qwenpaw_history_fragment: {
+              content_start: 0,
+              content_end: 1,
+              content_total: 1,
+              ...offset,
+            },
+          },
+        }),
+      ],
+      has_more: true,
+      next_before: "nested-fragment-cursor",
+    });
+
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+      undefined,
+      "append-newer",
+    );
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+      undefined,
+      "append-newer",
+    );
+
+    expect(getMessages).toHaveBeenNthCalledWith(2, chatId, {
+      before: "nested-fragment-cursor",
+      limit: 1,
+      signal: undefined,
+      include_app_owned: false,
+    });
+  });
+
+  it("loads bidirectional anchor context without skips or duplicate pages", async () => {
+    const chatId = "44444444-4444-4444-8444-444444444444";
+    const getMessages = vi
+      .spyOn(api, "getChatMessages")
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "assistant-fragment", content: "tail" })],
+        has_more: true,
+        next_before: "fragment-cursor",
+      })
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "target-user", content: "target" })],
+        has_more: true,
+        next_before: "older-cursor",
+      });
+
+    const target = await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "target-anchor",
+      "target-user",
+    );
+
+    expect(getMessages).toHaveBeenCalledTimes(1);
+    expect(target.messages.map((message) => message.id)).toEqual([
+      "assistant-fragment",
+    ]);
+    const resumed = await sessionApi.loadOlderHistory(chatId);
+    expect(getMessages).toHaveBeenCalledTimes(2);
+    expect(getMessages).toHaveBeenNthCalledWith(2, chatId, {
+      before: "fragment-cursor",
+      limit: 5,
+      signal: undefined,
+      include_app_owned: false,
+    });
+    expect(resumed.messages.map((message) => message.id)).toEqual([
+      "target-user",
+      "assistant-fragment",
+    ]);
+    expect(target.noMore).toBe(false);
+
+    getMessages.mockReset();
+    getMessages
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "user-8", content: "eight" })],
+        has_more: true,
+        next_before: "before-4",
+      })
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "user-13", content: "thirteen" })],
+        has_more: true,
+        next_before: "before-9",
+      })
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "user-1", content: "one" })],
+        has_more: false,
+        next_before: null,
+      });
+    await sessionApi.loadHistoryAtAnchor(chatId, "anchor-8", "user-8");
+    await sessionApi.loadHistoryAtAnchor(
+      chatId,
+      "anchor-13",
+      "user-13",
+      undefined,
+      "append-newer",
+    );
+    const older = await sessionApi.loadOlderHistory(chatId);
+    expect(getMessages).toHaveBeenLastCalledWith(
+      chatId,
+      expect.objectContaining({ before: "before-4" }),
+    );
+    expect(older.messages.some((item) => item.id === "user-1")).toBe(true);
+
+    const latestChatId = "33333333-3333-4333-8333-333333333333";
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [msg({ id: "latest-user", content: "latest" })],
+      status: "idle",
+      history: { has_more: true, next_before: "latest-cursor" },
+    });
+    getMessages.mockReset();
+    getMessages.mockResolvedValue({
+      messages: [msg({ id: "old-user", content: "old" })],
+      has_more: false,
+      next_before: null,
+    });
+    await sessionApi.getSession(latestChatId);
+    await sessionApi.loadHistoryAtAnchor(latestChatId, "anchor-1", "old-user");
+    await sessionApi.loadHistoryAtAnchor(latestChatId, "anchor-2", "old-user");
+    expect(
+      sessionApi.showLatestHistory(latestChatId)?.map((item) => item.id),
+    ).toEqual(["latest-user"]);
+    const exhausted = await sessionApi.loadOlderHistory(latestChatId);
+    expect(getMessages).toHaveBeenLastCalledWith(
+      latestChatId,
+      expect.objectContaining({ before: "latest-cursor" }),
+    );
+    expect(exhausted.noMore).toBe(true);
+    const calls = getMessages.mock.calls.length;
+    expect(await sessionApi.loadOlderHistory(latestChatId)).toEqual({
+      messages: [],
+      noMore: true,
+    });
+    expect(getMessages).toHaveBeenCalledTimes(calls);
+  });
+
+  it("publishes a split assistant immediately and fetches its prefix separately", async () => {
+    const chatId = "33333333-3333-4333-8333-333333333333";
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [msg({ id: "latest", content: "latest" })],
+      status: "idle",
+      history: { has_more: true, next_before: "start" },
+    });
+    const tail = deferred<Awaited<ReturnType<typeof api.getChatMessages>>>();
+    const getMessages = vi
+      .spyOn(api, "getChatMessages")
+      .mockResolvedValueOnce({
+        messages: [
+          msg({ id: "assistant-tail", role: "assistant", content: "tail" }),
+        ],
+        has_more: true,
+        next_before: "middle",
+      })
+      .mockReturnValueOnce(tail.promise);
+    await sessionApi.getSession(chatId);
+    const published = vi.fn();
+    await sessionApi.loadOlderHistory(chatId).then(published);
+    expect(getMessages).toHaveBeenCalledTimes(1);
+    expect(published).toHaveBeenCalledOnce();
+    const load = sessionApi.loadOlderHistory(chatId);
+    await vi.waitFor(() => expect(getMessages).toHaveBeenCalledTimes(2));
+    expect(getMessages).toHaveBeenLastCalledWith(
+      chatId,
+      expect.objectContaining({
+        before: "middle",
+        limit: 5,
+      }),
+    );
+    tail.resolve({
+      messages: [msg({ id: "older-user", content: "question" })],
+      has_more: true,
+      next_before: "previous-turn",
+    });
+    const resumed = await load;
+    expect(resumed.messages.map((item) => item.id)).toEqual([
+      "older-user",
+      expect.any(String),
+    ]);
+    const data = resumed.messages[1].cards?.[0].data as {
+      output: { id: string }[];
+    };
+    expect(data.output[0].id).toBe("assistant-tail");
+  });
+
+  it("does not commit a staged partial page when it is canceled", async () => {
+    const chatId = "33333333-3333-4333-8333-333333333333";
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [msg({ id: "latest", content: "latest" })],
+      status: "idle",
+      history: { has_more: true, next_before: "start" },
+    });
+    const controller = new AbortController();
+    const getMessages = vi
+      .spyOn(api, "getChatMessages")
+      .mockImplementationOnce(async () => {
+        controller.abort();
+        return {
+          messages: [msg({ id: "tail", role: "assistant", content: "tail" })],
+          has_more: true,
+          next_before: "middle",
+        };
+      });
+    await sessionApi.getSession(chatId);
+    await expect(
+      sessionApi.loadOlderHistory(chatId, controller.signal),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    getMessages.mockResolvedValueOnce({ messages: [], has_more: false });
+    await sessionApi.loadOlderHistory(chatId);
+    expect(getMessages).toHaveBeenLastCalledWith(
+      chatId,
+      expect.objectContaining({ before: "start" }),
+    );
+  });
+
+  it("keeps only adjacent pages in the SDK history window", async () => {
+    const chatId = "55555555-5555-4555-8555-555555555555";
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [
+        msg({ id: "new-user-1", content: "new 1" }),
+        msg({ id: "new-user-2", content: "new 2" }),
+      ],
+      status: "idle",
+      history: {
+        has_more: true,
+        next_before: "3:0",
+      },
+    });
+    const getMessages = vi
+      .spyOn(api, "getChatMessages")
+      .mockResolvedValueOnce({
+        messages: [
+          msg({ id: "middle-user-1", content: "middle 1" }),
+          msg({ id: "middle-user-2", content: "middle 2" }),
+        ],
+        has_more: true,
+        next_before: "2:0",
+      })
+      .mockResolvedValueOnce({
+        messages: [
+          msg({ id: "old-user-1", content: "old 1" }),
+          msg({ id: "old-user-2", content: "old 2" }),
+        ],
+        has_more: false,
+        next_before: null,
+      });
+
+    await sessionApi.getSession(chatId);
+    const middle = await sessionApi.loadOlderHistory(chatId);
+    const oldest = await sessionApi.loadOlderHistory(chatId);
+
+    expect(middle.messages.map((message) => message.id)).toEqual([
+      "middle-user-1",
+      "middle-user-2",
+      "new-user-1",
+    ]);
+    expect(oldest.messages.map((message) => message.id)).toEqual([
+      "old-user-1",
+      "old-user-2",
+      "middle-user-1",
+    ]);
+    expect(getMessages).toHaveBeenCalledTimes(2);
+  });
+
+  it("releases a failed page request so an explicit retry can succeed", async () => {
+    const chatId = "44444444-4444-4444-8444-444444444444";
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [],
+      status: "idle",
+      history: {
+        has_more: true,
+        next_before: "2:0",
+      },
+    });
+    const getMessages = vi
+      .spyOn(api, "getChatMessages")
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "old-user", content: "old" })],
+        has_more: false,
+        next_before: null,
+      });
+
+    await sessionApi.getSession(chatId);
+    await expect(sessionApi.loadOlderHistory(chatId)).rejects.toThrow(
+      "temporarily unavailable",
+    );
+
+    const retried = await sessionApi.loadOlderHistory(chatId);
+
+    expect(getMessages).toHaveBeenCalledTimes(2);
+    expect(retried.messages).toHaveLength(1);
+    expect(retried.noMore).toBe(true);
+  });
+
+  it("merges assistant fragments when one turn spans history pages", () => {
+    const fragment = (id: string, ordinal: number) =>
+      msg({
+        id,
+        role: "assistant",
+        content: `part ${ordinal}`,
+        metadata: {
+          qwenpaw_transcript_position: {
+            turn_id: "turn-1",
+            turn_seq: 1,
+            ordinal,
+          },
+        },
+      });
+    const older = T.convertMessages([fragment("m1", 1), fragment("m2", 2)]);
+    const newer = T.convertMessages([fragment("m3", 3), fragment("m4", 4)]);
+
+    const merged = T.mergeHistoryMessages(older, newer);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe("history-turn:turn-1");
+    const data = merged[0].cards?.[0]?.data as {
+      output?: Array<{ id?: string }>;
+    };
+    expect(data.output?.map((item) => item.id)).toEqual([
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+    ]);
+  });
+
+  it.each(["user", "assistant"])(
+    "merges %s content fragments back into one message",
+    (role) => {
+      const fragment = (start: number, end: number, labels: string[]) =>
+        msg({
+          id: "fragmented-message",
+          role,
+          content: labels.map((text) => ({ type: "text", text })),
+          metadata: {
+            qwenpaw_transcript_position: {
+              turn_id: "turn-fragment",
+              turn_seq: 1,
+              ordinal: role === "user" ? 0 : 1,
+            },
+            qwenpaw_history_fragment: {
+              content_start: start,
+              content_end: end,
+              content_total: 3,
+            },
+          },
+        });
+      const older = T.convertMessages([fragment(0, 1, ["first"])]);
+      const newer = T.convertMessages([fragment(1, 3, ["second", "third"])]);
+
+      const merged = T.mergeHistoryMessages(older, newer);
+      expect(merged).toHaveLength(1);
+      const data = merged[0].cards?.[0]?.data as {
+        input?: Array<{ content: Array<{ text: string }> }>;
+        output?: Array<{ content: Array<{ text: string }> }>;
+      };
+      const message = role === "user" ? data.input?.[0] : data.output?.[0];
+      expect(message).toBeDefined();
+      expect(message?.content.map((item) => item.text)).toEqual([
+        "first",
+        "second",
+        "third",
+      ]);
+    },
+  );
+
+  it("merges text slices inside one oversized content block", () => {
+    const fragment = (start: number, end: number, text: string) =>
+      msg({
+        id: "fragmented-text-message",
+        role: "assistant",
+        content: [{ type: "text", text }],
+        metadata: {
+          qwenpaw_transcript_position: {
+            turn_id: "turn-fragment",
+            turn_seq: 1,
+            ordinal: 1,
+          },
+          qwenpaw_history_fragment: {
+            content_start: 0,
+            content_end: 1,
+            content_total: 1,
+            text_content_index: 0,
+            text_start: start,
+            text_end: end,
+            text_total: 11,
+          },
+        },
+      });
+    const older = T.convertMessages([fragment(0, 6, "hello ")]);
+    const newer = T.convertMessages([fragment(6, 11, "world")]);
+
+    const merged = T.mergeHistoryMessages(older, newer);
+    expect(merged).toHaveLength(1);
+    const data = merged[0].cards?.[0]?.data as {
+      output?: Array<{
+        content: Array<{ text: string }>;
+        metadata?: Record<string, unknown>;
+      }>;
+    };
+    expect(data.output?.[0]?.content[0]?.text).toBe("hello world");
+    expect(data.output?.[0]?.metadata?.qwenpaw_history_fragment).toEqual({
+      content_start: 0,
+      content_end: 1,
+      content_total: 1,
+    });
+  });
+
+  it("restores a serialized oversized tool result block", () => {
+    const block = JSON.stringify({
+      type: "data",
+      data: {
+        call_id: "call-1",
+        name: "large_tool",
+        output: "hello world",
+      },
+    });
+    const firstSplit = Math.floor(block.length / 3);
+    const secondSplit = Math.floor((block.length * 2) / 3);
+    const fragment = (start: number, end: number) =>
+      msg({
+        id: "fragmented-tool-result",
+        role: "assistant",
+        content: [],
+        metadata: {
+          qwenpaw_transcript_position: {
+            turn_id: "turn-fragment",
+            turn_seq: 1,
+            ordinal: 1,
+          },
+          qwenpaw_history_fragment: {
+            content_start: 0,
+            content_end: 1,
+            content_total: 1,
+            serialized_start: start,
+            serialized_end: end,
+            serialized_total: block.length,
+            serialized_fragment: block.slice(start, end),
+          },
+        },
+      });
+    const oldest = T.convertMessages([fragment(0, firstSplit)]);
+    const middle = T.convertMessages([fragment(firstSplit, secondSplit)]);
+    const newest = T.convertMessages([fragment(secondSplit, block.length)]);
+
+    const partial = T.mergeHistoryMessages(middle, newest);
+    const partialData = partial[0].cards?.[0]?.data as {
+      output?: Array<{
+        metadata?: {
+          qwenpaw_history_fragment?: {
+            serialized_fragments?: string[];
+          };
+        };
+      }>;
+    };
+    expect(
+      partialData.output?.[0]?.metadata?.qwenpaw_history_fragment
+        ?.serialized_fragments,
+    ).toEqual([block.slice(firstSplit, secondSplit), block.slice(secondSplit)]);
+
+    const merged = T.mergeHistoryMessages(oldest, partial);
+    expect(merged).toHaveLength(1);
+    const data = merged[0].cards?.[0]?.data as {
+      output?: Array<{
+        content: Array<Record<string, unknown>>;
+        metadata?: Record<string, unknown>;
+      }>;
+    };
+    expect(data.output?.[0]?.content).toEqual([JSON.parse(block)]);
+    expect(data.output?.[0]?.metadata?.qwenpaw_history_fragment).toEqual({
+      content_start: 0,
+      content_end: 1,
+      content_total: 1,
+    });
+  });
+
+  it("marks an active history turn for SDK reconnect reuse", () => {
+    const messages = T.convertMessages(
+      [
+        msg({
+          id: "active-user",
+          metadata: {
+            qwenpaw_transcript_position: {
+              turn_id: "active-turn",
+              turn_seq: 1,
+              ordinal: 0,
+            },
+            qwenpaw_turn_state: { status: "running" },
+          },
+        }),
+      ],
+      true,
+    );
+    expect(messages[1]).toMatchObject({
+      id: "history-turn:active-turn",
+      msgStatus: "generating",
+      cards: [{ data: { status: "in_progress" } }],
+    });
+  });
+
+  it.each(["failed", "canceled"] as const)(
+    "keeps empty %s response timestamps stable across reloads",
+    (status) => {
+      const input = [
+        msg({
+          metadata: {
+            timestamp: "2026-10-26T04:40:18+00:00",
+            qwenpaw_turn_state: {
+              status,
+              finished_at: "2026-10-26T04:40:31+00:00",
+            },
+          },
+        }),
+      ];
+      const first = T.convertMessages(input, true, "empty-scope")[1].cards?.[0]
+        ?.data;
+      expect(first).toMatchObject({
+        output: [],
+        metadata: { steer_scope: "empty-scope", qwenpaw_history: true },
+      });
+      const now = vi.spyOn(Date, "now").mockReturnValue(2000000000000);
+      try {
+        const reloaded = T.convertMessages(input, true)[1].cards?.[0]?.data;
+        expect(first).toMatchObject({
+          created_at: Date.parse("2026-10-26T04:40:18Z") / 1000,
+          completed_at: Date.parse("2026-10-26T04:40:31Z") / 1000,
+        });
+        expect(reloaded).toMatchObject({
+          created_at: first.created_at,
+          completed_at: first.completed_at,
+        });
+      } finally {
+        now.mockRestore();
+      }
+    },
+  );
+
+  it.each(["failed", "canceled", "completed"] as const)(
+    "preserves %s when one turn spans history pages",
+    (status) => {
+      const transcriptPosition = (ordinal: number) => ({
+        turn_id: "turn-terminal",
+        turn_seq: 1,
+        ordinal,
+      });
+      const older = T.convertMessages([
+        msg({
+          id: "terminal-user",
+          metadata: {
+            qwenpaw_transcript_position: transcriptPosition(0),
+            qwenpaw_turn_state: {
+              status,
+              error: status === "failed" ? { message: "boom" } : null,
+            },
+          },
+        }),
+      ]);
+      const newer = T.convertMessages([
+        msg({
+          id: "terminal-assistant",
+          role: "assistant",
+          content: "partial response",
+          metadata: {
+            qwenpaw_transcript_position: transcriptPosition(1),
+          },
+        }),
+      ]);
+
+      const merged = T.mergeHistoryMessages(older, newer);
+      const response = merged.find((message) => message.role === "assistant");
+      const data = response?.cards?.find(
+        (card) => card.code === "AgentScopeRuntimeResponseCard",
+      )?.data as { status?: string; error?: unknown } | undefined;
+
+      expect(data?.status).toBe(status);
+      if (status === "failed") {
+        expect(data?.error).toEqual({ message: "boom" });
+      }
+      expect(response?.msgStatus).toBe(
+        status === "canceled" ? "interrupted" : "finished",
+      );
+    },
+  );
 });
 
 type SessionLike = {
@@ -713,6 +1628,47 @@ describe("visible session usage ownership", () => {
     vi.restoreAllMocks();
     sessionApi.resetForTests();
   });
+  it("prefers current context state over historical turn usage", async () => {
+    const { useTurnUsageStore } = await import("../turnUsageStore");
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "old turn" }],
+          metadata: {
+            qwenpaw_turn_usage: {
+              context_usage: {
+                estimated_tokens: 500,
+                max_input_length: 100000,
+                context_usage_ratio: 0.5,
+              },
+            },
+          },
+        },
+      ],
+      status: "idle",
+      context_state: {
+        generation: 1,
+        usage: {
+          usage: null,
+          context_usage: {
+            estimated_tokens: 0,
+            max_input_length: 100000,
+            context_usage_ratio: 0,
+          },
+        },
+      },
+    } as ChatHistory);
+
+    sessionApi.setVisibleSession("cleared");
+    await sessionApi.getSession("cleared");
+
+    expect(useTurnUsageStore.getState().snapshot?.context_usage).toEqual({
+      estimated_tokens: 0,
+      max_input_length: 100000,
+      context_usage_ratio: 0,
+    });
+  });
   it("does not project a late history response over the selected session", async () => {
     const { useTurnUsageStore } = await import("../turnUsageStore");
     const history = (tokens: number): ChatHistory =>
@@ -784,3 +1740,115 @@ describe("visible session usage ownership", () => {
     ).toBe(500);
   });
 });
+
+it.each(["running", "canceled", "failed", "completed"])(
+  "keeps steer users and %s state across bounded history pages",
+  (status) => {
+    const messages = ["user", "assistant", "user", "assistant"].map(
+      (role, ordinal) =>
+        msg({
+          id: `steer-${ordinal}`,
+          role,
+          metadata: {
+            qwenpaw_transcript_position: {
+              turn_id: "steered-turn",
+              turn_seq: 1,
+              ordinal,
+            },
+            qwenpaw_turn_state: { status },
+            input_kind: ordinal === 2 ? "steer" : undefined,
+            client_message_id: ordinal === 2 ? "c1" : undefined,
+            after_user_message_id: ordinal === 3 ? "steer-2" : "steer-0",
+            steer_scope: "scope",
+          },
+        }),
+    );
+    const receipt = {
+      turn_id: "steered-turn",
+      client_message_id: "c1",
+      user_message_id: "steer-2",
+      append_seq: 1,
+      revision: 2,
+      status: "applied" as const,
+      content: [
+        {
+          type: "file" as const,
+          file_url: "/media/probe.txt",
+          file_name: "probe.txt",
+        },
+      ],
+    };
+    const full = T.convertMessages(
+      messages,
+      true,
+      "scope",
+      {},
+      {
+        active_turn_id: null,
+        needs_sync: false,
+        receipts_by_turn: { "steered-turn": [receipt] },
+      },
+    );
+    expect(full).toHaveLength(2);
+    const response = full[1].cards?.[0]?.data as {
+      output: Array<{ id: string }>;
+      metadata: unknown;
+    };
+    expect(response.output.map((m) => m.id)).toEqual([
+      "steer-1",
+      "steer-2",
+      "steer-3",
+    ]);
+    expect(response.metadata).toMatchObject({
+      turn_id: "steered-turn",
+      steer_scope: "scope",
+    });
+    const tail = T.convertMessages(
+      messages.slice(2),
+      true,
+      "scope",
+      {
+        "steered-turn": status !== "running",
+      },
+      {
+        active_turn_id: null,
+        needs_sync: false,
+        receipts_by_turn: { "steered-turn": [] },
+      },
+    );
+    expect(tail).toHaveLength(1);
+    expect(tail[0].id).toBe(full[1].id);
+    const expected = status === "running" ? "in_progress" : status;
+    expect(tail[0].cards?.[0]?.data).toMatchObject({ status: expected });
+    const merged = T.mergeHistoryMessages(full, tail);
+    expect(merged[1].cards?.[0]?.data).toMatchObject({
+      status: expected,
+      metadata: {
+        can_fork: status !== "running",
+        fork_capability_status: expected,
+        steer_receipts_loaded: true,
+        steer_receipts: [receipt],
+      },
+    });
+    expect(merged[1].msgStatus).toBe(
+      status === "running"
+        ? "generating"
+        : status === "canceled"
+        ? "interrupted"
+        : "finished",
+    );
+    const assistantOnly = T.convertMessages(
+      messages.slice(3),
+      true,
+      "child-scope",
+    );
+    expect(assistantOnly[0].cards?.[0]?.data).toMatchObject({
+      status: expected,
+      metadata: { steer_scope: "child-scope" },
+    });
+
+    expect(
+      (tail[0].cards?.[0]?.data as typeof response).output.map((m) => m.id),
+    ).toEqual(["steer-2", "steer-3"]);
+  },
+);

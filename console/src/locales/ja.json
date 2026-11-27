@@ -85,6 +85,7 @@
     "genericTitle": "問題が発生しました",
     "genericSubTitle": "このページのレンダリング中に予期しないエラーが発生しました。",
     "reload": "再読み込み",
+    "reloadFailed": "コンソールを再読み込みできませんでした。もう一度お試しください。",
     "details": "エラーの詳細を表示",
     "copy": "エラー情報をコピー",
     "copied": "エラー情報をコピーしました",
@@ -3325,6 +3326,16 @@
     "sidebarPreview": "表示中の項目"
   },
   "chat": {
+    "fork": "分岐",
+    "forkTitle": "このターンから分岐しますか？",
+    "forkDescription": "このターンとそれ以前のすべての会話を含む、独立した会話を作成します。",
+    "forkCreated": "分岐を作成しました",
+    "forkFailed": "会話の分岐に失敗しました",
+    "forkPreparing": "分岐を準備しています",
+    "forkUnavailable": "このターンからは分岐できません",
+    "forkUnsupported": "このエージェントのバックエンドは分岐に対応していません",
+    "forkBoundaryMissing": "このターンには完了済みのネイティブ分岐境界がないため、まだ分岐できません",
+    "sessionLoadFailed": "会話を読み込めませんでした。もう一度開いてください。",
     "longTextPaste": {
       "title": "長いテキストを貼り付け",
       "asText": "テキストとして貼り付け",
@@ -3345,6 +3356,13 @@
     },
     "modelSelectTooltip": "モデルを選択",
     "chatHistoryTooltip": "チャット履歴",
+    "olderHistoryLoadFailed": "過去のメッセージを読み込めませんでした",
+    "messageNavigation": {
+      "title": "ナビゲーション ({{count}})",
+      "locate": "目次で現在のメッセージを表示",
+      "userMessage": "ユーザーメッセージ",
+      "bottom": "一番下へスクロール"
+    },
     "messageDisplay": {
       "stepsRunning": "実行中… · {{count}} ステップ",
       "stepsCanceled": "キャンセル済み · {{count}} ステップ",
@@ -3501,6 +3519,7 @@
     },
     "regenerate": "再生成",
     "regenerateUnavailable": "この過去のターンにはリクエスト ID がありません。新しいメッセージを送信してください。",
+    "canceledWithoutReply": "ユーザーがキャンセルしました（返信なし）",
     "turnCanceled": "停止済み",
     "outputTruncated": "モデルの出力が上限に達したため、この回答は不完全です。続きを回答するよう依頼するか、出力上限を引き上げてください。"
   },

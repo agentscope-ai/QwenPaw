@@ -40,6 +40,8 @@ from .context.types import DecisionCompactionResult
 from .injected_events import merge_injected_events
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
+from .utils.context_stats import estimate_context_tokens
+from .utils.estimate_token_counter import EstimatedTokenCounter
 from .utils.message_request_normalizer import (
     _is_media_block,
     mark_media_omitted_after_overflow,
@@ -50,6 +52,7 @@ from .utils.text_block_utils import (
     has_answer_content,
     sanitize_empty_text_blocks,
 )
+from ..token_usage.model_wrapper import set_conversation_context_tokens
 from ..providers.completion_reason import COMPLETION_METADATA_KEY
 from ..utils.io_utils import run_async_to_completion, run_sync_io
 from ..constant import (
@@ -1299,7 +1302,18 @@ class QwenPawAgent(Agent):
     async def _prepare_model_input(self) -> dict[str, Any]:
         """Freeze local images before they enter a provider request."""
         await freeze_local_images_async(self.state.context)
-        return await super()._prepare_model_input()
+        prepared = await super()._prepare_model_input()
+        set_conversation_context_tokens(None)
+        try:
+            stats = await estimate_context_tokens(
+                self.state,
+                EstimatedTokenCounter(),
+                int(getattr(self.model, f"context_size", 0) or 0),
+            )
+            set_conversation_context_tokens(stats[f"estimated_tokens"])
+        except Exception:
+            logger.debug(f"Context token estimate unavailable", exc_info=True)
+        return prepared
 
     @staticmethod
     def _is_context_overflow_error(exc: Exception) -> bool:

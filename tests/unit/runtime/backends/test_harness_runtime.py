@@ -225,6 +225,10 @@ from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 from qwenpaw.app import _app as actual_app
 from qwenpaw.plugins.testing import PluginTestHost
+from qwenpaw.runtime.steer import current_steer
+from qwenpaw.app.chats.api import ChatSteerRequest, post_chat_steer
+steering = sys.argv[2] == "steer"
+steer_workspace = steer_chat = None
 
 class Model(ChatModelBase):
     def __init__(self):
@@ -234,27 +238,53 @@ class Model(ChatModelBase):
             stream=False, context_size=32768,
         )
         self.formatter = OpenAIChatFormatter()
+        self.calls = 0
     async def __call__(self, *args, **kwargs):
+        self.calls += 1
+        if steering and self.calls == 1:
+            control = current_steer.get()
+            assert control is not None and not control.unavailable
+            receipt = await post_chat_steer(
+                steer_chat.id,
+                ChatSteerRequest(turn_id=control.turn_id,
+                                 client_message_id="native-steer",
+                                 content=[{"type": "text",
+                                           "text": "native-correction"}]),
+                steer_workspace.chat_manager, steer_workspace,
+            )
+            assert receipt["status"] == "accepted"
         return ChatResponse(
             content=[{"type": "text", "text": "native-answer"}], is_last=True
         )
 
 async def main():
+    global steer_workspace, steer_chat
     assert actual_app.app is not None
     with patch("qwenpaw.agents.model_factory.create_model_and_formatter",
                side_effect=lambda **kwargs: (Model(), OpenAIChatFormatter())):
         async with PluginTestHost(Path(sys.argv[1])) as host:
             assert host.list_harnesses() == ()
+            if steering:
+                steer_workspace = await host._workspace("test")
+                manager = steer_workspace.chat_manager
+                steer_chat = await manager.get_or_create_chat(
+                    "test", "test", "console",
+                )
             events = [event async for event in host.stream_chat("hello")]
             assert events[-1].status == "completed"
-            history = (
-                Path(sys.argv[1])
-                / "workspaces/test/sessions/console/test.json"
+            workspace = await host._workspace("test")
+            saved = await workspace.session.get_session_state_dict(
+                "test", "test", "console",
             )
-            saved = json.loads(history.read_text(encoding="utf-8"))
             assert any(block.get("text") == "native-answer"
                        for message in saved["agent"]["state"]["context"]
                        for block in message["content"])
+            if steering:
+                assert any(message["role"] == "user"
+                           and any(b.get("text") == "native-correction"
+                                   for b in message["content"])
+                           for message in saved["agent"]["state"]["context"])
+                assert not workspace.steer_runs
     assert not (imports or probes or processes)
     assert not any(name == root or name.startswith(root + ".")
                    for name in sys.modules for root in forbidden)
@@ -263,7 +293,8 @@ asyncio.run(main())
 """
 
 
-def test_native_app_chat_and_history_do_not_touch_vendors(tmp_path):
+@pytest.mark.parametrize("steering", [False, True])
+def test_native_app_chat_and_history_do_not_touch_vendors(tmp_path, steering):
     env = {
         **os.environ,
         "HOME": str(tmp_path / "home"),
@@ -271,7 +302,13 @@ def test_native_app_chat_and_history_do_not_touch_vendors(tmp_path):
         "QWENPAW_SECRET_DIR": str(tmp_path / "secrets"),
     }
     result = subprocess.run(
-        [sys.executable, "-c", NATIVE_CHILD, str(tmp_path / "native")],
+        [
+            sys.executable,
+            "-c",
+            NATIVE_CHILD,
+            str(tmp_path / "native"),
+            "steer" if steering else "ordinary",
+        ],
         env=env,
         capture_output=True,
         text=True,
@@ -427,6 +464,48 @@ async def test_stream_attachments_history_restore_and_clear(host, tmp_path):
     assert "old answer" in str(
         await session.get_session_state_dict("same", "alice", "console"),
     )
+
+
+async def test_ephemeral_fork_backend_skips_persistence(tmp_path):
+    from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
+    from qwenpaw.config.config import load_agent_config, save_agent_config
+
+    root = package(tmp_path)
+    source = (
+        SOURCE.replace(
+            "HarnessCapabilities(external_history=True)",
+            "HarnessCapabilities(external_history=True, fork_mode='turn')",
+        )
+        .replace(
+            "    async def status(self, context):",
+            "    async def bind_session(self, context, external_session_id):\n"
+            "        pass\n\n"
+            "    async def status(self, context):",
+        )
+        .replace(
+            '        yield HarnessEvent(Kind.TEXT_DELTA, text="answer")',
+            "        yield HarnessEvent(Kind.SESSION_BOUND, "
+            'data={"external_session_id": "native"})\n'
+            '        yield HarnessEvent(Kind.TEXT_DELTA, text="answer")',
+        )
+    )
+    (root / "main.py").write_text(source, encoding="utf-8")
+    async with PluginTestHost(tmp_path / "host") as test_host:
+        assert (await test_host.install(root)).ok
+        workspace = await test_host._workspace("one")
+        config = load_agent_config("one")
+        config.backend = "codex"
+        save_agent_config("one", config)
+        incoming = request("temporary", session="temporary")
+        incoming.request_context = {ACP_EPHEMERAL_META_KEY: True}
+        events = [event async for event in workspace.stream_query(incoming)]
+        assert events[-1].status == "completed"
+        assert not workspace.transcript_store.has_session(
+            session_id="temporary",
+            user_id="alice",
+            channel="console",
+        )
+        assert len(plugin(test_host).created[0].calls) == 1
 
 
 @pytest.mark.parametrize("close_fails", [False, True])

@@ -287,6 +287,61 @@ describe("local server readiness", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("skips local probes inside a Platform host frame", async () => {
+    const origin = document.createElement("meta");
+    origin.name = "qwenpaw-platform-origin";
+    origin.content = "https://platform.example";
+    document.head.append(origin);
+    try {
+      expect(await waitForChunkServerReady(null, caller.signal)).toMatchObject({
+        outcome: "not-applicable",
+        attempts: 0,
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      origin.remove();
+    }
+  });
+
+  it("uses the runtime mount for version probes", async () => {
+    const config = document.createElement("meta");
+    config.name = "qwenpaw-base-path";
+    config.content = "/review-mount";
+    document.head.append(config);
+    history.replaceState(null, "", "/review-mount/chat");
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (new URL(url).pathname === "/api/version") {
+        return new Response(null, { status: 404 });
+      }
+      if (url.endsWith("/review-mount/api/version")) {
+        return Response.json({ version: "2.2.2" });
+      }
+      if (url.endsWith("/review-mount/chat")) {
+        return new Response(
+          '<script type="module" src="/assets/current.js"></script>',
+          { headers: { "content-type": "text/html; charset=utf-8" } },
+        );
+      }
+      return serverResponse(input);
+    });
+    try {
+      const check = waitForChunkServerReady(null, caller.signal);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(await check).toMatchObject({ outcome: "ready" });
+      expect(
+        vi
+          .mocked(fetch)
+          .mock.calls.filter(
+            ([url]) =>
+              new URL(String(url)).pathname === "/review-mount/api/version",
+          ).length,
+      ).toBe(3);
+    } finally {
+      config.remove();
+    }
+  });
+
   it("leaves foreign-origin chunk recovery to the existing reload policy", async () => {
     expect(
       await waitForChunkServerReady(

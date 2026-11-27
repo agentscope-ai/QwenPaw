@@ -962,6 +962,20 @@ def read_last_api_record() -> LastApiEndpoint | None:
     if endpoint is not None:
         return endpoint
 
+    host = os.environ.get("QWENPAW_INTERNAL_HOST_API_HOST")
+    try:
+        port = int(os.environ.get("QWENPAW_INTERNAL_HOST_API_PORT", ""))
+    except ValueError:
+        port = 0
+    if host and 1 <= port <= 65535:
+        from ..app.base_path import normalize_base_path
+
+        return LastApiEndpoint(
+            host,
+            port,
+            normalize_base_path(os.environ.get("QWENPAW_BASE_PATH")),
+        )
+
     last_api = load_config().last_api
     if not last_api.host or last_api.port is None:
         return None

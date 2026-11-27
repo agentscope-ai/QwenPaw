@@ -161,6 +161,7 @@
     "genericTitle": "Something went wrong",
     "genericSubTitle": "An unexpected error occurred while rendering this page.",
     "reload": "Reload",
+    "reloadFailed": "Could not reload the Console. Try again.",
     "details": "View error details",
     "copy": "Copy error information",
     "copied": "Error information copied",
@@ -2408,7 +2409,7 @@
     "deleteConfirm": "Are you sure you want to delete this session?",
     "batchDeleteConfirm": "Are you sure you want to delete selected {{count}} sessions?",
     "deleteSuccess": "Session deleted successfully",
-    "deleteFailed": "Failed to delete session",
+    "deleteFailed": "Delete failed. Please retry.",
     "batchDeleteSuccess": "Successfully deleted {{count}} session(s)",
     "batchDeleteFailed": "Failed to batch delete sessions",
     "saveSuccess": "Session saved successfully",
@@ -4320,6 +4321,19 @@
     "system": "System"
   },
   "chat": {
+    "fork": "Fork",
+    "forkBoundary": "Branched from {{name}} up to here",
+    "forkParent": "original conversation",
+    "forkParentUnavailable": "original conversation unavailable",
+    "forkTitle": "Fork from this turn?",
+    "forkDescription": "A new independent conversation will contain this turn and all earlier turns.",
+    "forkCreated": "Fork created",
+    "forkFailed": "Failed to fork conversation",
+    "forkPreparing": "Preparing fork",
+    "forkUnavailable": "This turn cannot be forked",
+    "forkUnsupported": "This agent backend does not support forking",
+    "forkBoundaryMissing": "This turn has no completed native fork boundary and cannot be forked yet",
+    "sessionLoadFailed": "Could not load this conversation. Please reopen it.",
     "quoteFollowUp": "Quote to follow-up",
     "longTextPaste": {
       "title": "Paste long text",
@@ -4340,6 +4354,13 @@
     "newTask": "New task",
     "newChat": "New chat",
     "chatHistoryTooltip": "Chat history",
+    "olderHistoryLoadFailed": "Failed to load older messages",
+    "messageNavigation": {
+      "title": "Navigation ({{count}})",
+      "locate": "Scroll directory to active user message",
+      "userMessage": "User message",
+      "bottom": "Scroll to bottom"
+    },
     "messageDisplay": {
       "stepsRunning": "Running… · {{count}} steps",
       "stepsCanceled": "Canceled · {{count}} steps",
@@ -4546,7 +4567,26 @@
     },
     "regenerate": "Regenerate",
     "regenerateUnavailable": "This older turn has no receipt ID. Send a new message to continue.",
+    "canceledWithoutReply": "Canceled by user; no reply",
     "turnCanceled": "Canceled",
+    "steer": {
+      "unsupportedBackend": "This agent does not support corrections during a run. Your draft is preserved; wait for the task to finish.",
+      "statusUnknown": "Run status is unknown. Your draft is preserved; please retry.",
+      "emptyInput": "Enter text or add an attachment.",
+      "unavailable": "Cannot steer this run: {{reason}}",
+      "failed": "Correction was not applied",
+      "reason": { "cancelled": "Task stopped" },
+      "user": "User correction",
+      "submitting": "Submitting",
+      "accepted": "Received, waiting for next step",
+      "applied": "Applied",
+      "syncing": "Applied, syncing history",
+      "unknown": "Submission status unknown",
+      "pluginBusy": "A task is running. Use the composer to steer, or retry this action after completion.",
+      "sync_failed": "Message sync failed. Please retry.",
+      "retry": "Retry sync",
+      "resolvePrevious": "The previous correction is unconfirmed. Retry its original text first."
+    },
     "outputTruncated": "The model reached its output limit. This answer is incomplete. Ask it to continue or increase the output limit."
   },
   "security": {

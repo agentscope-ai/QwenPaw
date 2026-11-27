@@ -367,6 +367,10 @@ export function wrapChatResponseUsageStream(
   let pendingUsage: TurnUsageSnapshot | null = null;
   let completedSuccessfully = false;
   const previousUsage = useTurnUsageStore.getState().snapshot?.usage;
+  const displaySnapshot = (snap: TurnUsageSnapshot): TurnUsageSnapshot =>
+    !snap.usage && snap.context_usage && previousUsage
+      ? { ...snap, usage: previousUsage }
+      : snap;
 
   function publishLive(snap: TurnUsageSnapshot) {
     const usage = snap.usage;
@@ -395,8 +399,8 @@ export function wrapChatResponseUsageStream(
     }
     pendingUsage = snap;
     const store = useTurnUsageStore.getState();
-    if (turn) store.setSnapshotForTurn(snap, turn);
-    else store.setSnapshot(snap);
+    if (turn) store.setSnapshotForTurn(displaySnapshot(snap), turn);
+    else store.setSnapshot(displaySnapshot(snap));
   }
 
   const transformed = response.body.pipeThrough(
@@ -425,9 +429,11 @@ export function wrapChatResponseUsageStream(
           if (turn) {
             accepted = useTurnUsageStore
               .getState()
-              .setSnapshotForTurn(pendingUsage, turn);
+              .setSnapshotForTurn(displaySnapshot(pendingUsage), turn);
           } else {
-            useTurnUsageStore.getState().setSnapshot(pendingUsage);
+            useTurnUsageStore
+              .getState()
+              .setSnapshot(displaySnapshot(pendingUsage));
           }
           if (accepted) {
             schedulePatchLastResponseCardUsage(chatRef, pendingUsage, turn);
@@ -495,8 +501,12 @@ function parseTurnUsageSsePayload(
     readNumber(usage, "total_tokens") ||
     readNumber(usage, "prompt_tokens") + readNumber(usage, "completion_tokens");
   const hasUsage = usage && typeof usage === "object" && usageTotal > 0;
+  const estimatedTokens =
+    ctx && typeof ctx === "object"
+      ? (ctx as Record<string, unknown>).estimated_tokens
+      : undefined;
   const hasCtx =
-    ctx && typeof ctx === "object" && readNumber(ctx, "estimated_tokens") > 0;
+    typeof estimatedTokens === "number" && Number.isFinite(estimatedTokens);
   if (!hasUsage && !hasCtx) return null;
 
   return {

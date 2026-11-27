@@ -135,8 +135,14 @@ def hub_cmd(
         return
 
     # Hub control-plane discovery remains address-only.
-    write_last_api(probe_host_for_bind_host(host), port)
-    configure_server_process(port, log_level, hide_access_paths)
+    write_last_api(probe_host_for_bind_host(host), port, "")
+    configure_server_process(
+        host,
+        port,
+        log_level,
+        hide_access_paths,
+        base_path="",
+    )
 
     os.environ["QWENPAW_RUNTIME_MODE"] = "hub"
 

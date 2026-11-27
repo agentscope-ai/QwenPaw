@@ -189,7 +189,17 @@ export function useSessionListData(
       const originalCurrentChatId = sessionApi.getSessionIdentity(
         originalCurrentSessionId,
       ).chatId;
-      if (backendId) await chatApi.deleteChat(backendId);
+      if (backendId) {
+        try {
+          await chatApi.deleteChat(backendId);
+        } catch (error) {
+          console.error("Failed to delete conversation", error);
+          message.error(
+            t("sessions.deleteFailed", "Delete failed. Please retry."),
+          );
+          return;
+        }
+      }
 
       // Per-session cleanup is safe regardless of the active agent: it is
       // keyed to the deleted conversation only.
@@ -238,7 +248,7 @@ export function useSessionListData(
       setSessions(freshList);
       syncSessionsGlobal(freshList);
     },
-    [sessions, setSessions],
+    [message, sessions, setSessions, t],
   );
 
   const handleEditStart = useCallback(

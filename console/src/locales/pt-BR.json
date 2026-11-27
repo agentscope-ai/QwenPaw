@@ -86,6 +86,7 @@
     "genericTitle": "Algo deu errado",
     "genericSubTitle": "Ocorreu um erro inesperado ao renderizar esta página.",
     "reload": "Recarregar",
+    "reloadFailed": "Não foi possível recarregar o Console. Tente novamente.",
     "details": "Ver detalhes do erro",
     "copy": "Copiar informações do erro",
     "copied": "Informações do erro copiadas",
@@ -3605,6 +3606,16 @@
     "sidebarPreview": "Itens visíveis"
   },
   "chat": {
+    "fork": "Criar ramificação",
+    "forkTitle": "Criar ramificação a partir deste turno?",
+    "forkDescription": "Uma nova conversa independente incluirá este turno e todos os anteriores.",
+    "forkCreated": "Ramificação criada",
+    "forkFailed": "Falha ao criar ramificação da conversa",
+    "forkPreparing": "Preparando ramificação",
+    "forkUnavailable": "Não é possível criar uma ramificação deste turno",
+    "forkUnsupported": "O backend deste agente não oferece suporte a ramificações",
+    "forkBoundaryMissing": "Este turno ainda não tem um limite de ramificação nativo concluído e não pode ser ramificado",
+    "sessionLoadFailed": "Não foi possível carregar a conversa. Abra-a novamente.",
     "longTextPaste": {
       "title": "Colar texto longo",
       "asText": "Colar como texto",
@@ -3625,6 +3636,13 @@
     },
     "modelSelectTooltip": "Selecionar Modelo",
     "chatHistoryTooltip": "Chat history",
+    "olderHistoryLoadFailed": "Falha ao carregar mensagens anteriores",
+    "messageNavigation": {
+      "title": "Navegação ({{count}})",
+      "locate": "Localizar a mensagem atual na lista",
+      "userMessage": "Mensagem do usuário",
+      "bottom": "Rolar até o final"
+    },
     "messageDisplay": {
       "stepsRunning": "Em execução… · {{count}} etapas",
       "stepsCanceled": "Cancelado · {{count}} etapas",
@@ -3781,6 +3799,7 @@
     },
     "regenerate": "Gerar novamente",
     "regenerateUnavailable": "Esta interação antiga não tem ID de solicitação. Envie uma nova mensagem para continuar.",
+    "canceledWithoutReply": "Cancelado pelo usuário, sem resposta",
     "turnCanceled": "Interrompido",
     "outputTruncated": "O modelo atingiu o limite de saída. Esta resposta está incompleta. Peça ao modelo para continuar ou aumente o limite de saída."
   },

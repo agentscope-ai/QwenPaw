@@ -1467,7 +1467,13 @@ class TestLastDispatchLegacyPaths:
 
         assert cu.read_last_api() == ("127.0.0.1", 4321)
 
-    def test_read_last_api_falls_back_to_disk(self, monkeypatch):
+    @pytest.mark.parametrize("serving_host", [None, "127.0.0.1", "[::1]"])
+    def test_read_last_api_falls_back_to_disk(self, monkeypatch, serving_host):
+        monkeypatch.delenv("QWENPAW_INTERNAL_HOST_API_HOST", raising=False)
+        monkeypatch.delenv("QWENPAW_INTERNAL_HOST_API_PORT", raising=False)
+        if serving_host:
+            monkeypatch.setenv("QWENPAW_INTERNAL_HOST_API_HOST", serving_host)
+            monkeypatch.setenv("QWENPAW_INTERNAL_HOST_API_PORT", "8003")
         monkeypatch.setattr(cu, "_runtime_last_api", None)
         monkeypatch.setattr(
             cu,
@@ -1477,9 +1483,28 @@ class TestLastDispatchLegacyPaths:
             ),
         )
 
-        assert cu.read_last_api() == ("10.1.2.3", 8080)
+        expected = (serving_host, 8003) if serving_host else ("10.1.2.3", 8080)
+        assert cu.read_last_api() == expected
+
+    def test_read_last_api_record_inherits_mount_from_serving_process(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("QWENPAW_INTERNAL_HOST_API_HOST", "127.0.0.1")
+        monkeypatch.setenv("QWENPAW_INTERNAL_HOST_API_PORT", "8003")
+        monkeypatch.setenv("QWENPAW_BASE_PATH", "/review-mount")
+        monkeypatch.setattr(cu, "_runtime_last_api", None)
+
+        assert cu.read_last_api_record() == (
+            "127.0.0.1",
+            8003,
+            "/review-mount",
+        )
+        assert cu.read_last_api() == ("127.0.0.1", 8003)
 
     def test_read_last_api_without_any_value(self, monkeypatch):
+        monkeypatch.delenv("QWENPAW_INTERNAL_HOST_API_HOST", raising=False)
+        monkeypatch.delenv("QWENPAW_INTERNAL_HOST_API_PORT", raising=False)
         monkeypatch.setattr(cu, "_runtime_last_api", None)
         monkeypatch.setattr(
             cu,
@@ -1491,6 +1516,8 @@ class TestLastDispatchLegacyPaths:
 
     def test_read_last_api_partial_disk_value(self, monkeypatch):
         """A host without a port is not a usable API address."""
+        monkeypatch.delenv("QWENPAW_INTERNAL_HOST_API_HOST", raising=False)
+        monkeypatch.delenv("QWENPAW_INTERNAL_HOST_API_PORT", raising=False)
         monkeypatch.setattr(cu, "_runtime_last_api", None)
         monkeypatch.setattr(
             cu,
