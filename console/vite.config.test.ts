@@ -20,8 +20,10 @@ function loadDeploymentConfig(basename: string | undefined) {
        const { config } = await loadConfigFromFile({
          command: "build", mode: "production",
        });
+       const document = config.plugins.find(p => p.name === "console-host-document");
        process.stdout.write(JSON.stringify({
          base: config.base ?? "/",
+         html: document.transformIndexHtml("<head></head>"),
          apiBase: config.define.VITE_API_BASE_URL,
        }));`,
     ],
@@ -30,7 +32,7 @@ function loadDeploymentConfig(basename: string | undefined) {
       encoding: "utf8",
     },
   );
-  return JSON.parse(output) as { base: string; apiBase: string };
+  return JSON.parse(output) as { base: string; html: string; apiBase: string };
 }
 
 describe("console deployment configuration", () => {
@@ -38,7 +40,8 @@ describe("console deployment configuration", () => {
     "keeps assets at the root when the basename is %j",
     (basename) => {
       const config = loadDeploymentConfig(basename);
-      expect(config.base).toBe("/");
+      expect(config.base).toBe("./");
+      expect(config.html).toContain('<base href="/">');
     },
   );
 
@@ -51,6 +54,7 @@ describe("console deployment configuration", () => {
   ])("uses %j as the asset prefix %j", (basename, base) => {
     const config = loadDeploymentConfig(basename);
     expect(config.base).toBe(base);
+    expect(config.html).toContain(`<base href="${base}">`);
     expect(config.apiBase).toBe('"/backend"');
   });
 });

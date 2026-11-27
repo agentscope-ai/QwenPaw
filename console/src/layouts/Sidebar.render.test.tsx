@@ -143,7 +143,8 @@ vi.mock("../api", () => ({
   },
 }));
 
-vi.mock("../api/config", () => ({
+vi.mock("../api/config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/config")>()),
   clearAuthToken: vi.fn(),
 }));
 
