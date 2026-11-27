@@ -1,7 +1,11 @@
 import { request } from "../../api/request";
 
 export interface PlatformConnection {
-  status: "not_connected" | "authorization_pending" | "connected";
+  status:
+    | "not_connected"
+    | "authorization_pending"
+    | "connected"
+    | "recovery_required";
   platform_url: string | null;
   node_id: string | null;
   account_id: string | null;

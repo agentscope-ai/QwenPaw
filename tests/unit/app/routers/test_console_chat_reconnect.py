@@ -140,8 +140,10 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
     monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "runtime-secret")
     client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app))
     hub = RelayLocalApi(
-        "http://127.0.0.1:19088",
-        headers=lambda: {"X-QwenPaw-Runtime-Token": "runtime-secret"},
+        lambda: (
+            "http://127.0.0.1:19088",
+            {"X-QwenPaw-Runtime-Token": "runtime-secret"},
+        ),
         client=client,
     )
     node_id = str(uuid4())
