@@ -109,6 +109,39 @@ def test_extract_response_text_falls_back_from_empty_content_list():
     assert extract_response_text(response) == "Deploying QwenPaw"
 
 
+def test_extract_response_text_skips_leading_empty_text_block():
+    response = SimpleNamespace(
+        text="Deploying QwenPaw",
+        content=[
+            {"type": "text", "text": ""},
+            {"type": "text", "text": "Deploying QwenPaw"},
+        ],
+    )
+
+    assert extract_response_text(response) == "Deploying QwenPaw"
+
+
+def test_extract_response_text_skips_thinking_and_empty_text_blocks():
+    response = {
+        "content": [
+            {"type": "thinking", "text": "Analyze"},
+            {"type": "text", "text": ""},
+            {"type": "text", "text": "Real answer"},
+        ],
+    }
+
+    assert extract_response_text(response) == "Real answer"
+
+
+def test_extract_response_text_all_empty_content_blocks_does_not_fall_back():
+    response = SimpleNamespace(
+        text="Hidden thinking",
+        content=[{"type": "text", "text": ""}],
+    )
+
+    assert extract_response_text(response) == ""
+
+
 async def test_consume_non_streaming():
     async def model(messages, **kw):
         return SimpleNamespace(text="done")
