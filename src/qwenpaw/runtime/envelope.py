@@ -22,6 +22,10 @@ from ..providers.completion_reason import COMPLETION_METADATA_KEY
 
 logger = logging.getLogger(__name__)
 
+# Set on an assistant event when request media was left out. Channels read it
+# from the completed message, so the envelope has to carry it that far.
+QWENPAW_MEDIA_OMITTED_KEY = "qwenpaw_media_omitted"
+
 
 def _gen_msg_id() -> str:
     return "msg_" + uuid.uuid4().hex
@@ -76,6 +80,9 @@ def _propagate_event_metadata(
                 yield output.output
                 continue
 
+            event_metadata = getattr(event, "metadata", None)
+            if isinstance(event_metadata, dict):
+                envelope._absorb_turn_metadata(event_metadata)
             yield _with_event_metadata(output, event)
 
     return wrapped
@@ -138,6 +145,25 @@ class Envelope:
     def _next_seq(self) -> int:
         self._seq_counter += 1
         return self._seq_counter
+
+    def _absorb_turn_metadata(self, metadata: Dict[str, Any]) -> None:
+        """Carry per-turn notices onto the completed message.
+
+        Streamed deltas reach Console consumers with this metadata, but a
+        channel reads the notice from the ``Completed`` message that
+        :meth:`_finalize_response` builds. That message is assembled from
+        accumulated text and starts without any of it, so a notice that only
+        rode the deltas never arrived off Console.
+        """
+        notice = metadata.get(QWENPAW_MEDIA_OMITTED_KEY)
+        if not isinstance(notice, dict):
+            return
+        count = notice.get("count")
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            return
+        if self._completed_message.metadata is None:
+            self._completed_message.metadata = {}
+        self._completed_message.metadata[QWENPAW_MEDIA_OMITTED_KEY] = notice
 
     def _tag_seq(self, obj: Any) -> Any:
         obj.sequence_number = self._next_seq()
@@ -502,13 +528,19 @@ class Envelope:
             state["output_message"] = out_message
             state["output_text_fragments"] = []
             state["output_data_blocks"] = {}
+            state["output_order"] = []
 
         elif evt_type == EventType.TOOL_RESULT_TEXT_DELTA.value:
             call_id = event.tool_call_id
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
-            state["output_text_fragments"].append(event.delta or "")
+            delta = event.delta or ""
+            state["output_text_fragments"].append(delta)
+            order = state["output_order"]
+            if not order or order[-1]["type"] != "text":
+                order.append({"type": "text", "fragments": []})
+            order[-1]["fragments"].append(delta)
 
             delta_content = self._build_tool_result_content(
                 call_id,
@@ -557,6 +589,7 @@ class Envelope:
                     "type": block_type,
                     "source": source,
                 }
+                state["output_order"].append(blocks_dict[block_id])
 
             delta_content = self._build_tool_result_content(
                 call_id,
@@ -601,6 +634,7 @@ class Envelope:
             yield self._tag_seq(final_content.completed())
             self._response.output.append(out_message)
             state.pop("output_text_fragments", None)
+            state.pop("output_order", None)
             yield self._tag_seq(out_message.completed())
 
         # === DATA BLOCK ===
@@ -762,11 +796,14 @@ class Envelope:
         text_acc = "".join(state.get("output_text_fragments", []))
 
         if blocks_dict:
-            output_blocks: list[dict[str, Any]] = list(
-                blocks_dict.values(),
-            )
-            if text_acc:
-                output_blocks.append({"type": "text", "text": text_acc})
+            output_blocks = [
+                (
+                    {"type": "text", "text": "".join(block["fragments"])}
+                    if block["type"] == "text"
+                    else block
+                )
+                for block in state["output_order"]
+            ]
             tool_output: Any = json.dumps(
                 output_blocks,
                 ensure_ascii=False,

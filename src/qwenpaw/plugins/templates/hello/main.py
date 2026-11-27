@@ -7,6 +7,16 @@ from collections import defaultdict
 from qwenpaw.plugins import PluginContext
 from qwenpaw.plugins.messages import Message, ContentBlock
 from qwenpaw.plugins.tools import ToolContext, ToolResult, ToolSpec
+from qwenpaw.plugins.cli import CliSpec
+from qwenpaw.plugins.doctor import DOCTOR, DoctorSpec
+
+
+def build_cli(call):
+    # Entry modules run in the plugin's package namespace.
+    # pylint: disable-next=relative-beyond-top-level
+    from .cli import build_cli as build
+
+    return build(call)
 
 
 class Plugin:
@@ -34,6 +44,11 @@ class Plugin:
         return ToolResult.text(text)
 
     def register(self, context: PluginContext) -> None:
+        context.register_cli(CliSpec("hello", build_cli))
+        context.register_extension(
+            DOCTOR,
+            DoctorSpec("hello", lambda call: ["Hello SDK is installed"]),
+        )
         context.register_tool(
             ToolSpec(
                 name="hello_sdk",

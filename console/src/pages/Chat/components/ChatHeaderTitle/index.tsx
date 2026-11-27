@@ -14,7 +14,9 @@ import { syncSessionsGlobal } from "../../../../stores/sessionListStore";
 import { getBackendId } from "../../../../layouts/useSidebarSessionListData";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 
-const ChatHeaderTitle: React.FC = () => {
+const ChatHeaderTitle: React.FC<{ actions?: React.ReactNode }> = ({
+  actions,
+}) => {
   const { sessions, currentSessionId } = useChatAnywhereSessionsState();
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
@@ -151,7 +153,7 @@ const ChatHeaderTitle: React.FC = () => {
     }
   };
   return (
-    <div className={styles.titleBlock}>
+    <div className={styles.titleBlock} data-editing={editing || undefined}>
       <div className={styles.titleRow}>
         {editing ? (
           <form
@@ -233,6 +235,7 @@ const ChatHeaderTitle: React.FC = () => {
           </>
         )}
       </div>
+      <div className={styles.actions}>{actions}</div>
       {validDate && (
         <span
           className={styles.activity}

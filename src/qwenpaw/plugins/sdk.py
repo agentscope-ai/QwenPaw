@@ -9,7 +9,7 @@ import uuid
 from dataclasses import fields, replace
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from typing import Protocol, Callable, Awaitable, TYPE_CHECKING
+from typing import Protocol, Callable, Awaitable, TYPE_CHECKING, TypeVar
 
 from ..runtime.turn_context import current_run_streams
 from .errors import SDKError, StaleContextError, ToolInputError, ResourceError
@@ -28,12 +28,19 @@ from .transcription import TranscriptionSpec
 from .memory import MemorySpec
 from .events import EventSubscription
 from .apps import PawApp
+from .stops import StopSpec
+from .shell import ShellBackendSpec
+from .workflows import WorkflowSpec
 
 if TYPE_CHECKING:
     from .harnesses import HarnessSpec
+    from .cli import CliSpec
+    from .extensions import ExtensionPoint
     from .logging import PluginLogger
     from .drivers import DriverProtocolSpec
 
+
+_ExtensionSpec = TypeVar("_ExtensionSpec")
 
 _activation_owners = ContextVar("sdk_activation_owners", default=frozenset())
 
@@ -91,6 +98,12 @@ class PluginContext:  # pylint: disable=protected-access
             WORKING_DIR / "plugin-data" / self.plugin_id,
             self._storage_guard,
             _admission=self._storage_admission,
+            _legacy_sources={
+                name: WORKING_DIR / path
+                for name, path in (api.manifest.get("sdk") or {})
+                .get("legacy_storage", {})
+                .items()
+            },
         )
         self.media = MediaStore(
             PluginStorage(
@@ -263,10 +276,20 @@ class PluginContext:  # pylint: disable=protected-access
         session_id: str,
         deadline=None,
         cleanup=False,
+        identity=None,
         owner=None,
     ):
         self._guard()
         from ._models import model_deadline
+        from ._identity import request_identity
+        from .context import RequestContext
+
+        identity = identity or request_identity.get()
+        if identity is None or (
+            identity.workspace_id != workspace_id
+            or identity.session_id != session_id
+        ):
+            identity = RequestContext(workspace_id, session_id)
 
         inherited = model_deadline.get()
         if inherited is not None:
@@ -296,6 +319,7 @@ class PluginContext:  # pylint: disable=protected-access
                     self.storage._root / "workspaces" / key,
                     self._storage_guard,
                     _admission=self._storage_admission,
+                    _legacy_sources=self.storage._legacy_sources,
                 )
                 media_root = self.media._storage._root / "workspaces" / key
                 media = MediaStore(
@@ -316,6 +340,7 @@ class PluginContext:  # pylint: disable=protected-access
                 media,
                 scope,
                 deadline=deadline,
+                identity=identity,
                 _is_cancelled=lambda: bool(task and task.cancelling()),
                 _plugin=self,
             )
@@ -332,10 +357,14 @@ class PluginContext:  # pylint: disable=protected-access
 
             if owned is not None:
                 owned.scopes[scope] = close_scope
+            identity_token = request_identity.set(identity)
             try:
                 yield context
             finally:
-                await close_scope()
+                try:
+                    await close_scope()
+                finally:
+                    request_identity.reset(identity_token)
 
     async def _managed_stream(
         self,
@@ -595,13 +624,23 @@ class PluginContext:  # pylint: disable=protected-access
             from agentscope.tool import ToolChunk, ToolResponse
             from agentscope.message import ToolResultState
             from ..config.context import get_current_session_id
+            from ._identity import request_identity
             from ._workspace import current_workspace_id
 
+            identity = request_identity.get()
             stream = self._stream_tool(
                 spec.name,
                 arguments,
-                workspace_id=current_workspace_id(),
-                session_id=get_current_session_id() or "",
+                workspace_id=(
+                    identity.workspace_id
+                    if identity
+                    else current_workspace_id()
+                ),
+                session_id=(
+                    identity.session_id
+                    if identity
+                    else get_current_session_id() or ""
+                ),
             )
             failed = False
             accumulated = ToolResponse()
@@ -839,6 +878,10 @@ class PluginContext:  # pylint: disable=protected-access
         from .commands import CommandContext, CommandResult
         from ._messages import from_host, to_host
         from ._replies import to_reply
+        from ._identity import control_context, from_runtime
+
+        if type(spec.control) is not bool:
+            raise SDKError("Command control must be a boolean")
 
         async def handler(runtime, arguments):
             if getattr(handler, "_sdk_closed", False):
@@ -848,15 +891,26 @@ class PluginContext:  # pylint: disable=protected-access
             async with self._invocation(
                 workspace_id=runtime.agent_id,
                 session_id=runtime.session_id,
+                identity=from_runtime(runtime),
             ) as base:
                 context = CommandContext(
                     **{f.name: getattr(base, f.name) for f in fields(base)},
                     messages=tuple(from_host(m) for m in runtime.input_msgs),
                 )
-                result = await self._call(spec.handler, context, arguments)
+                token = control_context.set(
+                    (context, runtime) if spec.control else None,
+                )
+                try:
+                    result = await self._call(spec.handler, context, arguments)
+                finally:
+                    control_context.reset(token)
                 self._guard()
                 if not isinstance(result, CommandResult):
                     raise SDKError("Command handler must return CommandResult")
+                if spec.control and result.action != "reply":
+                    raise SDKError(
+                        "Control commands must reply without starting an agent turn",
+                    )
                 if result.action == "reply" and result.message is not None:
                     return to_reply(result.message)
                 if result.action == "replace_input":
@@ -880,6 +934,8 @@ class PluginContext:  # pylint: disable=protected-access
             aliases=spec.aliases,
             help_text=spec.help_text,
             owner_plugin_id=self.plugin_id,
+            category="control" if spec.control else "plugin",
+            metadata={"sdk_control": spec.control},
         )
 
     def register_command(self, spec: CommandSpec) -> Registration:
@@ -890,13 +946,33 @@ class PluginContext:  # pylint: disable=protected-access
             adapted.handler,
             aliases=adapted.aliases,
             help_text=adapted.help_text,
+            category=adapted.category,
+            metadata=adapted.metadata,
         )
         return self._with_admission(handle, adapted.handler)
+
+    def register_cli(self, spec: "CliSpec") -> Registration:
+        """Bind a declared terminal command to its Click factory."""
+        from ._contributions import register_cli
+
+        return register_cli(self, spec)
+
+    def register_extension(
+        self,
+        point: ExtensionPoint[_ExtensionSpec],
+        spec: _ExtensionSpec,
+    ) -> Registration:
+        """Publish a declared typed contribution with plugin-owned teardown."""
+        from ._contributions import register_extension
+
+        return register_extension(self, point, spec)
 
     def _hook_adapter(self, spec):
         from .hooks import HookContext, HookPhase, HookResult
         from ._messages import from_host, to_host
         from ._replies import to_reply
+        from ._identity import from_runtime
+        from ..hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
         from ..runtime.hooks import (
             HookBase,
             HookAction,
@@ -937,6 +1013,7 @@ class PluginContext:  # pylint: disable=protected-access
                         workspace_id=runtime.agent_id,
                         session_id=runtime.session_id,
                         deadline=deadline,
+                        identity=from_runtime(runtime),
                     ) as base:
                         public = HookContext(
                             **{
@@ -944,6 +1021,9 @@ class PluginContext:  # pylint: disable=protected-access
                                 for f in fields(base)
                             },
                             phase=phase,
+                            session_saved=runtime.extras.get(
+                                SESSION_SAVE_SUCCEEDED_KEY,
+                            ),
                             messages=tuple(
                                 from_host(m) for m in runtime.input_msgs
                             ),
@@ -1056,14 +1136,36 @@ class PluginContext:  # pylint: disable=protected-access
         )
         return self._with_admission(handle, adapter)
 
+    def register_stop(self, spec: StopSpec) -> Registration:
+        from ._stops import register
+
+        return register(self, spec)
+
+    def register_shell_backend(self, spec: ShellBackendSpec) -> Registration:
+        from ._shell import register
+
+        return register(self, spec)
+
+    def register_workflow(self, spec: WorkflowSpec) -> Registration:
+        from ._workflows import register
+
+        return register(self, spec)
+
     def register_prompt(self, spec: PromptSpec) -> Registration:
-        def provider(_runtime):
+        from ._identity import from_runtime
+
+        def provider(runtime):
             self._guard()
             if getattr(provider, "_sdk_closed", False):
                 raise StaleContextError(
                     f"Prompt {spec.name!r} has been released",
                 )
-            return spec.text
+            with self._instance.activity.sync_invocation():
+                return self._render_prompt(spec, from_runtime(runtime))
+
+        # The internal projector passes HookContext intact for SDK prompts;
+        # legacy plugins continue receiving their existing Agent argument.
+        provider._sdk_request_prompt = True
 
         handle = self._register_contribution(
             self._api.register_prompt_section,
@@ -1075,9 +1177,21 @@ class PluginContext:  # pylint: disable=protected-access
         )
         return self._with_admission(handle, provider)
 
+    @staticmethod
+    def _render_prompt(spec, identity):
+        if spec.render is None:
+            return spec.text
+        rendered = spec.render(identity)
+        if not isinstance(rendered, str):
+            if inspect.iscoroutine(rendered):
+                rendered.close()
+            raise SDKError("Prompt render must return a string synchronously")
+        return "\n\n".join(part for part in (spec.text, rendered) if part)
+
     def register_mode(self, spec: ModeSpec) -> Registration:
         from .modes import ModeContext
         from ._messages import from_host
+        from ._identity import from_runtime
         from ..modes.base import AgentMode, ModeGatedHook
         from ..runtime.prompt_manager import SyncPromptContributor
 
@@ -1102,6 +1216,7 @@ class PluginContext:  # pylint: disable=protected-access
                 spec.name,
                 tuple(from_host(message) for message in runtime.input_msgs),
                 context.config,
+                identity=from_runtime(runtime),
             )
 
         class Adapter(AgentMode):
@@ -1111,7 +1226,7 @@ class PluginContext:  # pylint: disable=protected-access
             # pylint: disable-next=arguments-renamed
             def is_active(self, runtime):
                 context._guard()
-                with context._instance.activity.invocation():
+                with context._instance.activity.sync_invocation():
                     result = spec.is_active(snapshot(runtime))
                 if not isinstance(result, bool):
                     if inspect.iscoroutine(result):
@@ -1166,11 +1281,15 @@ class PluginContext:  # pylint: disable=protected-access
                                 and runtime.agent_id != self.spec.workspace_id
                             ):
                                 return None
-                            return (
-                                self.spec.text
-                                if owner.is_active(runtime)
-                                else None
-                            )
+                            with context._instance.activity.sync_invocation():
+                                return (
+                                    context._render_prompt(
+                                        self.spec,
+                                        from_runtime(runtime),
+                                    )
+                                    if owner.is_active(runtime)
+                                    else None
+                                )
 
                     contributor = Contributor()
                     contributor.name, contributor.priority = (
@@ -1189,6 +1308,7 @@ class PluginContext:  # pylint: disable=protected-access
                     async with context._invocation(
                         workspace_id=runtime.agent_id,
                         session_id=runtime.session_id,
+                        identity=from_runtime(runtime),
                     ):
                         await context._call(callback, snapshot(runtime))
 
@@ -1278,6 +1398,10 @@ class PluginContext:  # pylint: disable=protected-access
         context = self
 
         class Adapter:
+            # SDK sources receive the user's logical filter. The plugin owns
+            # its upstream category/language mapping, including custom hubs.
+            _sdk_category_filter = True
+
             key, label, supports_browse = (
                 spec.key,
                 spec.label,
@@ -1303,7 +1427,13 @@ class PluginContext:  # pylint: disable=protected-access
                     )
                 return result
 
-            async def _call(self, callback, *args):
+            async def _call(
+                self,
+                callback,
+                *args,
+                lang="en",
+                category=None,
+            ):
                 from ..config.context import get_current_session_id
                 from ._workspace import current_workspace_id
 
@@ -1316,11 +1446,27 @@ class PluginContext:  # pylint: disable=protected-access
                             f.name: getattr(base, f.name) for f in fields(base)
                         },
                         market_id=spec.key,
+                        lang=lang,
+                        category=category,
                     )
                     return await context._call(callback, public, *args)
 
-            async def search(self, query, limit, page):
-                result = await self._call(spec.search, query, limit, page)
+            async def search(
+                self,
+                query,
+                limit,
+                page,
+                lang="en",
+                category=None,
+            ):
+                result = await self._call(
+                    spec.search,
+                    query,
+                    limit,
+                    page,
+                    lang=lang,
+                    category=category,
+                )
                 if not isinstance(result, SearchPage):
                     raise SDKError("Market search must return SearchPage")
                 return (

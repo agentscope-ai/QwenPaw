@@ -10,6 +10,7 @@ option.
 
 import os
 import runpy
+import shutil
 import sys
 import tomllib
 from importlib.metadata import packages_distributions
@@ -265,6 +266,9 @@ a = Analysis(
         "psutil",
         "multipart",
         "websockets",
+        # Model download SDKs reuse the host's tqdm at runtime. Their
+        # imports are outside PyInstaller's analysis of the host.
+        "tqdm.auto",
         *collect_submodules("agentscope.tool._builtin._scripts"),
         *collect_submodules("agentscope.workspace._mcp_gateway"),
         *collect_submodules("chromadb"),
@@ -287,6 +291,10 @@ a = Analysis(
         "lark_oapi",
         "dingtalk_stream",
         "alibabacloud_dingtalk",
+        # The desktop bundle does not need GPU/CUDA wheels; the Linux build
+        # installs CPU-only torch, which is what this exclusion keeps out.
+        "nvidia",
+        "triton",
         *_external_channel_modules,
     ],
     noarchive=False,
@@ -390,3 +398,30 @@ coll = COLLECT(
     upx=False,
     name="qwenpaw-backend",
 )
+
+
+def _strip_cuda_payload(bundle):
+    """Drop the CUDA runtime that torch pulls in through the whisper extra.
+
+    The ``nvidia-*`` wheels and ``triton`` add several gigabytes and are only
+    usable with a matching driver. Desktop installs fetch llama.cpp on demand
+    for local inference, so only torch's CPU path is shipped. PyInstaller
+    collects these libs from package data rather than from imports, so the
+    ``excludes`` entry alone is not enough.
+    """
+    for entry in sorted((bundle / "_internal").glob("*")):
+        # Match the payload only. ``triton-*.dist-info`` must stay: Whisper
+        # declares triton, and plugin dependency checks read that metadata.
+        name = entry.name
+        if name not in ("nvidia", "triton") and not name.startswith(
+            ("nvidia.", "triton."),
+        ):
+            continue
+        print(f"stripping CUDA payload: {name}")
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+
+_strip_cuda_payload(Path(DISTPATH) / "qwenpaw-backend")

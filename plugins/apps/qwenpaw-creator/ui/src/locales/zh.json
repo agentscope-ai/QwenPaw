@@ -59,7 +59,9 @@
     "marketSearchFailed": "搜索失败",
     "marketSource": "来源",
     "marketAuthor": "作者",
-    "marketProviderUnavailable": "以下市场当前不可用：{{providers}}",
+    "marketProviderAll": "全部市场",
+    "marketProviderFilter": "按市场筛选",
+    "marketProviderUnavailableReason": "当前不可用",
     "importUrlSourceHint": "支持来源",
     "importUrlSourceDetected": "已识别：{{source}}",
     "importUrlSourceUnknown": "未识别的 URL 来源，仍可尝试导入。"
@@ -672,6 +674,7 @@
     "unselected": "未选择",
     "stale": "过期",
     "staleDescription": "该产物依赖的 Project 内容已经变化",
+    "generationFailed": "生成失败",
     "selectDetail": "选择一项查看详情",
     "selectDetailDesc": "这里显示 Project 内实际保存的版本、引用与产物状态。",
     "ref": "引用",
@@ -713,6 +716,7 @@
     "visualSetting": "视觉设定",
     "expired": "已过期",
     "defaultLook": "默认造型",
+    "lookN": "造型{{n}}",
     "visualSettingSuffix": "视觉设定",
     "byOwner": "按归属",
     "viewInBlueprint": "在蓝图中查看归属",
@@ -998,7 +1002,13 @@
       "preparationRunning": "正在准备生成内容",
       "preparationFailed": "生成准备遇到问题",
       "automaticWaiting": "正在准备生成 · 已等待 {{seconds}} 秒",
-      "changedBeforeGeneration": "内容在同步后又有变化，请按最新内容重新生成。"
+      "changedBeforeGeneration": "内容在同步后又有变化，请按最新内容重新生成。",
+      "gateNeedsUpdate": "剧本已更新，这组提示词需要重新同步后才能继续生成。",
+      "gateNeedsConfirmation": "剧本或提示词有变更，需要先确认才能继续生成。",
+      "keepAndContinue": "保留现有内容并继续",
+      "gateConfirming": "正在同步提示词…",
+      "gateConfirmed": "提示词已同步，可以继续生成。",
+      "gateConfirmFailed": "提示词同步失败：{{detail}}"
     },
     "editorChangedTitle": "提示词已在其他位置更新",
     "editorChangedDescription": "当前编辑暂时保留。请选择重新载入最新内容，或明确保留您的编辑后再完成。",
@@ -1252,6 +1262,12 @@
     "laneLineup": "阵容图",
     "laneCompose": "最终合成",
     "waitingDeps": "等待 {{count}} 项依赖",
+    "scriptGateNotice": "剧本尚未确认，图片／视频不会开始生成。",
+    "reviewSkipped": "自动审阅已跳过：{{reason}}。{{hint}}",
+    "reviewSkipReasons": {
+      "ffmpeg_unavailable": "缺少 ffmpeg，无法抽取媒体证据",
+      "ffprobe_unavailable": "缺少 ffprobe，无法读取视频信息"
+    },
     "retry": "重试",
     "generate": "生成",
     "productionProgress": "制作进度 {{done}}/{{total}}",
@@ -1285,7 +1301,8 @@
       "compose": {
         "generate": "合成成片",
         "retry": "重新合成成片"
-      }
+      },
+      "promptSync": "去同步"
     }
   },
   "decisionTray": {
@@ -1311,7 +1328,10 @@
     "decisionIndex": "第 {{index}} 条：{{label}}",
     "nextDecision": "下一条决策",
     "keepAllReviewChanges": "保留全部审阅修改（生产确认需单独决定）",
-    "keepAll": "全部保留"
+    "keepAll": "全部保留",
+    "batchPartialTitle": "部分审阅已保留",
+    "batchPartialKept": "已保留 {{kept}} 项，{{failed}} 项失败：{{reason}}",
+    "dragToResize": "拖动调整待审区域高度"
   },
   "executionAuth": {
     "title": "高成本媒体执行",
@@ -1343,6 +1363,12 @@
     "pricingModel": "（按 {{model}} 计价）",
     "continue": "继续",
     "cancel": "取消",
+    "needReviewFirst": "需先完成审阅",
+    "needReviewFirstHint": "关联的审阅卡里还有待确认的修改。先点「查看待确认项」完成审阅，再点「继续」。",
+    "viewPendingReviews": "查看待确认项",
+    "dismissError": "关闭错误提示",
+    "promptSyncRequired": "提示词待同步",
+    "openWorkbench": "去同步",
     "checkpointConfirm": "创作确认",
     "checkpointPlan": "计划确认",
     "checkpointDesign": "设计确认",
@@ -1370,6 +1396,7 @@
     "creativeBrief": "创作总纲",
     "creativeDirection": "创作方向",
     "prompt": "提示词",
+    "nativeAudio": "视频原声",
     "camera": "运镜",
     "framing": "景别",
     "duration": "时长",
@@ -1439,6 +1466,8 @@
       "updated": "{{kind}}已更新",
       "syncUnavailable": "暂时无法更新审阅状态，请稍后重试。",
       "decisionFailed": "未能保存审阅决定，请重试。",
+      "decisionReconciled": "刚才的审阅决定已生效，无需重试。",
+      "decisionUnconfirmed": "上次审阅决定的结果待确认：审阅已离开待办，但未能核对本次操作是否生效，请先刷新查看。",
       "referenceImages": "参考图",
       "referencesUpdated": "参考图已更新",
       "versionRecord": "版本记录",
@@ -2176,7 +2205,21 @@
     "requestFailed": "Creator 请求失败（{{status}}）",
     "projectValidationFailed": "project.json 未通过校验",
     "newConversation": "新对话",
-    "userCancel": "用户取消"
+    "userCancel": "用户取消",
+    "backendUnavailable": "Creator 服务未就绪或已断开，请稍后重试"
+  },
+  "backendStatus": {
+    "title": "Creator 服务未就绪",
+    "desc": "本机 Creator 服务暂时无法访问。如果你刚升级或安装插件，请等待几秒后重新检测；如果多次失败，请按下面步骤排查。",
+    "step1": "确认 QwenPaw 主程序仍在运行，且插件已启用",
+    "step2": "打开设置 → 工具，查看 QwenPaw Creator 的加载错误",
+    "step3": "重启 QwenPaw 后再次检测",
+    "retry": "重新检测",
+    "checking": "正在检测 Creator 服务…",
+    "banner": "Creator 服务未就绪，当前页面数据可能不完整",
+    "blocked": "服务未就绪，暂时无法提交修改",
+    "browseOnly": "仅浏览现有内容",
+    "errorDetail": "错误详情"
   },
   "lib": {
     "prepareCallTool": "准备调用工具：{{names}}",
@@ -2348,6 +2391,9 @@
     "scriptPanelTitle": "剧本 · {{title}}",
     "scriptVersion": "共 {{count}} 版",
     "scriptStaleChip": "已过期",
+    "staleScriptAction": "重新确认剧本",
+    "staleScriptConfirmFocused": "已定位到「确认剧本并继续」，确认后即可继续制作",
+    "staleScriptConfirmMissing": "未找到确认按钮：剧本可能已确认，或当前不在蓝图页",
     "requestChanges": "提出修改",
     "requestChangesDraft": "请修改《{{title}}》的剧本：",
     "requestChangesPrefilled": "已写入创作助手输入框，补充修改意见后发送",
@@ -2473,6 +2519,7 @@
     "viewResult": "查看结果",
     "continue": "继续创作",
     "waitingDeps": "等待前置内容",
+    "waitingScriptConfirm": "等待确认剧本",
     "ready": "待制作",
     "stale": "需要更新",
     "currentStage": "当前步骤",
@@ -2514,7 +2561,9 @@
     "ready": "随时查看创作进展",
     "empty": "开始创作后，核心操作会显示在这里。",
     "finishingSource": "理解结果已保存，正在收尾",
-    "activeWork": "当前进行中"
+    "activeWork": "当前进行中",
+    "retry": "重试",
+    "openModelConfig": "去模型配置"
   },
   "agentProgress": {
     "composeNeedsUpdate": "成片需更新",

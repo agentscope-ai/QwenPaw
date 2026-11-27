@@ -2,7 +2,7 @@
 
 Private Huawei XiaoYi A2A transport for the standard QwenPaw shared runner.
 The entry point is `qwenpaw_channel_xiaoyi.driver.XiaoYiDriver`; runtime
-dependencies are declared only in `requirements.txt` (`aiohttp>=3.9.0`).
+dependencies are declared in the `transport` group in `plugin.json` (`aiohttp>=3.9.0`).
 
 Configure `enabled`, `ak`, `sk`, and `agent_id`. An empty `ws_url` connects
 concurrently to the official domain and IP backup. A custom URL uses a single

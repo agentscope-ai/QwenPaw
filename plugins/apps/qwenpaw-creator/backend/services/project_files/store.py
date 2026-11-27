@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import json
@@ -355,6 +355,7 @@ class ProjectStore:
         root: str | os.PathLike[str],
         *,
         max_project_json_bytes: int = DEFAULT_MAX_PROJECT_JSON_BYTES,
+        asset_uri_rewrites: Mapping[str, str] | None = None,
     ) -> None:
         raw_root = Path(root).expanduser()
         if not raw_root.is_absolute():
@@ -368,6 +369,9 @@ class ProjectStore:
         if not self.root.is_dir():
             raise UnsafeProjectPath("ProjectStore root must be a directory")
         self.max_project_json_bytes = max_project_json_bytes
+        # Archive recovery checks renamed files on disk while the original
+        # URIs still participate in the Project and transaction ETags.
+        self._asset_uri_rewrites = dict(asset_uri_rewrites or {})
         self._lock = threading.RLock()
 
     def project_root(self, project_id: str) -> Path:
@@ -1901,9 +1905,11 @@ class ProjectStore:
         # directory still lands outside) and only inspect the leaf itself.
         resolved_parents: dict[Path, Path] = {assets_root: resolved_assets}
         for indexed in project.assets.files_by_id.values():
-            candidate = project_root.joinpath(
-                *_lexical_asset_parts(indexed.relative_uri),
-            )
+            parts = _lexical_asset_parts(indexed.relative_uri)
+            rewritten = self._asset_uri_rewrites.get(indexed.relative_uri)
+            if rewritten is not None:
+                parts = _lexical_asset_parts(rewritten)
+            candidate = project_root.joinpath(*parts)
             parent = candidate.parent
             resolved_parent = resolved_parents.get(parent)
             if resolved_parent is None:

@@ -50,6 +50,7 @@ export function navigateToLocator(
     description?: string;
     field?: string;
     review?: boolean;
+    reviewId?: string;
     focusField?: boolean;
   } = {},
 ): void {
@@ -68,6 +69,7 @@ export function navigateToLocator(
   if (versionId) params.set("version", versionId);
   if (locator.focus) params.set("focus", locator.focus);
   if (options.review) params.set("review", "1");
+  if (options.reviewId) params.set("reviewId", options.reviewId);
   const field = options.field ?? locator.field;
   if (field) params.set("field", field);
   // Operation navigation can focus an authored field without entering review

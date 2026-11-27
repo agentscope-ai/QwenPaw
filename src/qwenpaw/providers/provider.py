@@ -337,10 +337,33 @@ class ProviderInfo(BaseModel):
                 model.source = "user"
         return self
 
+    def all_models(self) -> List[ModelInfo]:
+        """Return persisted model records, including unselected defaults."""
+        removed = set(self.removed_model_ids)
+        return list(
+            {
+                model.id: model
+                for model in self.models + self.extra_models
+                if model.id not in removed
+            }.values(),
+        )
+
+    def masked_api_key(self) -> str:
+        """Show a configured key in provider API responses without its value."""
+        if not self.api_key:
+            return ""
+        prefix = next(
+            (p for p in self.api_key_prefixes if self.api_key.startswith(p)),
+            self.api_key_prefix,
+        )
+        return prefix + "*" * 6
+
 
 class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     """Represents a provider instance with its configuration."""
 
+    # Passive diagnostics skip live checks that require plugin activation.
+    connection_check_requires_activation: ClassVar[bool] = False
     capture_cache_headers: ClassVar[bool] = False
     cache_modes: ClassVar[frozenset[str]] = frozenset()
     wire_protocol: ClassVar[str] = f"chat"
@@ -396,6 +419,16 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         if model is not None and model.model_type != "chat":
             raise ProviderError(
                 message=f"Model '{model_id}' is not a chat model",
+            )
+
+    def validate_chat_model_override(self, model_id: str) -> None:
+        """Require a configured, available model for an explicit chat override."""
+        self.validate_model_selection(model_id)
+        model = self.resolve_model_info(model_id)
+        if not self.model_available(model):
+            reason = model.availability_message or "model is unavailable"
+            raise ProviderError(
+                message=f"Model '{model_id}' cannot be used: {reason}",
             )
 
     def model_protocol(self, model_id: str) -> str:
@@ -694,17 +727,6 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         self.removed_model_ids = self._normalize_model_id_list(
             config.get("removed_model_ids"),
             self.removed_model_ids,
-        )
-
-    def all_models(self) -> List[ModelInfo]:
-        """Return persisted model records, including unselected defaults."""
-        removed = set(self.removed_model_ids)
-        return list(
-            {
-                model.id: model
-                for model in self.models + self.extra_models
-                if model.id not in removed
-            }.values(),
         )
 
     def configured_models(self) -> List[ModelInfo]:
@@ -1508,37 +1530,24 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         mock_secret: bool = True,
         *,
         include_candidates: bool = True,
+        include_unselected_models: bool = False,
     ) -> ProviderInfo:
         """Build metadata off the event loop, loading candidates on demand."""
         return await run_sync_io(
             self._build_info,
             mock_secret,
             include_candidates,
+            include_unselected_models,
         )
 
     def _build_info(
         self,
         mock_secret: bool,
         include_candidates: bool,
+        include_unselected_models: bool = False,
     ) -> ProviderInfo:
         """Serialize a provider without retaining runtime clients."""
-        if mock_secret and self.api_key:
-            # Determine which prefix to show in the masked key.
-            # If api_key_prefixes is set, pick the one matching the
-            # actual key; otherwise fall back to api_key_prefix.
-            prefix_for_mask = self.api_key_prefix
-            if self.api_key_prefixes:
-                prefix_for_mask = next(
-                    (
-                        p
-                        for p in self.api_key_prefixes
-                        if self.api_key.startswith(p)
-                    ),
-                    self.api_key_prefix,
-                )
-            api_key = prefix_for_mask + "*" * 6
-        else:
-            api_key = self.api_key
+        api_key = self.masked_api_key() if mock_secret else self.api_key
         removed = set(self.removed_model_ids)
 
         serialized_cards: dict[str, dict[str, Any]] = {}
@@ -1625,7 +1634,11 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             models=[
                 serialize_model(model)
                 for model in self.models
-                if model.id not in removed and self.automatically_listed(model)
+                if model.id not in removed
+                and (
+                    include_unselected_models
+                    or self.automatically_listed(model)
+                )
             ],
             extra_models=[
                 serialize_model(model)

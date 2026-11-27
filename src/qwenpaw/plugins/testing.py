@@ -10,6 +10,8 @@ independent hosts in separate processes, just as independent QwenPaw instances.
 
 from __future__ import annotations
 
+import asyncio
+
 # Host bridges intentionally use private runtime seams. Local result imports
 # also bind the contract types re-exported by this author-facing module.
 # pylint: disable=protected-access,redefined-outer-name
@@ -17,6 +19,7 @@ from __future__ import annotations
 import inspect
 import os
 import sys
+from contextlib import aclosing, ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -31,9 +34,11 @@ from .messages import (
     ContentBlock as ContentBlock,
 )
 from .apps import ChatRequest
-from .events import ChatEvent
+from .events import ChatEvent, JSONValue
+from .workflows import WorkflowResult
 from .hooks import HookPhase, HookResult
 from .markets import SearchPage
+from .stops import StopResult
 from .providers import ModelInfo, ModelToolChoice, ModelChunk
 from .memory import MemoryTask
 from .transcription import TranscriptionResult, TranscriptionStatus
@@ -145,6 +150,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         *,
         tool_policy: dict[str, str] | None = None,
         workspace_dirs: Mapping[str, str | Path] | None = None,
+        process_channels: tuple[str, ...] = (),
     ):
         """Own isolated state; tools default to ALLOW, with explicit overrides.
 
@@ -153,11 +159,20 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         """
         self.root = Path(root).resolve()
         self._restore = []
+        self._dependency_readers = ExitStack()
         self._loader = None
         self._governors = {}
         self._tool_policy = dict(tool_policy or {})
         self._workspaces = {}
+        self._workspace_locks = {}
         self._workspace_dirs = dict(workspace_dirs or {})
+        if not isinstance(process_channels, tuple) or any(
+            not isinstance(name, str) or not name for name in process_channels
+        ):
+            raise ValueError(
+                "process_channels must be a tuple of channel names",
+            )
+        self._process_channels = process_channels
         paths = [self._workspace_path(key) for key in self._workspace_dirs]
         if len(set(paths)) != len(paths):
             raise SDKError("Workspace IDs must have distinct directories")
@@ -166,13 +181,39 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             raise ValueError("tool_policy values must be allow, deny or ask")
 
     async def __aenter__(self) -> PluginTestHost:
+        from ..utils.io_utils import run_sync_io
+
         try:
             result = self._enter()
+            if self._process_channels:
+                from ..__version__ import __version__
+                from .channel_adapter import ChannelRuntimeSettings
+                from .dependency_maintenance import scoped_environment_readers
+
+                site = self.root / "channel-dependencies"
+                site.mkdir(exist_ok=True)
+                await run_sync_io(
+                    self._dependency_readers.enter_context,
+                    scoped_environment_readers((site,)),
+                )
+                self._loader.registry.configure_channel_runtime(
+                    ChannelRuntimeSettings(
+                        python_executable=sys.executable,
+                        support_root=Path(__file__).resolve().parents[2],
+                        qwenpaw_version=__version__,
+                        selected_channels=frozenset(self._process_channels),
+                        dependency_paths=(site,),
+                        dependency_install_target=site,
+                    ),
+                )
             await self._app_services.start()
             return result
         except BaseException:
             if _ACTIVE_HOST is self:
-                self._restore_environment()
+                try:
+                    await run_sync_io(self._dependency_readers.close)
+                finally:
+                    self._restore_environment()
             raise
 
     def _enter(self):
@@ -253,6 +294,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
     async def close(self) -> None:
         """Retry cleanup after a failed close; ownership stays until it succeeds."""
         from .lifecycle import QuiescenceError, UnloadMode
+        from ..utils.io_utils import run_sync_io
 
         if _ACTIVE_HOST is not self:
             return
@@ -260,6 +302,8 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         for connection in tuple(self._connections):
             await connection.close()
         for workspace_id, workspace in tuple(self._workspaces.items()):
+            if workspace.cron_manager is not None:
+                await workspace.cron_manager.stop()
             if workspace.channel_manager is not None:
                 try:
                     await workspace.channel_manager.stop_all()
@@ -301,6 +345,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         AuditLog.close_instance()
         for governor in self._governors.values():
             governor.stop()
+        await run_sync_io(self._dependency_readers.close)
         self._restore_environment()
 
     def _restore_environment(self):
@@ -348,6 +393,56 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
                 or f"Plugin load failed: {record.status}",
             )
         return self.context(manifest.id)
+
+    async def run_workflow(
+        self,
+        name: str,
+        *,
+        workspace_id: str = "default",
+        parameters: "Mapping[str, JSONValue] | None" = None,
+        scheduled: bool = False,
+    ) -> "WorkflowResult":
+        """Invoke plugin-id:workflow through the real registered job callback.
+
+        Uses the native scheduler and the production cancellation/notification
+        bridge. This test helper is not a production manual-run endpoint.
+        """
+        from ..app.crons.manager import CronManager
+        from ..app.crons.repo.json_repo import JsonJobRepository
+        from .workflows import WorkflowResult
+
+        workspace = await self._workspace(workspace_id)
+        manager = workspace.cron_manager
+        if manager is None:
+            manager = CronManager(
+                repo=JsonJobRepository(workspace.workspace_dir / "jobs.json"),
+                workspace=workspace,
+                channel_manager=None,
+                agent_id=workspace_id,
+            )
+            workspace._service_manager.services["cron_manager"] = manager
+            await manager.start()
+        await self._loader.registry.projector.project_workspace(
+            workspace,
+            kinds={"sdk_workflow"},
+        )
+        plugin_id, separator, workflow = name.partition(":")
+        job = (
+            manager._scheduler.get_job(f"_service:sdk_{plugin_id}:{workflow}")
+            if separator
+            else None
+        )
+        if job is None:
+            raise SDKError(
+                "Workflow is not registered in this workspace: " + name,
+            )
+        result = await job.args[1].callback(
+            scheduled=scheduled,
+            parameters_override=parameters,
+        )
+        if not isinstance(result, WorkflowResult):
+            raise SDKError("Workflow did not return a result")
+        return result
 
     def inject_failure(
         self,
@@ -491,6 +586,11 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         return path
 
     async def _workspace(self, workspace_id):
+        lock = self._workspace_locks.setdefault(workspace_id, asyncio.Lock())
+        async with lock:
+            return await self._ensure_workspace(workspace_id)
+
+    async def _ensure_workspace(self, workspace_id):
         from ..app.workspace.workspace import Workspace
 
         path = self._workspace_path(workspace_id)
@@ -512,14 +612,25 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
 
             workspace._service_manager.services["chat_manager"] = ChatManager(
                 repo=JsonChatRepository(path / "chats.json"),
+                shell_workspace_id=workspace_id,
+                shell_targets_dir=self.root / "shell-targets",
             )
             workspace._service_manager.services["session"] = SafeJSONSession(
                 save_dir=str(path / "sessions"),
             )
             from ..hooks.session import SessionLoadHook, SessionSaveHook
+            from ..checkpoints.hooks import CheckpointQueryGateHook
+            from ..runtime.builtin_commands import (
+                collect_builtin_command_specs,
+            )
 
             workspace.bootstrap_plugins(
-                builtin_hook_clses=[SessionLoadHook, SessionSaveHook],
+                builtin_hook_clses=[
+                    CheckpointQueryGateHook,
+                    SessionLoadHook,
+                    SessionSaveHook,
+                ],
+                builtin_command_specs=collect_builtin_command_specs(),
             )
             self._workspaces[workspace_id] = workspace
             from ..governance.resource_governor import ResourceGovernor
@@ -566,13 +677,29 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
                     await result
         return self._workspaces[workspace_id]
 
-    async def _request_context(self, workspace_id, session_id, messages=()):
+    async def _request_context(
+        self,
+        workspace_id,
+        session_id,
+        messages=(),
+        *,
+        user_id="test",
+        channel="console",
+        session_saved=None,
+    ):
         from ..runtime.hooks import HookContext
+        from ..schemas import AgentRequest
+        from ..hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
         from ._messages import to_host
 
         workspace = await self._workspace(workspace_id)
         return HookContext(
-            request=None,
+            request=AgentRequest(
+                input=[],
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            ),
             session_id=session_id,
             agent_id=workspace_id,
             root_session_id=session_id,
@@ -581,6 +708,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             workspace=workspace,
             app_services=None,
             input_msgs=[to_host(message) for message in messages],
+            extras={SESSION_SAVE_SUCCEEDED_KEY: session_saved},
         )
 
     async def call_command(
@@ -590,6 +718,8 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         workspace_id: str = "test",
         session_id: str = "test",
         messages: Sequence[Message] = (),
+        user_id: str = "test",
+        channel: str = "console",
     ) -> Message | None:
         from ._messages import from_host
 
@@ -597,6 +727,8 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             workspace_id,
             session_id,
             messages,
+            user_id=user_id,
+            channel=channel,
         )
         result = (
             await context.workspace.plugins.slash_command_registry.dispatch(
@@ -606,6 +738,34 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         )
         return from_host(result) if result is not None else None
 
+    async def call_control_command(
+        self,
+        text: str,
+        *,
+        workspace_id: str = "test",
+        session_id: str = "test",
+        messages: Sequence[Message] = (),
+        user_id: str = "test",
+        channel: str = "console",
+    ) -> Message | None:
+        """Dispatch a declared control command through the real registry.
+
+        This helper verifies declaration and result handling; use a running
+        channel to verify immediate queue routing while another turn is busy.
+        """
+        workspace = await self._workspace(workspace_id)
+        match = workspace.plugins.slash_command_registry.resolve(text)
+        if match is None or match[0].metadata.get("sdk_control") is not True:
+            raise SDKError("Not a registered SDK control command")
+        return await self.call_command(
+            text,
+            workspace_id=workspace_id,
+            session_id=session_id,
+            messages=messages,
+            user_id=user_id,
+            channel=channel,
+        )
+
     async def run_hooks(
         self,
         phase: HookPhase | str,
@@ -613,6 +773,9 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         messages: Sequence[Message] = (),
         workspace_id: str = "test",
         session_id: str = "test",
+        user_id: str = "test",
+        channel: str = "console",
+        session_saved: bool | None = None,
     ) -> HookResult:
         from ..runtime.phases import Phase
         from ._messages import from_host
@@ -622,6 +785,9 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             workspace_id,
             session_id,
             messages,
+            user_id=user_id,
+            channel=channel,
+            session_saved=session_saved,
         )
         initial_messages = tuple(
             from_host(message) for message in context.input_msgs
@@ -650,16 +816,75 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
     async def build_prompt(
         self,
         *,
-        workspace_id="test",
-        session_id="test",
-        messages=(),
+        workspace_id: str = "test",
+        session_id: str = "test",
+        messages: Sequence[Message] = (),
+        user_id: str = "test",
+        channel: str = "console",
     ) -> str:
         context = await self._request_context(
             workspace_id,
             session_id,
             messages,
+            user_id=user_id,
+            channel=channel,
         )
         return await context.workspace.plugins.prompt_manager.build(context)
+
+    async def evaluate_stop(
+        self,
+        *,
+        workspace_id: str = "test",
+        session_id: str = "test",
+        user_id: str = "test",
+        channel: str = "console",
+        iteration: int = 1,
+        max_iterations: int = 20,
+        has_tool_calls: bool = False,
+        final_message: Message | None = None,
+        cancelled: bool = False,
+    ) -> "StopResult":
+        """Evaluate the real host chain with an explicit simulated turn."""
+        from types import SimpleNamespace
+        from ..loop.gates.runner import run_stop_handlers
+        from ._messages import to_host
+        from .stops import StopResult
+
+        if iteration < 1 or max_iterations < 1:
+            raise ValueError("Iteration counts and budgets must be positive")
+        if cancelled:
+            return StopResult("stop", reason="User cancelled")
+        workspace = await self._workspace(workspace_id)
+        agent = SimpleNamespace(
+            agent_id=workspace_id,
+            react_config=SimpleNamespace(max_iters=max_iterations),
+            _request_context={
+                "agent_id": workspace_id,
+                "session_id": session_id,
+                "user_id": user_id,
+                "channel": channel,
+            },
+        )
+        final = (
+            None
+            if has_tool_calls
+            else to_host(final_message or Message("assistant", ()))
+        )
+        result = await run_stop_handlers(
+            workspace.plugins.stop_handlers,
+            agent=agent,
+            final_msg=final,
+            iteration=iteration - 1,
+        )
+        return StopResult(
+            (
+                "continue"
+                if result.action.value == "interrupt_and_continue"
+                else "stop"
+            ),
+            result.continuation_message,
+            result.reason,
+        )
 
     async def start_channel(
         self,
@@ -700,7 +925,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             manager.set_workspace(workspace)
             workspace._service_manager.services["channel_manager"] = manager
             await manager.start_all()
-        registration = self._loader.registry.get_registered_channels().get(
+        registration = self._loader.registry.get_channel_registration(
             name,
         )
         if registration is None:
@@ -849,14 +1074,18 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
     async def active_modes(
         self,
         *,
-        workspace_id="test",
-        session_id="test",
-        messages=(),
+        workspace_id: str = "test",
+        session_id: str = "test",
+        messages: Sequence[Message] = (),
+        user_id: str = "test",
+        channel: str = "console",
     ) -> tuple[str, ...]:
         context = await self._request_context(
             workspace_id,
             session_id,
             messages,
+            user_id=user_id,
+            channel=channel,
         )
         return tuple(
             mode.name
@@ -869,16 +1098,20 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         name: str,
         event: str,
         *,
-        workspace_id="test",
-        session_id="test",
-        messages=(),
-    ):
+        workspace_id: str = "test",
+        session_id: str = "test",
+        messages: Sequence[Message] = (),
+        user_id: str = "test",
+        channel: str = "console",
+    ) -> None:
         if event not in {"turn_start", "reset"}:
             raise SDKError("Mode events are turn_start or reset")
         context = await self._request_context(
             workspace_id,
             session_id,
             messages,
+            user_id=user_id,
+            channel=channel,
         )
         mode = next(
             (
@@ -949,6 +1182,8 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         *,
         page: int = 1,
         limit: int = 10,
+        lang: str = "en",
+        category: str | None = None,
     ) -> SearchPage:
         from ..market.service import search_market
         from .markets import MarketResult
@@ -957,6 +1192,8 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             query,
             {key: page},
             limit,
+            lang=lang,
+            category=category,
         )
         if errors:
             raise SDKError("; ".join(error.message for error in errors))
@@ -1421,7 +1658,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         Run the production Runtime, including registered command/hook routes.
         """
         from ..schemas import AgentRequest
-        from ._events import chat_event, _observing
+        from ._events import chat_event
 
         workspace = await self._workspace(workspace_id)
 
@@ -1443,23 +1680,9 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             agent_id=workspace_id,
             request_id=public.request_id,
         )
-        stream = workspace.stream_query(request)
-        try:
-            while True:
-                token = _observing.set(True)
-                try:
-                    result = await anext(stream)
-                except StopAsyncIteration:
-                    return
-                finally:
-                    _observing.reset(token)
+        async with aclosing(workspace.stream_query(request)) as stream:
+            async for result in stream:
                 yield chat_event(result)
-        finally:
-            token = _observing.set(True)
-            try:
-                await stream.aclose()
-            finally:
-                _observing.reset(token)
 
     def open_http(
         self,
@@ -1538,6 +1761,8 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         *,
         workspace_id: str = "test",
         session_id: str = "test",
+        user_id: str = "test",
+        channel: str = "console",
     ) -> AsyncGenerator[Any, None]:
         from ..governance.tool_registry import DEFAULT_REGISTRY
         from ..governance.tool_adapter import PolicyGuardedTool
@@ -1589,6 +1814,8 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             request_context={
                 "agent_id": workspace_id,
                 "session_id": session_id,
+                "user_id": user_id,
+                "channel": channel,
             },
         )
         decision = await tool.check_permissions(arguments)
@@ -1618,12 +1845,16 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         *,
         workspace_id: str = "test",
         session_id: str = "test",
+        user_id: str = "test",
+        channel: str = "console",
     ) -> AsyncGenerator[ToolEvent, None]:
         chunks = self._tool_chunks(
             name,
             arguments,
             workspace_id=workspace_id,
             session_id=session_id,
+            user_id=user_id,
+            channel=channel,
         )
         try:
             async for chunk in chunks:
@@ -1722,13 +1953,24 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         self,
         name: str,
         arguments: dict,
-        **context,
+        *,
+        workspace_id: str = "test",
+        session_id: str = "test",
+        user_id: str = "test",
+        channel: str = "console",
     ) -> ToolResult:
         from agentscope.tool import ToolResponse
         from ._messages import _from_block, _take_tool_metadata
 
         response = ToolResponse()
-        chunks = self._tool_chunks(name, arguments, **context)
+        chunks = self._tool_chunks(
+            name,
+            arguments,
+            workspace_id=workspace_id,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
         try:
             async for chunk in chunks:
                 response.append_chunk(chunk)
@@ -1835,7 +2077,8 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         result = context.resources.snapshot() if context else {"resources": ()}
         return {
             **result,
-            "active_calls": sum(instance.activity.tasks.values()),
+            "active_calls": sum(instance.activity.tasks.values())
+            + instance.activity.sync_calls,
             "generation": instance.generation,
             "state": instance.state.value,
         }

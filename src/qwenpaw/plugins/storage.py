@@ -8,13 +8,27 @@ import os
 import tempfile
 from contextlib import AbstractContextManager as ContextManager
 from contextlib import nullcontext
-from pathlib import Path
-from typing import Any, Callable, TypeVar
+from pathlib import Path, PurePath, PureWindowsPath
+from typing import Any, Callable, Mapping, TypeVar
 
 from .errors import SDKError
 from .messages import Attachment
 
 _T = TypeVar("_T")
+
+
+def _comparison_path(path: PurePath) -> PurePath:
+    """Windows resolve() can retain a prefix when a parent is created."""
+    prefix = "\\\\?\\"
+    if isinstance(path, PureWindowsPath) and path.drive.startswith(prefix):
+        unc_prefix = prefix + "UNC\\"
+        text = str(path)
+        if text[: len(unc_prefix)].upper() == unc_prefix:
+            return PureWindowsPath("\\\\" + text[len(unc_prefix) :])
+        drive = path.drive[len(prefix) :]
+        if len(drive) == 2 and drive.endswith(":"):
+            return PureWindowsPath(text[len(prefix) :])
+    return path
 
 
 class PluginStorage:
@@ -24,10 +38,13 @@ class PluginStorage:
         guard: Callable,
         *,
         _admission: Callable[[], ContextManager] = nullcontext,
+        _legacy_sources: Mapping[str, Path] | None = None,
     ):
         self._root = root.resolve()
+        self._comparison_root = _comparison_path(self._root)
         self._guard = guard
         self._admission = _admission
+        self._legacy_sources = dict(_legacy_sources or {})
 
     async def _io(self, operation: Callable[[], _T]) -> _T:
         from ..utils.io_utils import run_sync_io
@@ -53,16 +70,74 @@ class PluginStorage:
 
     def _path(self, name: str) -> Path:
         path = (self._root / name).resolve()
-        if not path.is_relative_to(self._root) or path == self._root:
+        candidate = _comparison_path(path)
+        root = self._comparison_root
+        if not candidate.is_relative_to(root) or candidate == root:
             raise SDKError(
                 "Storage path must remain inside this plugin's data directory",
             )
         return path
 
     def path(self, name: str) -> Path:
-        """Return a scoped file path for native file consumers."""
+        """Resolve a private file path for libraries such as SQLite.
+
+        Creates parent directories, but not the file. The caller must keep
+        open connections in ResourceScope; a returned Path is not revocable.
+        """
         self._guard()
-        return self._path(name)
+        path = self._path(name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def import_legacy(self, source: str, name: str) -> bool:
+        """Copy a declared legacy file only if the private target is absent."""
+        from ._storage_migration import copy_missing, declared_source
+
+        self._guard()
+        origin = declared_source(self._legacy_sources, source)
+        if not origin.exists():
+            return False
+        return copy_missing(origin, self.path(name), self._guard)
+
+    def import_legacy_tree(self, source: str, name: str) -> tuple[str, ...]:
+        """Copy missing regular files; retain sources and allow safe retries.
+
+        Returns copied paths relative to this storage. Symlinks and special
+        files are rejected. A partial failure leaves completed copies intact.
+        """
+        from ._storage_migration import copy_missing, declared_source
+
+        self._guard()
+        origin = declared_source(self._legacy_sources, source)
+        relative_target = _comparison_path(self._path(name)).relative_to(
+            self._comparison_root,
+        )
+        if not origin.exists():
+            return ()
+        if not origin.is_dir():
+            raise SDKError("Legacy tree source must be a directory")
+
+        def raise_scan_error(error: OSError) -> None:
+            raise error
+
+        copied = []
+        for directory, dirs, files in os.walk(
+            origin,
+            onerror=raise_scan_error,
+            followlinks=False,
+        ):
+            for item in (*dirs, *files):
+                path = Path(directory) / item
+                if path.is_symlink():
+                    raise SDKError("Legacy storage cannot contain symlinks")
+            for filename in sorted(files):
+                path = Path(directory) / filename
+                relative = (
+                    relative_target / path.relative_to(origin)
+                ).as_posix()
+                if copy_missing(path, self.path(relative), self._guard):
+                    copied.append(relative)
+        return tuple(copied)
 
     def read_bytes(self, name: str) -> bytes:
         return self._path(name).read_bytes()

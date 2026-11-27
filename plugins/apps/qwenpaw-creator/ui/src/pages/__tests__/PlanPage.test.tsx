@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useWorkGraphStore } from "@/store/workGraphStore";
 import PlanPage from "@/pages/PlanPage";
 import { NavigationRuntime } from "@/routing/navigation";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
@@ -112,6 +113,7 @@ function installTimelineRect(chart: Element) {
 
 describe("PlanPage Timeline/Element frontend", () => {
   beforeEach(() => {
+    useWorkGraphStore.getState().reset();
     useProjectSnapshotStore.getState().reset();
     useCreatorTaskViewStore.getState().reset();
     useCreatorInteractionStore.getState().reset();
@@ -303,48 +305,188 @@ describe("PlanPage Timeline/Element frontend", () => {
     ).toHaveTextContent(chip);
   });
 
-  it("auto-composes the final render once all compose elements are ready", async () => {
+  it.each([true, false])(
+    "ignores a late compose response after leaving the project (success=%s)",
+    async (success) => {
+      seedWithoutFinal();
+      const { fetchMock } = installMockFetch(pollRoutes());
+      const original = fetchMock.getMockImplementation()!;
+      let finish!: (response: Response) => void;
+      const dispatch = new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+      fetchMock.mockImplementation((input, init) =>
+        String(input).endsWith("/render") ? dispatch : original(input, init),
+      );
+      const mounted = renderPage();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "合成成片" }));
+      });
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).endsWith("/render")),
+      ).toBe(true);
+      mounted.unmount();
+      useProjectSnapshotStore.getState().reset("p2");
+      await useCreatorTaskViewStore.getState().refresh("p2");
+      await act(async () =>
+        finish(
+          new Response(
+            JSON.stringify(
+              success ? { taskId: "late-p1" } : { message: "failed" },
+            ),
+            { status: success ? 200 : 409 },
+          ),
+        ),
+      );
+      expect(useProjectSnapshotStore.getState().projectId).toBe("p2");
+      expect(useCreatorTaskViewStore.getState().projectId).toBe("p2");
+    },
+  );
+
+  it("honors a hold installed during dispatch and still permits an explicit render", async () => {
     vi.useFakeTimers();
     try {
       seedWithoutFinal();
+      const graph = {
+        projectId: "p1",
+        generation: 3,
+        counts: {},
+        nodes: [],
+        mediaCalls: 0,
+        mediaCallBudget: 20,
+      };
+      const hold = { revision: 1, nodeIds: ["compose:timeline:main"] };
+      useWorkGraphStore.setState({ projectId: "p1", graph });
       const { calls } = installMockFetch([
         {
-          match: "/timelines/timeline%3Amain/render",
+          match: "/render?automatic=true",
           method: "POST",
           response: {
+            ok: false,
+            status: 409,
             json: {
-              ok: true,
-              taskId: "task-render",
-              artifactVersionId: "final-v2",
-              generation: 4,
-              etag: '"sha256:g4"',
-              replayed: false,
+              message: "held",
+              details: { code: "MANUAL_REGENERATION_HOLD" },
             },
           },
+        },
+        {
+          match: "/work-graph",
+          response: { json: { ...graph, manualHold: hold } },
+        },
+        {
+          match: "/render",
+          method: "POST",
+          response: { json: { taskId: "manual-task" } },
         },
         ...pollRoutes(),
       ]);
       renderPage();
-
-      // All main-track elements ready and no final render → auto-compose.
-      expect(screen.getByRole("button", { name: "合成成片" })).toHaveAttribute(
-        "title",
-        "点击合成成片",
+      await act(() => vi.advanceTimersByTimeAsync(1600));
+      expect(useWorkGraphStore.getState().graph?.manualHold).toEqual(hold);
+      await act(() => vi.advanceTimersByTimeAsync(3200));
+      expect(calls.filter((call) => call.url.includes("/render"))).toHaveLength(
+        1,
       );
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(1600);
+        fireEvent.click(screen.getByRole("button", { name: "合成成片" }));
       });
       expect(
-        calls.some(
-          (call) =>
-            call.method === "POST" &&
-            call.url.includes("/timelines/timeline%3Amain/render"),
+        calls.filter(
+          (call) => call.method === "POST" && call.url.endsWith("/render"),
         ),
-      ).toBe(true);
+      ).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }
   });
+
+  it.each(["first", "stale"])(
+    "auto-composes a %s cut only after its own hold clears",
+    async (cut) => {
+      vi.useFakeTimers();
+      try {
+        if (cut === "first") seedWithoutFinal();
+        else {
+          const project = cloneProject();
+          project.assets.artifact_versions_by_id["final-v1"].stale = true;
+          seedProject(project);
+        }
+        const graph = {
+          projectId: "p1",
+          generation: 3,
+          counts: {},
+          nodes: [],
+          mediaCalls: 0,
+          mediaCallBudget: 20,
+        };
+        const { calls } = installMockFetch([
+          {
+            match: "/timelines/timeline%3Amain/render",
+            method: "POST",
+            response: {
+              json: {
+                ok: true,
+                taskId: "task-render",
+                artifactVersionId: "final-v2",
+                generation: 4,
+                etag: '"sha256:g4"',
+                replayed: false,
+              },
+            },
+          },
+          ...pollRoutes(),
+        ]);
+        renderPage();
+
+        // A late graph, including one retained from another project, grants no permission.
+        act(() =>
+          useWorkGraphStore.setState({
+            projectId: "p2",
+            graph: { ...graph, projectId: "p2" },
+          }),
+        );
+        await act(() => vi.advanceTimersByTimeAsync(1600));
+        const renders = () =>
+          calls.filter(
+            (call) => call.method === "POST" && call.url.includes("/render"),
+          );
+        expect(renders()).toHaveLength(0);
+        act(() =>
+          useWorkGraphStore.setState({
+            projectId: "p1",
+            graph: {
+              ...graph,
+              manualHold: { revision: 1, nodeIds: ["compose:timeline:main"] },
+            },
+          }),
+        );
+        await act(() => vi.advanceTimersByTimeAsync(1600));
+        expect(renders()).toHaveLength(0);
+        act(() =>
+          useWorkGraphStore.setState({
+            graph: {
+              ...graph,
+              manualHold: {
+                revision: 2,
+                nodeIds: ["compose:another-timeline"],
+              },
+            },
+          }),
+        );
+        expect(
+          screen.getByRole("button", { name: "合成成片" }),
+        ).toHaveAttribute("title", "点击合成成片");
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1600);
+        });
+        expect(renders()).toHaveLength(1);
+        expect(renders()[0].url).toContain("/render?automatic=true");
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("adopts an existing compose task and shows verified Element counts without inventing a percentage", async () => {
     seedWithoutFinal();

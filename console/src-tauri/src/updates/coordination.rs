@@ -4,7 +4,7 @@ use std::{
     collections::BTreeSet,
     fs::File,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -26,7 +26,13 @@ pub(crate) fn installation(app: &tauri::AppHandle) -> Result<String, String> {
         .into_owned())
 }
 
-fn installation_directory(identifier: &str) -> Result<PathBuf, String> {
+/// Linux reports a replaced executable as "<path> (deleted)". Resolve it once
+/// at startup so a package upgrade cannot break later backend launches.
+fn executable_identity() -> Result<&'static str, String> {
+    static IDENTITY: OnceLock<String> = OnceLock::new();
+    if let Some(identity) = IDENTITY.get() {
+        return Ok(identity);
+    }
     let executable =
         std::env::current_exe().map_err(|e| format!("Cannot locate desktop executable: {e}"))?;
     let exe = executable.canonicalize().map_err(|e| {
@@ -36,6 +42,11 @@ fn installation_directory(identifier: &str) -> Result<PathBuf, String> {
         )
     })?;
     let identity = format!("{:x}", Sha256::digest(exe.to_string_lossy().as_bytes()));
+    Ok(IDENTITY.get_or_init(|| identity))
+}
+
+fn installation_directory(identifier: &str) -> Result<PathBuf, String> {
+    let identity = executable_identity()?;
     let path = dirs::data_local_dir()
         .ok_or("App data directory unavailable")?
         .join(identifier)

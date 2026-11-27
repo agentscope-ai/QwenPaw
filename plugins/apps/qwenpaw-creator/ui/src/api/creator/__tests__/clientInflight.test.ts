@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { creatorRequest } from "@/api/creator/client";
+import { copyProject, listProjects } from "@/api/creator/projects";
 
 /**
  * The measured duplication this guards against: one Project page issued the
@@ -42,6 +43,26 @@ describe("creatorRequest in-flight dedupe", () => {
     expect(urls).toHaveLength(1);
     expect(second).toEqual(first);
     expect(third).toEqual(first);
+  });
+
+  it("does a fresh list read when returning from a successful copy", async () => {
+    let finishList!: (response: Response) => void;
+    const oldList = new Promise<Response>((resolve) => {
+      finishList = resolve;
+    });
+    const fetch = vi
+      .fn()
+      .mockReturnValueOnce(oldList)
+      .mockResolvedValueOnce(Response.json({ projectId: "copy" }))
+      .mockResolvedValueOnce(Response.json({ items: [{ projectId: "copy" }] }));
+    vi.stubGlobal("fetch", fetch);
+    const original = listProjects();
+    await copyProject("source", "retry-key");
+    const afterCopy = listProjects();
+    finishList(Response.json({ items: [] }));
+    expect((await original).items).toEqual([]);
+    expect((await afterCopy).items).toEqual([{ projectId: "copy" }]);
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 
   it("issues a fresh request once the previous one settles", async () => {

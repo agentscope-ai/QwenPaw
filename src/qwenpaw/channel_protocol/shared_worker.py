@@ -11,6 +11,10 @@ from pathlib import Path
 import sys
 from typing import Any
 
+PLATFORM_STATES = frozenset(
+    ("connecting", "connected", "disconnected", "failed"),
+)
+
 
 class DriverContext:
     """Preserve the Channel context and platform state wire contract."""
@@ -44,7 +48,7 @@ class DriverContext:
         await self.peer.notify("channel.auth.required", params.to_mapping())
 
     async def set_platform_state(self, state: str) -> None:
-        if state not in {"connecting", "connected", "disconnected", "failed"}:
+        if state not in PLATFORM_STATES:
             raise ValueError("PLATFORM_STATE_INVALID")
         await self.peer.notify(
             "shared.state",
@@ -57,6 +61,27 @@ class ChannelRuntime:
     control_prefix = "shared."
     initial_state = "connecting"
     failed_state = "failed"
+
+    def requirements(self, boot, packet):
+        """Read pinned declarations before dependency observation or imports."""
+        from .shared import SharedChannelDescriptor
+
+        root = Path(packet["code_root"])
+        if boot._hash_code_root(root) != packet["source_revision"]:
+            raise boot.BootstrapError(
+                "SOURCE_REVISION_MISMATCH",
+                "source mismatch",
+            )
+        path = boot._absolute_existing_file(
+            packet["descriptor_path"],
+            "descriptor_path",
+        )
+        if not path.is_relative_to(root):
+            raise boot.BootstrapError(
+                "DESCRIPTOR_OUTSIDE_CODE_ROOT",
+                "descriptor outside root",
+            )
+        return SharedChannelDescriptor.load(path).read_requirements(root, path)
 
     def identity(self, packet):
         from .models import IdentityParams
@@ -137,6 +162,21 @@ class ChannelRuntime:
             identity,
             self._capabilities,
             send_timeout=getattr(self, "_send_timeout", 120.0),
+        )
+
+    def prepare_component(self, component_class, packet):
+        if not any(
+            base.__module__ == "qwenpaw.plugins.channel_workers"
+            and base.__name__ == "ChannelDriver"
+            for base in getattr(component_class, "__mro__", ())
+        ):
+            return component_class
+        from qwenpaw.plugins._channel_worker import prepare_driver
+
+        return prepare_driver(
+            component_class,
+            packet,
+            capabilities=self._capabilities,
         )
 
     async def state(self, context, state):
@@ -316,14 +356,7 @@ class ChannelRuntime:
         self._capabilities = descriptor.capabilities
         if descriptor.channel_key != identity.channel_key:
             raise boot.BootstrapError("IDENTITY_MISMATCH", "identity mismatch")
-        requirements = (path.parent / descriptor.requirements_file).resolve(
-            strict=True,
-        )
-        if not requirements.is_relative_to(root):
-            raise boot.BootstrapError(
-                "DEPENDENCY_PATH_INVALID",
-                "requirements outside root",
-            )
+        requirements = descriptor.read_requirements(root, path)
         source = boot._entrypoint_source(root, descriptor.entrypoint)
         hello = RunnerProtocolHost(
             packet["source_revision"],
@@ -332,7 +365,8 @@ class ChannelRuntime:
             instance_id=identity.instance_id,
             generation=identity.generation,
             qwenpaw_version=packet["qwenpaw_version"],
-            requirements_path=requirements,
+            requirements_path=None,
+            requirements=requirements,
             capabilities=descriptor.capabilities,
             versions=packet.get("dependency_versions"),
         )

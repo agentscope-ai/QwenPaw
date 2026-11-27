@@ -4,7 +4,7 @@ The QwenPaw **TUI** is a full-screen chat interface that runs entirely in your t
 
 It is also the most natural surface for **Coding Mode**: launch it from inside a repo and the agent treats that directory as its workshop.
 
-![QwenPaw TUI](https://img.alicdn.com/imgextra/i2/O1CN01IULzib1TRAzigIcqG_!!6000000002378-2-tps-2350-1312.png)
+![QwenPaw TUI](https://img.alicdn.com/imgextra/i3/O1CN0165izgXrPBEI2qEhU_!!6000000002338-2-tps-1400-840.png)
 
 ---
 

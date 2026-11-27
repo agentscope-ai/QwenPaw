@@ -4,12 +4,14 @@ Heartbeat: run agent with HEARTBEAT.md as query at interval.
 Uses config functions (get_heartbeat_config, get_heartbeat_query_path,
 load_config) for paths and settings.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
 import uuid
+from contextlib import aclosing
 from datetime import datetime, time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -242,26 +244,30 @@ async def run_heartbeat_once(
         config = await run_sync_io(load_config)
         last_dispatch = config.last_dispatch
 
+    from ...token_usage.model_wrapper import isolated_turn_usage
+
+    async def _run(dispatch=None) -> None:
+        # Deduplicate media-omission notices across messages in this turn.
+        notice_dispatch: dict = {}
+        with isolated_turn_usage():
+            async with aclosing(workspace.stream_query(req)) as stream:
+                async for event in stream:
+                    if dispatch is not None:
+                        await channel_manager.send_event(
+                            channel=dispatch.channel,
+                            user_id=dispatch.user_id,
+                            session_id=dispatch.session_id,
+                            event=event,
+                            meta={},
+                            dispatched=notice_dispatch,
+                        )
+
     target = (hb.target or "").strip().lower()
     if target == HEARTBEAT_TARGET_LAST and last_dispatch:
         ld = last_dispatch
         if ld.channel and (ld.user_id or ld.session_id):
-
-            async def _run_and_dispatch() -> None:
-                async for event in workspace.stream_query(req):
-                    await channel_manager.send_event(
-                        channel=ld.channel,
-                        user_id=ld.user_id,
-                        session_id=ld.session_id,
-                        event=event,
-                        meta={},
-                    )
-
             try:
-                await asyncio.wait_for(
-                    _run_and_dispatch(),
-                    timeout=timeout_seconds,
-                )
+                await asyncio.wait_for(_run(ld), timeout=timeout_seconds)
             except asyncio.TimeoutError:
                 logger.warning(
                     "heartbeat run timed out after %ss",
@@ -292,12 +298,8 @@ async def run_heartbeat_once(
             },
         )
 
-        async def _run_only() -> None:
-            async for _ in workspace.stream_query(req):
-                pass
-
         try:
-            await asyncio.wait_for(_run_only(), timeout=timeout_seconds)
+            await asyncio.wait_for(_run(), timeout=timeout_seconds)
             delta = await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=workspace,
@@ -388,15 +390,8 @@ async def run_heartbeat_once(
         return
 
     # target main or no last_dispatch: run agent only, no dispatch
-    async def _run_without_dispatch() -> None:
-        async for _ in workspace.stream_query(req):
-            pass
-
     try:
-        await asyncio.wait_for(
-            _run_without_dispatch(),
-            timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(_run(), timeout=timeout_seconds)
     except asyncio.TimeoutError:
         logger.warning(
             "heartbeat run timed out after %ss",

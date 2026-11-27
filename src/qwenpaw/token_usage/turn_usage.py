@@ -200,6 +200,16 @@ async def resolve_turn_usage(
     if agent_state is None:
         return turn, None, None
 
+    turn, ctx = await _resolve_usage_from_state(turn, agent_state, agent_id)
+    turn = add_session_cache_usage(turn, getattr(agent_state, "context", None))
+    return turn, ctx, agent_state
+
+
+async def _resolve_usage_from_state(
+    turn: dict[str, Any] | None,
+    agent_state: Any,
+    agent_id: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     context_size = int((turn or {}).get("context_size", 0) or 0)
     stats = await snapshot_context_usage_for_state(
         agent_state,
@@ -207,14 +217,7 @@ async def resolve_turn_usage(
         preferred_max_input_length=context_size,
     )
     if not stats:
-        return (
-            add_session_cache_usage(
-                turn,
-                getattr(agent_state, "context", None),
-            ),
-            None,
-            agent_state,
-        )
+        return turn, None
 
     ctx = {
         "estimated_tokens": stats["estimated_tokens"],
@@ -225,11 +228,7 @@ async def resolve_turn_usage(
         turn = _turn_from_stats(stats)
     else:
         turn = reconcile_turn_completion_from_stats(turn, stats)
-    turn = add_session_cache_usage(
-        turn,
-        getattr(agent_state, "context", None),
-    )
-    return turn, ctx, agent_state
+    return turn, ctx
 
 
 def find_turn_closing_assistant_in_context(messages: Any) -> Any | None:
@@ -262,6 +261,31 @@ def _write_turn_usage_meta(
         "context_usage": ctx,
     }
     return True
+
+
+async def attach_turn_usage(
+    *,
+    session_id: str,
+    agent_id: str,
+    agent_state: Any,
+    archived_messages: list[Any],
+) -> None:
+    """Attach usage to the current turn before its state is saved."""
+    turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+    if agent_state is None:
+        return
+    try:
+        turn, ctx = await _resolve_usage_from_state(
+            turn,
+            agent_state,
+            agent_id,
+        )
+        messages = agent_state.context
+        msg = find_turn_closing_assistant_in_context(messages)
+        turn = add_session_cache_usage(turn, [*archived_messages, *messages])
+        _write_turn_usage_meta(msg, turn, ctx)
+    except Exception:
+        logger.warning("turn usage attachment skipped", exc_info=True)
 
 
 async def _load_agent_state(
@@ -337,3 +361,51 @@ async def persist_turn_usage(
             "update_session_state for turn usage skipped",
             exc_info=True,
         )
+
+
+async def commit_turn_usage(
+    *,
+    session: Any,
+    agent_id: str,
+    session_id: str,
+    user_id: str,
+    channel: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Resolve and persist usage for a finished channel turn."""
+    if not session_id:
+        return None, None
+    try:
+        turn, ctx, agent_state = await resolve_turn_usage(
+            session_id=session_id,
+            agent_id=agent_id,
+            session=session,
+            user_id=user_id,
+            channel=channel,
+        )
+        if turn is None and ctx is None:
+            return None, None
+        if turn:
+            logger.info("Usage for session %s: %s", session_id, turn)
+        if session is not None:
+            try:
+                await persist_turn_usage(
+                    session=session,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    turn=turn,
+                    ctx=ctx,
+                    agent_state=agent_state,
+                )
+            except Exception:
+                logger.warning("turn usage persist skipped", exc_info=True)
+        return turn, ctx
+    except Exception:
+        logger.warning("turn usage commit skipped", exc_info=True)
+        return None, None
+
+
+def discard_turn_usage(session_id: str) -> None:
+    """Drop staged usage for a channel turn."""
+    if session_id:
+        TokenRecordingModelWrapper.pop_usage_for_session(session_id)

@@ -17,6 +17,17 @@ JSONValue = Union[
     Mapping[str, "JSONValue"],
 ]
 
+# Mutable JSON output for transport; snapshots continue using frozen JSONValue.
+JSONData = Union[
+    None,
+    bool,
+    int,
+    float,
+    str,
+    list["JSONData"],
+    dict[str, "JSONData"],
+]
+
 
 @dataclass(frozen=True)
 class StreamContent:
@@ -52,6 +63,16 @@ class ChatEvent:
     content: tuple[StreamContent, ...] = ()
     data: JSONValue = None
     attributes: Mapping[str, JSONValue] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, JSONData]:
+        """Return independent JSON data in the host's stream message format.
+
+        Extension fields are flattened into their original locations. Uses
+        the same envelope and default fields as the existing PawApp bridge.
+        """
+        from ._event_json import event_dict
+
+        return event_dict(self)
 
 
 @dataclass(frozen=True)

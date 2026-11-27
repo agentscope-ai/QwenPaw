@@ -17,7 +17,7 @@ from qwenpaw.exceptions import ModelNotFoundException
 
 from ..config.config import ModelSlotConfig, ModelType
 from ..constant import EnvVarLoader, SECRET_DIR
-from ..exceptions import ProviderError
+from ..exceptions import ModelAdditionError, ProviderError
 from ..utils.logging import sanitize_log_value
 from ..utils.io_utils import (
     get_sync_path_lock,
@@ -198,22 +198,29 @@ class ProviderManager(
             provider_key
         ] = provider.configuration_snapshot()
 
-    async def list_provider_info(self) -> List[ProviderInfo]:
-        """Read explicit model membership without changing selection."""
+    async def list_provider_info(
+        self,
+        include_unselected_models: bool = False,
+    ) -> List[ProviderInfo]:
+        """List provider metadata, optionally including stored model defaults."""
+        providers = [
+            *self.builtin_providers.values(),
+            *self.custom_providers.values(),
+        ]
         tasks = [
-            provider.get_info(include_candidates=False)
-            for provider in self.builtin_providers.values()
+            provider.get_info(
+                include_candidates=False,
+                include_unselected_models=include_unselected_models,
+            )
+            for provider in providers
         ]
-        tasks += [
-            provider.get_info(include_candidates=False)
-            for provider in self.custom_providers.values()
-        ]
-
         provider_infos = await asyncio.gather(*tasks)
         if hub_mode():
             try:
                 provider = await run_sync_io(self.get_provider, PROVIDER_ID)
-                hub_info = await provider.get_info()
+                hub_info = await provider.get_info(
+                    include_unselected_models=include_unselected_models,
+                )
             except ProviderError:
                 hub_info = ProviderInfo(
                     id=PROVIDER_ID,
@@ -228,6 +235,38 @@ class ProviderManager(
         return list(provider_infos) + (
             self._plugin_registry.list_provider_infos()
         )
+
+    async def list_available_chat_models(
+        self,
+    ) -> tuple[tuple[ProviderInfo, ModelInfo], ...]:
+        """Project configured chat models using the runtime provider policy."""
+        providers = await self.list_provider_info()
+
+        def collect() -> tuple[tuple[ProviderInfo, ModelInfo], ...]:
+            result = {}
+            for info in providers:
+                if not info.enabled or not (info.models or info.extra_models):
+                    continue
+                try:
+                    provider = self.get_provider(info.id)
+                except ProviderError:
+                    # A Hub refresh can fail after the metadata read.
+                    continue
+                if provider is None:
+                    continue
+                excluded = set(info.hidden_model_ids) | set(
+                    info.removed_model_ids,
+                )
+                for model in (*info.models, *info.extra_models):
+                    if (
+                        model.model_type == "chat"
+                        and model.id not in excluded
+                        and provider.model_available(model)
+                    ):
+                        result[(info.id, model.id)] = (info, model)
+            return tuple(result.values())
+
+        return await run_sync_io(collect)
 
     @staticmethod
     def _normalize_provider_id(provider_id: str) -> str:
@@ -495,7 +534,7 @@ class ProviderManager(
         return self.get_provider(provider_id) is provider
 
     @staticmethod
-    def _reset_model_availability(provider: Provider) -> None:
+    def _reset_model_availability(provider: ProviderInfo) -> None:
         """Invalidate probe results after connection settings change."""
         for model in provider.models + provider.extra_models:
             model.availability_status = "unverified"
@@ -747,6 +786,8 @@ class ProviderManager(
                 None,
             )
             if discovered is not None:
+                # Cached failures can outlive permission changes at the
+                # provider. Manual additions may need a discovery refresh.
                 if discovered.availability_status in {
                     "permission_denied",
                     "model_not_found",
@@ -756,7 +797,7 @@ class ProviderManager(
                         discovered.availability_message
                         or discovered.availability_status
                     )
-                    raise ProviderError(
+                    raise ModelAdditionError(
                         message=(
                             f"Model '{requested_model.id}' cannot be added: "
                             f"{reason}"
@@ -776,7 +817,7 @@ class ProviderManager(
 
             added, error_message = await candidate.add_model(requested_model)
             if not added:
-                raise ProviderError(
+                raise ModelAdditionError(
                     message=error_message,
                     details={
                         "provider_id": provider_id,

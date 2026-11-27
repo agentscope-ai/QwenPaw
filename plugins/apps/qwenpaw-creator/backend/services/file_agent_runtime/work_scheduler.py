@@ -909,7 +909,7 @@ class WorkGraphScheduler:
                 continue
             if not await asyncio.to_thread(self.enabled):
                 return
-            _, _, fresh_graph, blocked = await ready_request_context(
+            _, _, fresh_graph, blocked, _ = await ready_request_context(
                 self.services,
                 self.executions,
                 project_id,
@@ -1019,6 +1019,7 @@ class WorkGraphScheduler:
                     _,
                     latest_graph,
                     latest_blocked,
+                    _,
                 ) = await ready_request_context(
                     self.services,
                     self.executions,

@@ -17,6 +17,7 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 attempts=2
 include_updater_metadata=false
+require_linux=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -30,6 +31,10 @@ while [ $# -gt 0 ]; do
       ;;
     --include-updater-metadata)
       include_updater_metadata=true
+      shift
+      ;;
+    --require-linux)
+      require_linux=true
       shift
       ;;
     *)
@@ -47,6 +52,11 @@ fi
 : "${GITHUB_RUN_ID:?GITHUB_RUN_ID is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 : "${GH_TOKEN:?GH_TOKEN is required}"
+
+required_args=(--require windows --require macos)
+if $require_linux; then
+  required_args+=(--require linux)
+fi
 
 # Parallel arrays: selected_names[i] is downloaded by artifact id
 # selected_ids[i]. Both stay the same length by construction.
@@ -70,15 +80,19 @@ cleanup_downloads() {
 # breaks exact ties), and reports what it dropped so a surprise duplicate is
 # visible in the job log instead of failing two steps later.
 resolve_selection() {
-  INCLUDE_UPDATER_METADATA="$include_updater_metadata" python3 -c '
+  INCLUDE_UPDATER_METADATA="$include_updater_metadata" REQUIRE_LINUX="$require_linux" python3 -c '
 import os
 import re
 import sys
 
 include_meta = os.environ.get("INCLUDE_UPDATER_METADATA") == "true"
 patterns = [re.compile(r"^QwenPaw-Desktop-Tauri-(Windows|macOS)-")]
+if os.environ.get("REQUIRE_LINUX") == "true":
+    patterns.append(re.compile(r"^QwenPaw-Desktop-Tauri-Linux-"))
 if include_meta:
     patterns.append(re.compile(r"^tauri-updater-meta-(windows|macos)$"))
+    if os.environ.get("REQUIRE_LINUX") == "true":
+        patterns.append(re.compile(r"^tauri-updater-meta-linux$"))
 
 copies = {}
 for raw in sys.stdin:
@@ -195,8 +209,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   fi
 
   if $download_ok && python3 "$script_dir/verify_desktop_artifacts.py" \
-    --require windows \
-    --require macos; then
+    "${required_args[@]}"; then
     echo "Desktop artifacts downloaded and verified"
     exit 0
   fi

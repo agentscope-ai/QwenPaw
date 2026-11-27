@@ -5,7 +5,7 @@
 
 管理 Skill 有两种方式：
 
-- **控制台：** 在 [控制台](./console) 的 **工作区 → 技能** 页面操作。
+- **控制台：** 在 [控制台](./console) 的 **设置 → 技能** 页面操作。
 - **工作目录：** 直接在 `$QWENPAW_WORKING_DIR`（默认 `~/.qwenpaw`）下编辑技能文件，
   包括 `$QWENPAW_WORKING_DIR/skill_pool/` 和各工作区下的
   `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/`。
@@ -81,7 +81,7 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
    | **QA_source_index**           | QwenPaw 自身源码与文档的快速索引技能，用于把关键词映射到本地源码路径和文档。                                                  | 自建                                                       |
    | **cron**                      | 定时任务管理。通过 `qwenpaw cron` 或控制台定时任务创建、查询、暂停、恢复、删除定时任务。                                      | 自建                                                       |
    | **dingtalk_channel**          | 通过可视浏览器辅助完成钉钉频道接入流程，并提示用户完成必要手动步骤。                                                          | 自建                                                       |
-   | **docx**                      | Word 文档（.docx）的创建、阅读、编辑，含目录、页眉页脚、表格、图片、修订与批注等。                                            | https://github.com/anthropics/skills/tree/main/skills/docx |
+   | **docx**                      | Word 文档（.docx、.dotx）的创建、阅读、编辑，含目录、页眉页脚、表格、图片、修订与批注等。                                     | https://github.com/anthropics/skills/tree/main/skills/docx |
    | **file_reader**               | 读取与摘要文本类文件（如 .txt、.md、.json、.csv、.log、.py 等）。PDF 与 Office 由专用 Skill 处理。                            | 自建                                                       |
    | **guidance**                  | 回答 QwenPaw 安装与配置问题，优先查本地文档。                                                                                 | 自建                                                       |
    | **mailbox**                   | 通过 qwenpawmail MCP 连接邮箱，收发、搜索、整理邮件，安全自动处理新邮件并学习可复用流程。详见 [邮箱管理与自动化](./mailbox)。 | 自建                                                       |
@@ -89,7 +89,7 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
    | **news**                      | 从指定新闻站点查询最新新闻，支持政治、财经、社会、国际、科技、体育、娱乐等分类，并做摘要。                                    | 自建                                                       |
    | **pdf**                       | PDF 相关操作：阅读、提取文字/表格、合并/拆分、旋转、水印、创建、填表、加密/解密、OCR 等。                                     | https://github.com/anthropics/skills/tree/main/skills/pdf  |
    | **pptx**                      | PPT（.pptx）的创建、阅读、编辑，含模板、版式、备注与批注等。                                                                  | https://github.com/anthropics/skills/tree/main/skills/pptx |
-   | **xlsx**                      | 表格（.xlsx、.xlsm、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                                            | https://github.com/anthropics/skills/tree/main/skills/xlsx |
+   | **xlsx**                      | 表格（.xlsx、.xlsm、.xltx、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                                     | https://github.com/anthropics/skills/tree/main/skills/xlsx |
 
    在技能池页面里，内置技能可能显示 **最新** / **已过期** 之类状态。
    用 **更新内置技能** 可以补回缺失内置技能或将已过期的内置技能刷新到当前
@@ -114,7 +114,7 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
      （详见下文「技能市场」）。
 
 3. **从工作区上传到池子**。
-   在 **工作区 → 技能** 页面点击 **同步到技能池**，可以把某个工作区技能发布到池子。
+   在 **设置 → 技能** 页面点击 **同步到技能池**，可以把某个工作区技能发布到池子。
 
 4. **手动在技能池目录中操作**。
    可以直接往 `$QWENPAW_WORKING_DIR/skill_pool/` 下放目录，但**不推荐**。技能池上的直接文件操作
@@ -164,7 +164,7 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 
 ## Workspace 创建
 
-[控制台](./console) → **工作区 → 技能** 页面右上角的 **添加技能** 下拉是
+[控制台](./console) → **设置 → 技能** 页面右上角的 **添加技能** 下拉是
 统一入口，通过它添加的 skill 都**默认启用**：
 
 - **从技能池载入**：勾选要载入的技能并确认。这是使用内置技能和共享技能的
@@ -223,22 +223,22 @@ qwenpaw skills info <skill_name> --pool
 
 #### 步骤
 
-1. 打开 [控制台](./console) → **工作区 → 技能**，点击 **添加技能 → 通过URL上传**。
+1. 打开 [控制台](./console) → **设置 → 技能**，点击 **添加技能 → 通过URL上传**。
 
-   ![import](https://img.alicdn.com/imgextra/i2/O1CN01iaEhjy1hOnXfVjZaK_!!6000000004268-2-tps-3822-2070.png)
+   ![import](https://img.alicdn.com/imgextra/i2/O1CN01a0m6t0rKZmF3FPfU_!!6000000004975-2-tps-1600-1000.png)
 
 2. 在弹窗中粘贴 Skill URL（获取方式见下方 **URL 获取示例**）。弹窗内会列出
    受支持的来源及各自的示例 URL，点击示例可直接填入输入框。
 
-   ![url](https://img.alicdn.com/imgextra/i2/O1CN01l47mhN1aKwu48KLry_!!6000000003312-2-tps-3822-2070.png)
+   ![url](https://img.alicdn.com/imgextra/i3/O1CN01NNMlWpKYsKK3FPfU_!!6000000006658-2-tps-1600-1000.png)
 
-3. 点击**确认**，等待导入完成。
+3. 点击 **确认** 并等待导入结果。点击示例链接只会填入地址，不会安装技能。
 
-   ![click](https://img.alicdn.com/imgextra/i4/O1CN01amjZHZ1lwT7eVqWx9_!!6000000004883-2-tps-3822-2070.png)
+   ![已填入 QwenPaw 官方技能目录示例地址的导入框](https://img.alicdn.com/imgextra/i3/O1CN01c2KTrP8MklE3FPfU_!!6000000004886-2-tps-1600-1000.png)
 
 4. 导入成功后，skill 出现在技能列表中，**默认启用**。
 
-   ![new](https://img.alicdn.com/imgextra/i4/O1CN01TOYn2U1RFbk5BQOR1_!!6000000002082-2-tps-3822-2070.png)
+   ![导入后技能列表中的 qwenpaw-docs-zh](https://img.alicdn.com/imgextra/i3/O1CN01C7EkNQTIsvK3FPfU_!!6000000005276-2-tps-1600-1000.png)
 
 #### URL 获取示例
 
@@ -415,7 +415,7 @@ Agent 会先提出一份计划，其中包含 Skill 的名称、用途、步骤�
 工作区里常见的后续操作还有：
 
 - **启用 / 禁用：** 不改文件内容，只切换这个 skill 是否生效。
-- **预加载 / 按需加载：** 默认按需加载；可在 **工作区 → 技能 → 编辑** 中，为可信的
+- **预加载 / 按需加载：** 默认按需加载；可在 **设置 → 技能 → 编辑** 中，为可信的
   核心或高频 Skill 开启预加载，其完整内容会作为结构化 Skill 区块加入系统提示词。
 - **删除：** 删除工作区 skill。如果 skill 当前处于启用状态，会自动先禁用再删除。
 - **同步到技能池：** 把当前工作区 skill 发布到共享池，供其他工作区复用。
@@ -427,7 +427,7 @@ Agent 会先提出一份计划，其中包含 Skill 的名称、用途、步骤�
 ## 技能市场
 
 在一个页面内跨多个市场搜索并安装 skill。技能市场内嵌在技能相关页面里：
-在 **工作区 → 技能** 或 **设置 → 技能池** 页面点击 **添加技能 → 浏览市场**
+在 **设置 → 技能** 或 **设置 → 技能池** 页面点击 **添加技能 → 浏览市场**
 即可切换到市场视图（点 **返回** 或浏览器后退回到列表）。相比上面"从 URL 导入"
 的逐条粘贴流程，这里是基于搜索的入口。
 
@@ -445,7 +445,7 @@ Agent 会先提出一份计划，其中包含 Skill 的名称、用途、步骤�
 - 支持按 **来源**、**分类** 和关键词筛选；分类会自动映射为各数据源的原生分类
   或等价检索词。
 - 搜索并行调用所有启用的数据源；单个数据源失败不影响其它结果展示。
-- **保存** 的目标由入口决定：从 **工作区 → 技能** 进入保存到当前工作区，从
+- **保存** 的目标由入口决定：从 **设置 → 技能** 进入保存到当前工作区，从
   **设置 → 技能池** 进入保存到技能池。
 - 安装走串行队列（同一时刻只跑一个），支持重试和取消；重名时会以失败项展示服务端错误，可改名后重装。
 
@@ -464,7 +464,7 @@ Agent 会先提出一份计划，其中包含 Skill 的名称、用途、步骤�
 
 要限制某个 Skill 只在特定频道上生效：
 
-1. 在 **工作区 → 技能** 中，点击某个技能的频道设置。
+1. 在 **设置 → 技能** 中，点击某个技能的频道设置。
 2. 选择希望该技能生效的频道（如 `discord`、`telegram`、`console`）。
 
 Agent 在某个频道运行时，只会加载 `channels` 列表包含该频道（或 `"all"`）的技能。
@@ -479,7 +479,7 @@ Discord 上。
 展示字段。当某个 Skill 在当前 workspace 和频道下生效时，QwenPaw 会在该次 Agent
 运行期间把它注入到运行时环境中，Skill 结束后再回滚。
 
-可以在控制台 **工作区 → 技能** 中点击技能的配置图标设置 config，也可以通过
+可以在控制台 **设置 → 技能** 中点击技能的配置图标设置 config，也可以通过
 API 操作。
 
 ### 注入方式

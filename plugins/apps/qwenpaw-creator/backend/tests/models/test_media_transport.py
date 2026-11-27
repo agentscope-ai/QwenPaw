@@ -305,6 +305,19 @@ def test_maas_endpoint_predicate_is_one_hostname_decision() -> None:
         assert image_backend._is_maas_endpoint(base_url) is expected, base_url
 
 
+def test_independent_media_section_with_no_protocol_keeps_its_maas_transport(
+    monkeypatch,
+) -> None:
+    host = "https://ws-1.cn-beijing.maas.aliyuncs.com/api/v1"
+    monkeypatch.setattr(
+        model_config,
+        "get_vlm_protocol",
+        lambda: "Aliyun Token Plan",
+    )
+    assert vlm_model.uses_dashscope_transport(host, "") is True
+    assert vlm_model.uses_dashscope_transport(host) is False
+
+
 def test_dashscope_transport_covers_maas_without_trusting_lookalikes() -> None:
     """MaaS media travels by the temporary upload; lookalikes do not."""
 
@@ -404,7 +417,11 @@ def test_oversized_local_video_is_refused_before_its_bytes_are_read(
     )
     # Pin the section to an inline transport: the DashScope branch uploads
     # instead and never reaches the budget this case is about.
-    monkeypatch.setattr(vlm_model, "uses_dashscope_transport", lambda: False)
+    monkeypatch.setattr(
+        vlm_model,
+        "uses_dashscope_transport",
+        lambda *_: False,
+    )
     reads: list[str] = []
     real_read_bytes = _Path.read_bytes
 
@@ -425,3 +442,63 @@ def test_oversized_local_video_is_refused_before_its_bytes_are_read(
         )
 
     assert not reads
+
+
+@pytest.mark.parametrize(
+    "service_host",
+    ["voice.example", "dashscope.example", "dashscope.voice.oss.aliyuncs.com"],
+)
+def test_custom_provider_keeps_local_audio_and_key_on_its_own_route(
+    tmp_path,
+    monkeypatch,
+    service_host,
+):
+    async def forbid_bailian(*args, **kwargs):
+        pytest.fail(
+            "A custom provider credential reached the Bailian uploader",
+        )
+
+    monkeypatch.setattr(
+        media_transport,
+        "upload_local_file_to_dashscope_temp",
+        forbid_bailian,
+    )
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"provider audio")
+    reference = asyncio.run(
+        media_transport.upload_reference_file_for_provider(
+            audio,
+            api_key="fixture",
+            model_name="asr",
+            media_type="audio/wav",
+            base_url=f"https://{service_host}/v1",
+            protocol="DashScope",
+        ),
+    )
+    prefix, payload = reference.split(",", 1)
+    assert prefix in {"data:audio/wav;base64", "data:audio/x-wav;base64"}
+    assert base64.b64decode(payload) == audio.read_bytes()
+
+
+def test_preparing_asr_reference_keeps_audio_bytes_out_of_logs(
+    tmp_path,
+    monkeypatch,
+):
+    from unittest.mock import Mock
+    from models import asr_model
+
+    audio = tmp_path / "reference.wav"
+    audio.write_bytes(b"private sample")
+    monkeypatch.setattr(
+        model_config,
+        "get_asr_base_url",
+        lambda: "https://voice.example",
+    )
+    monkeypatch.setattr(model_config, "get_asr_protocol", lambda: "OpenAI")
+    log = Mock()
+    monkeypatch.setattr(asr_model, "logger", log)
+    url = asyncio.run(
+        asr_model._fun_asr_file_url(audio.as_uri(), "fixture", "asr"),
+    )
+    assert url.startswith("data:audio/")
+    assert url.split(",", 1)[1] not in str(log.mock_calls)

@@ -18,6 +18,8 @@ import {
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeRequest,
   type IAgentScopeRuntimeWebUIInputData,
+  type IAgentScopeRuntimeWebUIMessage,
+  type IAgentScopeRuntimeWebUISenderActionInfo,
   type IAgentScopeRuntimeWebUISenderBeforeSubmitResult,
   type IAgentScopeRuntimeWebUIRef,
   type IAgentScopeRuntimeWebUISubmissionContext,
@@ -41,15 +43,18 @@ import {
   Copy,
   Paperclip as SparkAttachmentLine,
   Settings as SettingOutlined,
+  Square,
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
 import { bindChatSubmit } from "../../plugins/hostSdk/chatSubmit";
+import { bindChatComposer } from "../../plugins/hostSdk/composer";
 import { enqueuePluginSubmission } from "./pluginSubmission";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
+import { preserveLiveBubbleIds } from "./chatHistoryRefresh";
 import {
   getDraftStorageKey,
   handoverDraftToSession,
@@ -111,8 +116,12 @@ import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import {
   buildFallbackSystemMessage,
+  buildMediaOmittedSystemMessage,
+  mediaOmittedNoticeKey,
   modelFallbackEventKey,
+  parseMediaOmittedNotice,
   parseModelFallbackEvents,
+  type MediaOmittedNotice,
   type ModelFallbackEvent,
 } from "./fallbackNotice";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
@@ -197,7 +206,10 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import { LongTextPasteInput, LongTextPasteProvider } from "./LongTextPaste";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
-import { scrollReverseMessageList } from "./messageScroll";
+import {
+  preserveReverseMessageViewport,
+  scrollReverseMessageList,
+} from "./messageScroll";
 import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 import { isApprovalInCurrentScope } from "./approvalScope";
 import { buildSubmissionBizParams } from "./submissionBizParams";
@@ -833,6 +845,7 @@ function renderSuggestionLabel(command: string, description?: string) {
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
 const ACTIVE_RUN_POLL_INTERVAL_MS = 5000;
+const ACTIVE_RUN_SETTLE_MS = 1000;
 
 // Stable fallback so an absent queue entry doesn't produce a fresh array
 // reference on every render (which would invalidate the options memo).
@@ -1521,12 +1534,25 @@ export default function ChatPage() {
     setRefreshKey((version) => version + 1);
   }, [retryRouteResolution]);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const applyRefreshedHistory = useCallback(
+    (sessionId: string, history: IAgentScopeRuntimeWebUIMessage[]) => {
+      const sdk = chatRef.current?.messages;
+      if (!sdk) return;
+      const previous = sdk.getSessionMessages(sessionId);
+      sdk.setSessionMessages(
+        sessionId,
+        preserveLiveBubbleIds(previous, history),
+      );
+    },
+    [],
+  );
   const runtimeLoadingBridgeRef = useRef<RuntimeLoadingBridgeApi | null>(null);
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
   );
   const pendingFallbackEventsRef = useRef<ModelFallbackEvent[]>([]);
   const pendingFallbackEventKeysRef = useRef<Set<string>>(new Set());
+  const pendingMediaOmittedRef = useRef<MediaOmittedNotice | null>(null);
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionIdRef = useRef(queueSessionId);
   queueSessionIdRef.current = queueSessionId;
@@ -1668,10 +1694,7 @@ export default function ChatPage() {
               signal,
             );
             if (!canSend() || !recovered || recovered.generating) return false;
-            chatRef.current?.messages.setSessionMessages(
-              queueSessionId,
-              recovered.messages,
-            );
+            applyRefreshedHistory(queueSessionId, recovered.messages);
             if (!locateQueue()) return true;
           }
         }
@@ -1762,6 +1785,7 @@ export default function ChatPage() {
       return false;
     },
     [
+      applyRefreshedHistory,
       buildFileList,
       i18n,
       queueSessionId,
@@ -1797,6 +1821,10 @@ export default function ChatPage() {
         return;
       requested = true;
       void recoverLegacyDraftQueue(queueKey, ctrl.signal)
+        .catch((error) => {
+          if (!ctrl.signal.aborted)
+            console.error("Unable to recover legacy chat queue", error);
+        })
         .then(() => {
           if (ctrl.signal.aborted) return;
           return holdOwnershipLock(
@@ -1810,7 +1838,7 @@ export default function ChatPage() {
         })
         .catch((error) => {
           if (!ctrl.signal.aborted)
-            console.error("Unable to recover chat queue", error);
+            console.error("Unable to acquire chat queue ownership", error);
         });
       // Only a valid loaded session can be classified as a queue-only tab.
       fallbackTimer = setTimeout(() => setOwnershipResolved(true), 300);
@@ -2040,16 +2068,14 @@ export default function ChatPage() {
         return;
       // Update only this Chat through the SDK's public message API. Do not
       // remount the input or write session selection while handing over.
-      chatRef.current?.messages.setSessionMessages(
-        queueSessionId,
-        session.messages,
-      );
+      applyRefreshedHistory(queueSessionId, session.messages);
       pendingHandoffRefreshRef.current = null;
     }).finally(() => {
       if (!controller.signal.aborted) scheduleNextSend();
     });
     return () => controller.abort();
   }, [
+    applyRefreshedHistory,
     isOwner,
     isQueueOnlyTab,
     chatLoading,
@@ -2114,6 +2140,45 @@ export default function ChatPage() {
   isChatActiveRef.current = isChatActivePage;
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+  const [runningVisit, setRunningVisit] = useState<object | null>(null);
+  const [stoppingVisit, setStoppingVisit] = useState<object | null>(null);
+  const showDetachedRunStop =
+    runningVisit === queueVisit && !isSessionTransition;
+  const stoppingDetachedRun = stoppingVisit === queueVisit;
+  const recheckRunAfterStopFailureRef = useRef<(() => void) | null>(null);
+  const stopBackendRun = useCallback(async () => {
+    if (
+      !backendChatId ||
+      queueVisitRef.current !== queueVisit ||
+      !isChatActiveRef.current
+    ) {
+      return;
+    }
+    setStoppingVisit(queueVisit);
+    try {
+      // A disconnected run can outlive the SDK's sender loading state.
+      const canceled = await chatRef.current?.execution.cancel({
+        sessionId: queueSessionId,
+      });
+      if (canceled?.status === "failed") throw canceled.error;
+      if (!canceled || canceled.status === "not-found") {
+        const result = await chatApi.stopChat(backendChatId, selectedAgent);
+        if (result.stopped) markTurnStopped(queueSessionId);
+      }
+      setRunningVisit((visit) => (visit === queueVisit ? null : visit));
+    } catch (error) {
+      if (queueVisitRef.current === queueVisit) {
+        message.error(
+          error instanceof Error
+            ? error.message
+            : t("chat.composer.stopFailed"),
+        );
+        recheckRunAfterStopFailureRef.current?.();
+      }
+    } finally {
+      setStoppingVisit((visit) => (visit === queueVisit ? null : visit));
+    }
+  }, [backendChatId, message, queueSessionId, queueVisit, selectedAgent, t]);
   const activeRunSyncRef = useRef({
     key: "",
     sawRunning: false,
@@ -2132,6 +2197,7 @@ export default function ChatPage() {
 
     const controller = new AbortController();
     let inFlight = false;
+    let recheckPending = false;
     const syncKey = `${selectedAgent}:${queueSessionId}`;
     if (activeRunSyncRef.current.key !== syncKey) {
       activeRunSyncRef.current = {
@@ -2141,9 +2207,14 @@ export default function ChatPage() {
       };
     }
     const syncState = activeRunSyncRef.current;
-    const refreshMessages = async ({
-      requireIdle,
-    }: { requireIdle?: boolean } = {}) => {
+    let terminalEventRevision = 0;
+    let settleUntil = 0;
+    const isCurrent = (revision: number) =>
+      !controller.signal.aborted && revision === terminalEventRevision;
+    const refreshMessages = async (
+      revision: number,
+      { requireIdle }: { requireIdle?: boolean } = {},
+    ) => {
       const session = await sessionApi.refreshSession(
         queueSessionId,
         controller.signal,
@@ -2151,16 +2222,13 @@ export default function ChatPage() {
       if (
         !session ||
         (requireIdle && (session.generating || chatLoadingRef.current)) ||
-        controller.signal.aborted ||
+        !isCurrent(revision) ||
         queueSessionIdRef.current !== queueSessionId ||
         !isChatActiveRef.current
       ) {
         return false;
       }
-      chatRef.current?.messages.setSessionMessages(
-        queueSessionId,
-        session.messages,
-      );
+      applyRefreshedHistory(queueSessionId, session.messages);
       return true;
     };
     const syncRun = async () => {
@@ -2168,17 +2236,23 @@ export default function ChatPage() {
         return;
       inFlight = true;
       try {
+        const requestRevision = terminalEventRevision;
         const runStatus = await chatApi.getChatStatus(backendChatId, {
           agentId: selectedAgent,
           signal: controller.signal,
         });
-        if (controller.signal.aborted) return;
+        if (!isCurrent(requestRevision)) return;
 
         if (runStatus.status === "running") {
           const firstRunningObservation = !syncState.sawRunning;
           const execution = chatRef.current?.execution;
           const activeRun = await execution?.getActiveRun(queueSessionId);
-          if (controller.signal.aborted) return;
+          if (!isCurrent(requestRevision)) return;
+          // A terminal SDK event can precede backend cleanup. Without a
+          // backend run ID, only defer briefly before trusting a fresh poll.
+          if (!activeRun && performance.now() < settleUntil) return;
+          settleUntil = 0;
+          setRunningVisit(queueVisit);
           if (activeRun && activeRun.getState() !== "disconnected") {
             syncState.resumeAttempted = false;
             return;
@@ -2186,8 +2260,9 @@ export default function ChatPage() {
           if (syncState.resumeAttempted) return;
           if (!execution) return;
           if (firstRunningObservation || !activeRun) {
-            if (!(await refreshMessages())) return;
+            if (!(await refreshMessages(requestRevision))) return;
           }
+          if (!isCurrent(requestRevision)) return;
           syncState.sawRunning = true;
           syncState.resumeAttempted = true;
           try {
@@ -2196,7 +2271,7 @@ export default function ChatPage() {
               source: "direct",
             });
           } catch (error) {
-            if (!controller.signal.aborted) {
+            if (isCurrent(requestRevision)) {
               syncState.resumeAttempted = false;
             }
             throw error;
@@ -2204,8 +2279,13 @@ export default function ChatPage() {
           return;
         }
 
+        settleUntil = 0;
+        setRunningVisit(null);
         if (!syncState.sawRunning) return;
-        if (await refreshMessages({ requireIdle: true })) {
+        if (
+          (await refreshMessages(requestRevision, { requireIdle: true })) &&
+          isCurrent(requestRevision)
+        ) {
           syncState.sawRunning = false;
           syncState.resumeAttempted = false;
         }
@@ -2215,8 +2295,35 @@ export default function ChatPage() {
         }
       } finally {
         inFlight = false;
+        if (recheckPending) {
+          recheckPending = false;
+          void syncRun();
+        }
       }
     };
+
+    recheckRunAfterStopFailureRef.current = () => {
+      terminalEventRevision += 1;
+      settleUntil = 0;
+      syncState.resumeAttempted = false;
+      if (inFlight) recheckPending = true;
+      else void syncRun();
+    };
+
+    const unsubscribeExecution = chatRef.current?.execution.subscribe(
+      (event) => {
+        if (event.sessionId !== queueSessionId) return;
+        const terminal =
+          event.state === "completed" ||
+          event.state === "failed" ||
+          event.state === "canceled";
+        settleUntil = terminal ? performance.now() + ACTIVE_RUN_SETTLE_MS : 0;
+        if (!terminal) return;
+        terminalEventRevision += 1;
+        syncState.resumeAttempted = false;
+        setRunningVisit((visit) => (visit === queueVisit ? null : visit));
+      },
+    );
 
     const retryWhenVisible = () => {
       if (!document.hidden) void syncRun();
@@ -2229,14 +2336,18 @@ export default function ChatPage() {
     document.addEventListener("visibilitychange", retryWhenVisible);
     return () => {
       controller.abort();
+      recheckRunAfterStopFailureRef.current = null;
+      unsubscribeExecution?.();
       window.clearInterval(retryTimer);
       window.removeEventListener("online", retryWhenVisible);
       document.removeEventListener("visibilitychange", retryWhenVisible);
     };
   }, [
+    applyRefreshedHistory,
     backendChatId,
     isSessionTransition,
     queueSessionId,
+    queueVisit,
     selectedAgent,
     usesQwenPawBackend,
   ]);
@@ -2519,6 +2630,52 @@ export default function ChatPage() {
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
   useChatInputDraft(isChatActiveRef.current, selectedAgent, routeChatId);
+  useEffect(() => {
+    if (!isChatActivePage) return;
+    const binding = bindChatComposer({
+      element: getActiveSenderTextarea,
+      scope: () => {
+        if (
+          !isChatActiveRef.current ||
+          isSessionTransitionRef.current ||
+          isComposingRef.current
+        )
+          return null;
+        return {
+          agentId: selectedAgent,
+          sessionId:
+            sessionApi.getSessionIdentity(chatIdRef.current || "").sessionId ||
+            null,
+          chatId: resolveBackendChatId(chatIdRef.current) || null,
+        };
+      },
+      write: (text) => {
+        const textarea = getActiveSenderTextarea();
+        if (textarea) {
+          setTextareaValue(textarea, text);
+          textarea.focus();
+        }
+      },
+      model: async () => {
+        const result = await loadSessionModel(selectedAgent, {
+          sessionId: queueSessionId,
+          chatId: backendChatId,
+        });
+        const model = result.active_llm;
+        return model
+          ? { provider_id: model.provider_id, model_id: model.model }
+          : null;
+      },
+    });
+    return () => binding.dispose();
+  }, [
+    isChatActivePage,
+    selectedAgent,
+    routeChatId,
+    queueSessionId,
+    backendChatId,
+    queueKey,
+  ]);
   // ── Message Queue ───────────────────────────────────────────────────────
 
   // Stop background sender for THIS session when ChatPage mounts (foreground
@@ -2857,10 +3014,7 @@ export default function ChatPage() {
             if (signal.aborted || queueSessionIdRef.current !== queueSessionId)
               return;
             if (recovered && !recovered.generating) {
-              chatRef.current?.messages.setSessionMessages(
-                queueSessionId,
-                recovered.messages,
-              );
+              applyRefreshedHistory(queueSessionId, recovered.messages);
             }
           }
           if (
@@ -2874,7 +3028,13 @@ export default function ChatPage() {
         });
       }
     },
-    [executeQueuedItem, queueSessionId, selectedAgent, queueKey],
+    [
+      applyRefreshedHistory,
+      executeQueuedItem,
+      queueSessionId,
+      selectedAgent,
+      queueKey,
+    ],
   );
   // ── End Message Queue ───────────────────────────────────────────────────
 
@@ -3396,6 +3556,7 @@ export default function ChatPage() {
       }
       pendingFallbackEventsRef.current = [];
       pendingFallbackEventKeysRef.current.clear();
+      pendingMediaOmittedRef.current = null;
       // Snapshot legacy state before the first await. SDK 1.2 supplies the
       // immutable submission route in data for direct and queued sends.
       const fallbackLocalChatId =
@@ -3853,6 +4014,11 @@ export default function ChatPage() {
       mutationObserver.disconnect();
     };
   }, [i18n.language, isMobile]);
+
+  useLayoutEffect(() => {
+    const root = chatMessagesAreaRef.current;
+    if (root) return preserveReverseMessageViewport(root);
+  }, [queueKey]);
 
   useEffect(() => {
     const root = chatMessagesAreaRef.current;
@@ -4348,17 +4514,21 @@ export default function ChatPage() {
               agentTransition={isSessionTransition}
             />
             <ComposerAccessibilityLabels />
-            <ChatHeaderTitle />
-            <span className={styles.headerSpacer} />
-            <ChatActionGroup
-              onToggleTerminal={toggleTerminal}
-              terminalEnabled={terminalEnabled}
-              terminalDisabledReason={terminalDisabledReason}
-              terminalOpen={terminalOpen}
-              onToggleWorkspace={toggleFilesWorkspace}
-              workspaceOpen={filesWorkspaceOpen}
+            <ChatHeaderTitle
+              actions={
+                <>
+                  <ChatActionGroup
+                    onToggleTerminal={toggleTerminal}
+                    terminalEnabled={terminalEnabled}
+                    terminalDisabledReason={terminalDisabledReason}
+                    terminalOpen={terminalOpen}
+                    onToggleWorkspace={toggleFilesWorkspace}
+                    workspaceOpen={filesWorkspaceOpen}
+                  />
+                  {pluginRightHeader}
+                </>
+              }
             />
-            {pluginRightHeader}
           </>
         ),
       },
@@ -4458,9 +4628,20 @@ export default function ChatPage() {
             {pluginSenderPrefix}
           </>
         ),
-        actionAffix: (
+        actionAffix: ({ loading }: IAgentScopeRuntimeWebUISenderActionInfo) => (
           <>
             <ComposerToolsMenu className={styles.composerToolsToggle} />
+            {showDetachedRunStop && !loading && (
+              <Tooltip title={t("chat.composer.stop")}>
+                <Button
+                  className={styles.detachedRunStop}
+                  aria-label={t("chat.composer.stop")}
+                  icon={<Square size="1em" />}
+                  loading={stoppingDetachedRun}
+                  onClick={() => void stopBackendRun()}
+                />
+              </Tooltip>
+            )}
             <span className={styles.senderActionAffix} data-composer-actions>
               {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
                 <span
@@ -4605,6 +4786,18 @@ export default function ChatPage() {
             pendingFallbackEventsRef.current.push(event);
           }
 
+          const mediaOmitted = parseMediaOmittedNotice(payload);
+          if (mediaOmitted) {
+            const current = pendingMediaOmittedRef.current;
+            if (
+              !current ||
+              mediaOmittedNoticeKey(current) !==
+                mediaOmittedNoticeKey(mediaOmitted)
+            ) {
+              pendingMediaOmittedRef.current = mediaOmitted;
+            }
+          }
+
           if (payloadCompletesResponse(payload)) {
             const trailing = flushHeadlineFilter(
               headlineStreamFilterRef.current,
@@ -4647,6 +4840,22 @@ export default function ChatPage() {
               payload.output = [fallbackMessage, ...output];
               pendingFallbackEventsRef.current = [];
               pendingFallbackEventKeysRef.current.clear();
+            }
+            if (pendingMediaOmittedRef.current) {
+              const notice = pendingMediaOmittedRef.current;
+              const reason = notice.reason ? ` (${notice.reason})` : "";
+              const mediaMessage = buildMediaOmittedSystemMessage(
+                notice,
+                t("chat.mediaOmittedNotice", {
+                  count: notice.count,
+                  reason,
+                }),
+              );
+              const output = Array.isArray(payload.output)
+                ? payload.output
+                : [];
+              payload.output = [...output, mediaMessage];
+              pendingMediaOmittedRef.current = null;
             }
           }
 
@@ -4696,22 +4905,18 @@ export default function ChatPage() {
           return toDisplayUrl(url);
         },
         onFileCardClick,
-        cancel(
+        async cancel(
           data: IAgentScopeRuntimeWebUITransportContext & {
             abort?: () => void;
           },
         ) {
-          // The SDK only writes a canceled status when its stream is still
-          // alive to observe the abort; record the stop itself so tool cards
-          // can close even when the stream died first.
-          markTurnStopped(data.session_id || data.chatSessionId);
           const snapshot = resolveChatRequestSnapshot(
             data,
             {},
             {},
             selectedAgent,
           );
-          return cancelSdkChatRequest(data, {
+          const stopped = await cancelSdkChatRequest(data, {
             resolveBackendSessionId: (sessionId) =>
               sessionApi.getRealIdForSession(sessionId),
             stopChat: (sessionId) =>
@@ -4725,6 +4930,9 @@ export default function ChatPage() {
               );
             },
           });
+          if (stopped) {
+            markTurnStopped(data.session_id || data.chatSessionId);
+          }
         },
         async reconnect(
           data: IAgentScopeRuntimeWebUITransportContext & {
@@ -4909,6 +5117,9 @@ export default function ChatPage() {
     hasQueueItems,
     isQueueOnlyTab,
     showSenderBeforeUI,
+    showDetachedRunStop,
+    stoppingDetachedRun,
+    stopBackendRun,
     handleQueueRemove,
     handleQueueEdit,
     handleQueueReorder,

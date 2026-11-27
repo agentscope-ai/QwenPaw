@@ -21,6 +21,7 @@ ModelErrorKind = Literal[
     "request_body_overflow",
     "content_safety",
     "model_not_found",
+    "quota_exceeded",
     "rate_limited",
     "transient",
     "unknown",
@@ -41,6 +42,26 @@ _SDK_TRANSIENT_ERRORS = (
     anthropic.APITimeoutError,
     anthropic.InternalServerError,
 )
+
+
+def _provider_error_codes(exc: Exception) -> set[str]:
+    """Return normalized structured error codes from provider payloads."""
+    codes: set[str] = set()
+    for payload in (
+        getattr(exc, "body", None),
+        getattr(exc, "details", None),
+    ):
+        if not isinstance(payload, dict):
+            continue
+        for container in (payload, payload.get("error")):
+            if not isinstance(container, dict):
+                continue
+            for key in ("code", "type"):
+                value = container.get(key)
+                if isinstance(value, str):
+                    normalized = value.strip().lower().replace("-", "_")
+                    codes.add(normalized.replace(" ", "_"))
+    return codes
 
 
 def _is_sdk_rate_limit(exc: Exception) -> bool:
@@ -67,6 +88,7 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
     """Classify whether a model error may retry or cross-model fallback."""
     status = extract_status_code(exc)
     message = str(exc).lower()
+    provider_codes = _provider_error_codes(exc)
     if status in {401, 403}:
         kind: ModelErrorKind = "authentication"
     elif status == 404 or "model not found" in message:
@@ -108,12 +130,49 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
         )
     ):
         kind = "content_safety"
+    elif (
+        status is not None
+        and 400 <= status < 500
+        and (
+            provider_codes & {"insufficient_quota", "quota_exceeded"}
+            or any(
+                marker in message
+                for marker in (
+                    "quota exceeded",
+                    "quota_exceeded",
+                    "insufficient quota",
+                    "insufficient_quota",
+                )
+            )
+        )
+    ):
+        kind = "quota_exceeded"
+    elif (
+        status is not None
+        and 400 <= status < 500
+        and (
+            provider_codes & {"rate_limit_exceeded", "too_many_requests"}
+            or any(
+                marker in message
+                for marker in (
+                    "rate limit exceeded",
+                    "rate_limit_exceeded",
+                    "too many requests",
+                    "too_many_requests",
+                )
+            )
+        )
+    ):
+        kind = "rate_limited"
     elif status is not None and 400 <= status < 500:
         kind = "bad_request"
     else:
         kind = "unknown"
     retryable = kind in {"rate_limited", "transient"}
-    fallback_eligible = retryable or kind == "model_not_found"
+    fallback_eligible = retryable or kind in {
+        "model_not_found",
+        "quota_exceeded",
+    }
     return ModelErrorDecision(
         kind=kind,
         status_code=status,

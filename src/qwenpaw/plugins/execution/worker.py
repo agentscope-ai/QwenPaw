@@ -151,10 +151,17 @@ def _configure(
     package.__package__ = "qwenpaw"
     package.__path__ = [str(support / "qwenpaw")]
     sys.modules["qwenpaw"] = package
-    plugins = types.ModuleType("qwenpaw.plugins")
-    plugins.__package__ = "qwenpaw.plugins"
-    plugins.__path__ = [str(support / "qwenpaw/plugins")]
+    plugin_spec = importlib.util.spec_from_file_location(
+        "qwenpaw.plugins",
+        support / "qwenpaw/plugins/__init__.py",
+        submodule_search_locations=[str(support / "qwenpaw/plugins")],
+    )
+    if plugin_spec is None or plugin_spec.loader is None:
+        raise RuntimeError("SDK_BOOTSTRAP_UNAVAILABLE")
+    plugins = importlib.util.module_from_spec(plugin_spec)
     sys.modules["qwenpaw.plugins"] = plugins
+    # The trusted SDK initializer only declares lazy exports, not host services.
+    plugin_spec.loader.exec_module(plugins)
     # Direct path assignment never executes additional .pth files.
     boot._clean_environment(environment_passthrough)
     private_env = boot.validate_private_environment(
@@ -208,6 +215,7 @@ async def run(
             raise ProtocolValidationError("identity mismatch")
         if start_task is not None:
             start_task.cancel()
+            await asyncio.gather(start_task, return_exceptions=True)
         try:
             if component is not None:
                 await component.stop()
@@ -346,6 +354,9 @@ async def _prepare_component(
     packet["mode"] = mode
     packet["_reuse_ambiguous"] = mode == "audit"
     diagnostics.mark("dependency_read")
+    resolve_requirements = getattr(runtime, "requirements", None)
+    if resolve_requirements is not None:
+        packet["_requirements"] = resolve_requirements(boot, packet)
     snapshot = observe_dependencies(packet)
     diagnostics.mark("dependency_admission", versions=dict(snapshot.versions))
     accepted = await peer.call(
@@ -387,6 +398,9 @@ async def _prepare_component(
         _install_windows_crypto_path_fix()
     diagnostics.mark("driver_import", entrypoint=entrypoint)
     component_class = boot._load_driver_class(entrypoint, source)
+    prepare = getattr(runtime, "prepare_component", None)
+    if prepare is not None:
+        component_class = prepare(component_class, packet)
     if mode == "probe":
         validate_driver(component_class)
     return component_class

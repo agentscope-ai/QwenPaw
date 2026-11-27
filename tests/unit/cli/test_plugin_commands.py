@@ -389,10 +389,11 @@ class TestDownloadPluginFromUrl:
         pc.shutil.rmtree(temp)
         assert "Downloaded and extracted" in capsys.readouterr().out
 
-    def test_root_level_manifest(self, monkeypatch):
+    @pytest.mark.parametrize("extra", ["a.txt", "src/main.py"])
+    def test_root_level_manifest(self, monkeypatch, extra):
         self._patch_retrieve(
             monkeypatch,
-            _make_zip_bytes(None, {"plugin.json": "{}", "a.txt": "x"}),
+            _make_zip_bytes(None, {"plugin.json": "{}", extra: "x"}),
         )
         plug, temp = pc._download_plugin_from_url("http://x/p.zip")
         assert plug == temp
@@ -459,13 +460,65 @@ class TestInstallCommandHotPath:
         res = CliRunner().invoke(pc.plugin, ["install", str(d)])
         assert res.exit_code == 0
 
+    @pytest.mark.parametrize(
+        ("source", "status", "body", "exit_code", "message"),
+        [
+            (
+                "plugin.zip",
+                409,
+                {"detail": {"code": "DEPENDENCY_UNSATISFIED"}},
+                1,
+                "DEPENDENCY_UNSATISFIED",
+            ),
+            (
+                "https://x/p.zip",
+                409,
+                {
+                    "detail": {
+                        "code": "DEPENDENCY_UPGRADE_REQUIRED",
+                        "operation": {
+                            "id": "op1",
+                            "status": "needs_confirmation",
+                        },
+                    },
+                },
+                0,
+                "qwenpaw plugin dependency-upgrade apply op1",
+            ),
+            (".", 200, {"status": "failed"}, 1, "installation: failed"),
+            (".", 200, {"status": "inactive"}, 0, "installation: inactive"),
+        ],
+    )
+    def test_backend_install_outcome(
+        self,
+        monkeypatch,
+        tmp_path,
+        source,
+        status,
+        body,
+        exit_code,
+        message,
+    ):
+        monkeypatch.setattr(pc, "_is_running", lambda: True)
+        _patch_base(monkeypatch)
+        _patch_transport(
+            monkeypatch,
+            lambda req: httpx.Response(status, json=body),
+        )
+        (tmp_path / "plugin.zip").touch()
+        if not source.startswith("https://"):
+            source = str(tmp_path / source)
+        res = CliRunner().invoke(pc.plugin, ["install", source])
+        assert res.exit_code == exit_code
+        assert message in res.output
+
     def test_missing_path_errors(self, monkeypatch, tmp_path):
         monkeypatch.setattr(pc, "_is_running", lambda: True)
         res = CliRunner().invoke(
             pc.plugin,
             ["install", str(tmp_path / "nope")],
         )
-        assert res.exit_code == 0
+        assert res.exit_code == 1
         assert "Path not found" in res.output
 
     def test_unsupported_file_type(self, monkeypatch, tmp_path):
@@ -473,7 +526,7 @@ class TestInstallCommandHotPath:
         f = tmp_path / "p.tar.gz"
         f.write_bytes(b"x")
         res = CliRunner().invoke(pc.plugin, ["install", str(f)])
-        assert res.exit_code == 0
+        assert res.exit_code == 1
         assert "directory or a .zip" in res.output
 
 
@@ -572,7 +625,7 @@ class TestInstallCommandOffline:
         def boom(*args, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(pc, "_offline_channel_transaction", boom)
+        monkeypatch.setattr(pc, "_offline_plugin_transaction", boom)
         res = CliRunner().invoke(pc.plugin, ["install", str(src)])
         assert res.exit_code != 0
         assert "disk full" in res.output
@@ -797,17 +850,18 @@ class TestUninstallCommand:
         assert res.exit_code == 0
         assert "Cancelled" in res.output
 
-    def test_hot_path_confirm_calls_api(self, monkeypatch):
+    @pytest.mark.parametrize("success", [True, False])
+    def test_hot_path_propagates_api_result(self, monkeypatch, success):
         monkeypatch.setattr(pc, "_resolve_plugin_id", lambda p: "pid")
         monkeypatch.setattr(pc, "_is_running", lambda: True)
         seen = []
         monkeypatch.setattr(
             pc,
             "_api_uninstall_plugin",
-            lambda pid: seen.append(pid) or True,
+            lambda pid: seen.append(pid) or success,
         )
         res = CliRunner().invoke(pc.plugin, ["uninstall", "pid"], input="y\n")
-        assert res.exit_code == 0
+        assert res.exit_code == (0 if success else 1)
         assert seen == ["pid"]
 
     def test_offline_not_found(self, monkeypatch, tmp_path):
@@ -873,12 +927,14 @@ class TestValidateCommand:
             pc.plugin,
             ["validate", str(tmp_path / "nope")],
         )
+        assert res.exit_code == 1
         assert "Path not found" in res.output
 
     def test_missing_manifest(self, tmp_path):
         d = tmp_path / "p"
         d.mkdir()
         res = CliRunner().invoke(pc.plugin, ["validate", str(d)])
+        assert res.exit_code == 1
         assert "plugin.json not found" in res.output
 
     def test_invalid_json(self, tmp_path):
@@ -886,6 +942,7 @@ class TestValidateCommand:
         d.mkdir()
         (d / "plugin.json").write_text("{x")
         res = CliRunner().invoke(pc.plugin, ["validate", str(d)])
+        assert res.exit_code == 1
         assert "Invalid JSON" in res.output
 
     def test_missing_required_field(self, tmp_path):
@@ -893,7 +950,8 @@ class TestValidateCommand:
         d.mkdir()
         (d / "plugin.json").write_text(json.dumps({"id": "a", "name": "b"}))
         res = CliRunner().invoke(pc.plugin, ["validate", str(d)])
-        assert "Missing required field: version" in res.output
+        assert res.exit_code == 1
+        assert "version" in res.output
 
     def test_backend_entry_validation_failure(self, monkeypatch, tmp_path):
         d = tmp_path / "p"
@@ -914,6 +972,7 @@ class TestValidateCommand:
 
         monkeypatch.setattr(pc, "_validate_plugin_module", bad)
         res = CliRunner().invoke(pc.plugin, ["validate", str(d)])
+        assert res.exit_code == 1
         assert "Validation failed" in res.output
 
     def test_frontend_entry_missing_warns(self, tmp_path):
@@ -983,6 +1042,7 @@ def test_offline_force_dependency_failure_preserves_old(
         wheel_tags=None,
         dependency_context=None,
         installer_identity=None,
+        entry=None,
     ):
         calls.append((requirements_file, plugin_id, target))
         assert requirements_file == source / "requirements.txt"
@@ -1231,3 +1291,99 @@ def test_offline_dependency_operation_uses_one_async_loader(
     assert result.exit_code == 0, result.output
     assert events == ["resolve", "create", "manager", action]
     assert len(loops) == 1 and loops[0].is_closed()
+
+
+@pytest.mark.parametrize(
+    "action,http_status,status,exit_code",
+    [
+        ("apply", 202, "needs_confirmation", 0),
+        ("apply", 200, "failed", 1),
+        ("status", 200, "failed", 1),
+    ],
+)
+def test_online_dependency_upgrade_reports_acceptance_and_failure(
+    monkeypatch,
+    action,
+    http_status,
+    status,
+    exit_code,
+):
+    def respond(request):
+        assert request.url.path.endswith(
+            "/operation/apply" if action == "apply" else "/operation",
+        )
+        assert request.url.params.get("background") == (
+            "true" if action == "apply" else None
+        )
+        return httpx.Response(
+            http_status,
+            json={
+                "id": "operation",
+                "status": status,
+                "error": {"code": "DEPENDENCY_ENVIRONMENT_BUSY"},
+            },
+        )
+
+    monkeypatch.setattr(pc, "_is_running", lambda: True)
+    monkeypatch.setattr(pc, "_get_api_base", lambda: "http://test/api/")
+    monkeypatch.setattr(
+        pc,
+        "api_client",
+        lambda base, timeout: httpx.Client(
+            base_url=base,
+            timeout=timeout,
+            transport=httpx.MockTransport(respond),
+        ),
+    )
+    result = CliRunner().invoke(
+        pc.plugin,
+        ["dependency-upgrade", action, "operation"],
+    )
+    assert result.exit_code == exit_code, result.output
+    if exit_code:
+        assert "DEPENDENCY_ENVIRONMENT_BUSY" in result.output
+    else:
+        assert "accepted" in result.output
+        assert "dependency-upgrade status operation" in result.output
+
+
+def test_validate_rejects_incomplete_cli_declaration(tmp_path):
+    from qwenpaw.plugins.discovery import read_manifest
+
+    manifest = {
+        "id": "example",
+        "name": "Example",
+        "version": "1.0.0",
+        "cli": [{"id": "status", "path": ["example", "status"]}],
+    }
+    path = tmp_path / "plugin.json"
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError):
+        read_manifest(path)
+    result = CliRunner().invoke(pc.plugin, ["validate", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "validation passed" not in result.output
+
+
+def test_download_rejected_archive_cleans_extraction_directory(
+    monkeypatch,
+    tmp_path,
+):
+    import io
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("plugin.json", "{}")
+        archive.writestr("PLUGIN.JSON", "{}")
+
+    def retrieve(_url, target):
+        Path(target).write_bytes(buffer.getvalue())
+        return target, {}
+
+    extract = tmp_path / "extracted"
+    extract.mkdir()
+    monkeypatch.setattr(pc.urllib.request, "urlretrieve", retrieve)
+    monkeypatch.setattr(pc.tempfile, "mkdtemp", lambda: str(extract))
+    with pytest.raises(ValueError, match="unsafe plugin archive"):
+        pc._download_plugin_from_url("https://example.invalid/plugin.zip")
+    assert not extract.exists()

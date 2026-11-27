@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
+from functools import partial
 import hashlib
 import json
 import logging
@@ -42,11 +43,13 @@ from qwenpaw.channel_protocol.response_policy import (
 from qwenpaw.channel_protocol.models import (
     CONTENT_SOURCE_CAPABILITY,
     SEMANTIC_PARTS_CAPABILITY,
+    STRUCTURED_PARTS_CAPABILITY,
     RAW_COMPLETED_TEXT_CAPABILITY,
     UNKNOWN_ACTOR_CAPABILITY,
     APPROVAL_RESOLUTION_CAPABILITY,
     TEXT_MERGE_CAPABILITY,
     AUTH_QRCODE_CAPABILITY,
+    RUN_EVENTS_CAPABILITY,
     AuthRequiredParams,
     ApprovalCardParams,
     ApprovalResolutionParams,
@@ -60,7 +63,7 @@ from qwenpaw.channel_protocol.models import (
     RejectedEvent,
 )
 from qwenpaw.channel_protocol.shared import SharedChannelDescriptor
-from qwenpaw.schemas import Message, AgentRequest
+from qwenpaw.schemas import Message, AgentRequest, ContentType, RunStatus
 from qwenpaw.utils.io_utils import (
     get_path_lock,
     run_async_to_completion,
@@ -77,6 +80,7 @@ _STATE_MAX_BYTES = 1024 * 1024
 _STATE_MAX_KEYS = 64
 _TEXT_MERGE_MAX_RESPONSES = 128
 _TEXT_MERGE_MAX_BYTES = 768 * 1024
+_RUN_NOTIFICATION_TIMEOUT = 12.0
 _DEBOUNCE_ROUTE_LOG_THRESHOLD = 32
 _DEBOUNCE_ROUTE_LOG_INTERVAL = 60.0
 
@@ -206,6 +210,16 @@ class IsolatedChannelProxy(BaseChannel):
 
     def _normalize_event(self, event):
         payload = normalize_inbound_event(event)
+        message_id = event.metadata.get("message_id")
+        payload["meta"].update(
+            _sdk_message_ids=[
+                message_id
+                if isinstance(message_id, str) and message_id
+                else event.event_id,
+            ],
+            _sdk_sender_id=event.sender_id,
+            _sdk_acl_sender_id=event.acl_sender_id,
+        )
         payload["content_parts"] = Message(
             content=payload["content_parts"],
         ).content
@@ -303,6 +317,7 @@ class IsolatedChannelProxy(BaseChannel):
             default=None,
         )
         self._buffered_handles = {}
+        self._buffered_message_ids = {}
         self._next_debounce_route_log = -math.inf
         self._text_merge = {}
         self._text_merge_bytes = 0
@@ -411,7 +426,7 @@ class IsolatedChannelProxy(BaseChannel):
                 result = self.last_stop_result
                 if result and "HOST_STATE_IO_PENDING" in result.residual:
                     raise RuntimeError("HOST_STATE_IO_PENDING")
-                if result is None or not result.exited or result.residual:
+                if result is None or not self._stop_complete(result):
                     raise RuntimeError("CHANNEL_STOP_INCOMPLETE")
             if self._started or not self.enabled:
                 return
@@ -539,6 +554,14 @@ class IsolatedChannelProxy(BaseChannel):
             self._admission_wakeup()
         return await run_async_to_completion(self._stop())
 
+    @staticmethod
+    def _stop_complete(result):
+        return (
+            result.exited
+            and not result.residual
+            and result.acknowledged is not False
+        )
+
     async def _stop(self):
         async with self._lifecycle_lock:
             await self._stop_stream_flushes()
@@ -575,7 +598,7 @@ class IsolatedChannelProxy(BaseChannel):
                     ),
                 )
             self.last_stop_result = result
-            if not result.exited or result.residual:
+            if not self._stop_complete(result):
                 raise RuntimeError("CHANNEL_STOP_INCOMPLETE")
             self._started = False
             return result
@@ -950,6 +973,14 @@ class IsolatedChannelProxy(BaseChannel):
                 payload.channel_meta = meta
         session_id = self.get_debounce_key(payload)
         if ready:
+            meta["_sdk_message_ids"] = list(
+                dict.fromkeys(
+                    [
+                        *self._buffered_message_ids.pop(session_id, []),
+                        *meta.get("_sdk_message_ids", []),
+                    ],
+                ),
+            )
             handles = self._buffered_handles.pop(session_id, [])
             if handles:
                 meta["_merged_response_handles"] = list(
@@ -961,6 +992,8 @@ class IsolatedChannelProxy(BaseChannel):
                     ),
                 )
         else:
+            ids = self._buffered_message_ids.setdefault(session_id, [])
+            ids.extend(meta.get("_sdk_message_ids", []))
             handles = self._buffered_handles.setdefault(session_id, [])
             previous_count = len(handles)
             for handle in [
@@ -994,6 +1027,17 @@ class IsolatedChannelProxy(BaseChannel):
             if current.get("response_handle"):
                 handles.append(current["response_handle"])
         meta["_merged_response_handles"] = list(dict.fromkeys(handles))
+        meta["_sdk_message_ids"] = list(
+            dict.fromkeys(
+                message_id
+                for item in items
+                for message_id in (item.get("meta") or {}).get(
+                    "_sdk_message_ids",
+                    [],
+                )
+            ),
+        )
+        meta["_sdk_acl_sender_id"] = items[0].get("acl_sender_id", "")
         return {
             **items[0],
             **items[-1],
@@ -1224,6 +1268,20 @@ class IsolatedChannelProxy(BaseChannel):
             **fields,
         )
 
+    def _with_bot_prefix(self, send_meta):
+        result = super()._with_bot_prefix(send_meta)
+        if result is not send_meta:
+            result["_bot_prefix_from_config"] = True
+        return result
+
+    def _reply_prefixes(self, meta, policy):
+        metadata_prefix = meta.get("bot_prefix")
+        if policy.configured_prefix:
+            return metadata_prefix, self.bot_prefix
+        return (
+            "" if meta.get("_bot_prefix_from_config") else metadata_prefix
+        ), ""
+
     def _format_send_fields(
         self,
         fields,
@@ -1233,17 +1291,18 @@ class IsolatedChannelProxy(BaseChannel):
         *,
         strip_text=False,
     ):
+        metadata_prefix, configured_prefix = self._reply_prefixes(meta, policy)
         if entry == "direct":
             prefix = (
-                (meta.get("bot_prefix") or self.bot_prefix)
+                (metadata_prefix or configured_prefix)
                 if policy.direct_prefix
                 else ""
             )
             separator = ""
         else:
             prefix = (
-                meta.get("bot_prefix") if policy.parts_metadata_prefix else ""
-            ) or (self.bot_prefix if policy.parts_configured_prefix else "")
+                metadata_prefix if policy.parts_metadata_prefix else ""
+            ) or (configured_prefix if policy.parts_configured_prefix else "")
             separator = "  "
         prefixed = []
         for part in fields["content_parts"]:
@@ -1284,7 +1343,7 @@ class IsolatedChannelProxy(BaseChannel):
                 and response_policy.text_merge_format_on_flush
                 and _format_entry == "parts"
                 and operation == "message.create"
-                and fields.get("content_source") != "event"
+                and fields.get("content_source") not in {"event", "structured"}
                 and fields.get("approval") is None
                 and fields.get("approval_resolution") is None
                 and fields.get("content_parts")
@@ -1307,7 +1366,8 @@ class IsolatedChannelProxy(BaseChannel):
                 parts = fields.get("content_parts")
                 mergeable = (
                     operation == "message.create"
-                    and fields.get("content_source") != "event"
+                    and fields.get("content_source")
+                    not in {"event", "structured"}
                     and fields.get("approval") is None
                     and fields.get("approval_resolution") is None
                     and parts
@@ -1990,7 +2050,16 @@ class IsolatedChannelProxy(BaseChannel):
                 "Raw completed text capability was not declared",
                 reason_code="CAPABILITY_REQUIRED",
             )
+        if (
+            policy.content_source == "semantic"
+            and STRUCTURED_PARTS_CAPABILITY not in capabilities
+        ):
+            raise ProtocolValidationError(
+                "Structured content capability was not declared",
+                reason_code="CAPABILITY_REQUIRED",
+            )
         policy = ResponsePolicy(
+            content_source=policy.content_source,
             streaming=policy.streaming
             and "streaming" in capabilities
             and self.streaming_enabled,
@@ -2023,12 +2092,27 @@ class IsolatedChannelProxy(BaseChannel):
                     "PLATFORM_RESULT_UNKNOWN",
                 ),
             )
-        if not (
-            await self._response_policy(
-                self.get_to_handle_from_request(request),
-                meta,
-            )
-        ).prepare:
+        policy = await self._response_policy(
+            self.get_to_handle_from_request(request),
+            meta,
+        )
+        if RUN_EVENTS_CAPABILITY in self.descriptor.capabilities:
+            meta["_sdk_cycle"] = {
+                "response_handle": meta["response_handle"],
+                "run_id": uuid.uuid4().hex,
+                "session_id": request.session_id,
+                "user_id": request.user_id,
+                "message_ids": list(meta.get("_sdk_message_ids", ())),
+                "sender_id": meta.get("_sdk_sender_id", request.user_id),
+                "acl_sender_id": meta.get(
+                    "_sdk_acl_sender_id",
+                    request.user_id,
+                ),
+            }
+            if scope is not None:
+                scope["run"] = meta["_sdk_cycle"]
+            await self._notify_run(meta, "start", "running")
+        if not policy.prepare:
             return
         route = await self._route(
             self.get_to_handle_from_request(request),
@@ -2073,9 +2157,11 @@ class IsolatedChannelProxy(BaseChannel):
     def _stream_text(self, stream_type, text, meta, send_format=None):
         if stream_type == "reasoning" and text:
             text = "💭 " + text
+        policy = send_format or SendFormatPolicy()
+        metadata_prefix, configured_prefix = self._reply_prefixes(meta, policy)
         prefix = (
-            meta.get("bot_prefix") or self.bot_prefix
-            if (send_format or SendFormatPolicy()).stream_prefix
+            metadata_prefix or configured_prefix
+            if policy.stream_prefix
             else ""
         )
         return prefix + "  " + text if prefix and text else text
@@ -2357,30 +2443,70 @@ class IsolatedChannelProxy(BaseChannel):
             ),
         )
 
-    async def _send_model_fallback_notice(self, to_handle, event, send_meta):
+    async def _send_model_fallback_notice(
+        self,
+        to_handle,
+        event,
+        send_meta,
+        *,
+        dispatched=None,
+    ):
         scope = self._response_context.get()
         ordinary = scope.get("ordinary_event") if scope is not None else None
+        parent = super()._send_model_fallback_notice
         if ordinary is None or not (
             ordinary[0] is asyncio.current_task()
             and ordinary[1] is event
             and ordinary[2] is send_meta
         ):
-            return await super()._send_model_fallback_notice(
+            return await parent(
                 to_handle,
                 event,
                 send_meta,
+                dispatched=dispatched,
             )
         try:
             await self._ordinary_event_delivery(
                 to_handle,
                 send_meta,
-                super()._send_model_fallback_notice,
+                partial(parent, dispatched=dispatched),
                 to_handle,
                 event,
                 send_meta,
             )
         finally:
             scope.pop("ordinary_event", None)
+
+    async def on_event_content(self, request, to_handle, event, send_meta):
+        if (
+            getattr(event, "type", None) == ContentType.DATA
+            and getattr(event, "status", None) == RunStatus.InProgress
+            and isinstance(getattr(event, "data", None), dict)
+            and "output" in event.data
+            and (
+                await self._response_policy(to_handle, send_meta)
+            ).content_source
+            == "semantic"
+        ):
+            if self._display_config.show_tool_results:
+                body = self._format_stream_tool_output_body(event)
+                if body:
+                    await self._send_operation(
+                        to_handle,
+                        send_meta,
+                        "message.create",
+                        content_source="structured",
+                        content_parts=[
+                            {"type": "text", "text": body, "role": "rendered"},
+                        ],
+                    )
+            return True
+        return await super().on_event_content(
+            request,
+            to_handle,
+            event,
+            send_meta,
+        )
 
     async def _send_completed_event(
         self,
@@ -2389,8 +2515,20 @@ class IsolatedChannelProxy(BaseChannel):
         event,
         send_meta,
     ):
-        if RAW_COMPLETED_TEXT_CAPABILITY in self.descriptor.capabilities:
-            policy = await self._response_policy(to_handle, send_meta)
+        policy = await self._response_policy(to_handle, send_meta)
+        if policy.content_source == "semantic":
+            from .structured_content import project_structured_content
+
+            parts = project_structured_content(self._renderer, event)
+            if parts:
+                await self._send_operation(
+                    to_handle,
+                    send_meta,
+                    "message.create",
+                    content_source="structured",
+                    content_parts=parts,
+                )
+        elif RAW_COMPLETED_TEXT_CAPABILITY in self.descriptor.capabilities:
             parts, sources = project_completed_text(
                 event,
                 policy.raw_completed_text or "content",
@@ -2598,6 +2736,54 @@ class IsolatedChannelProxy(BaseChannel):
                 send_meta["_reply_unknown"] = True
             raise
 
+    async def _notify_run(self, meta, phase, status):
+        cycle = meta.get("_sdk_cycle")
+        if cycle is None:
+            return
+        try:
+            async with asyncio.timeout(_RUN_NOTIFICATION_TIMEOUT):
+                while True:
+                    result = await self.channel_process.call(
+                        "channel.run.event",
+                        {
+                            **self._identity().to_mapping(),
+                            **cycle,
+                            "phase": phase,
+                            "status": status,
+                        },
+                        timeout=6,
+                    )
+                    if phase != "end" or result.get("status") != "pending":
+                        break
+                    await asyncio.sleep(0.05)
+            if result.get("status") != "complete":
+                self._record_diagnostic(
+                    (
+                        "RUN_NOTIFICATION_PENDING"
+                        if result.get("status") == "pending"
+                        else "RUN_NOTIFICATION_FAILED"
+                    ),
+                )
+        except TimeoutError:
+            # Finish still records the outcome, while the worker retains
+            # its pending notification and route until cleanup completes.
+            self._record_diagnostic("RUN_NOTIFICATION_PENDING")
+        except Exception:
+            self._record_diagnostic("RUN_NOTIFICATION_FAILED")
+
+    async def _finish_cycle(self, meta, outcome):
+        if meta.get("_sdk_cycle"):
+            if outcome == "cancelled":
+                for handle in dict.fromkeys(
+                    [
+                        *meta.get("_merged_response_handles", ()),
+                        meta["response_handle"],
+                    ],
+                ):
+                    await self._cancel_response_text(handle)
+            await self._notify_run(meta, "end", outcome)
+        await self._finish_route(meta, outcome)
+
     @asynccontextmanager
     async def _response_scope(self, meta):
         scope = {"meta": meta}
@@ -2617,6 +2803,9 @@ class IsolatedChannelProxy(BaseChannel):
             raise
         finally:
             current = scope["meta"]
+            current.pop("_sdk_cycle", None)
+            if "run" in scope:
+                current["_sdk_cycle"] = scope["run"]
             scope.pop("ordinary_event", None)
             merge_owned = (
                 current.get("_text_merge_error") is not None
@@ -2633,12 +2822,12 @@ class IsolatedChannelProxy(BaseChannel):
             try:
                 if current.get("response_handle"):
                     task = asyncio.create_task(
-                        self._finish_route(current, outcome),
+                        self._finish_cycle(current, outcome),
                     )
                     try:
                         await asyncio.shield(task)
                     except asyncio.CancelledError as cancelled:
-                        if merge_owned:
+                        if merge_owned or current.get("_sdk_cycle"):
                             # Merge cancellation owns this cleanup until it
                             # settles, including repeated owner cancellation.
                             while not task.done():
@@ -2678,7 +2867,10 @@ class IsolatedChannelProxy(BaseChannel):
 
     async def _run_process_loop(self, request, to_handle, send_meta):
         # Preparation can add policy, delivery state or a newly opened route.
-        send_meta.update(getattr(request, "channel_meta", None) or {})
+        request_meta = getattr(request, "channel_meta", None) or {}
+        if "bot_prefix" in request_meta and request_meta is not send_meta:
+            send_meta.pop("_bot_prefix_from_config", None)
+        send_meta.update(request_meta)
         request.channel_meta = send_meta
         scope = self._response_context.get()
         if scope is not None:

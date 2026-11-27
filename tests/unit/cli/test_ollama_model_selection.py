@@ -121,19 +121,44 @@ def manager(monkeypatch, tmp_path, ollama_endpoint):
     return instance
 
 
-@pytest.mark.parametrize("command", ["set-llm", "config"])
+@pytest.mark.parametrize(
+    "command,remote",
+    [("set-llm", False), ("config", False), ("config", True)],
+)
 def test_discovers_and_persists_selected_ollama_model(
     manager,
     ollama_endpoint,
+    monkeypatch,
     command,
+    remote,
 ):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from qwenpaw.app.routers import providers
+    from qwenpaw.cli import http
+    from qwenpaw.cli.main import cli
+
     assert manager.get_provider("ollama").all_models() == []
     ollama_endpoint["models"] = ["qwen3:32b", "qwen3.5:9b"]
-    result = CliRunner().invoke(
-        providers_cmd.models_group,
-        [command],
-        input="\n",
-    )
+    args = ["models", command]
+    if remote:
+        app = FastAPI()
+        app.include_router(providers.router, prefix="/api")
+        app.dependency_overrides[
+            providers.get_provider_manager
+        ] = lambda: manager
+        monkeypatch.setattr(
+            http,
+            "client",
+            lambda url: TestClient(app, base_url=url + "/api/"),
+        )
+        monkeypatch.setattr(
+            providers_cmd,
+            "_manager",
+            lambda: pytest.fail("read local settings"),
+        )
+        args = ["--host", "selected-app", *args]
+    result = CliRunner().invoke(cli, args, input="\n")
     assert result.exit_code == 0, result.output
     assert ollama_endpoint["requests"][0] == (
         "/ollama-proxy/v1/models",

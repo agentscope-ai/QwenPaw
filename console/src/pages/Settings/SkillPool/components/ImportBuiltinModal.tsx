@@ -59,9 +59,11 @@ export function ImportBuiltinModal({
 
   const resolveLanguage = (item: BuiltinImportSpec): "en" | "zh" => {
     if (language !== "default") return language;
-    if (item.current_language === "zh") return "zh";
-    if (item.current_language === "en") return "en";
-    return defaultLanguage;
+    const available = item.available_languages || ["en", "zh"];
+    if (item.current_language === "zh" && available.includes("zh")) return "zh";
+    if (item.current_language === "en" && available.includes("en")) return "en";
+    if (available.includes(defaultLanguage)) return defaultLanguage;
+    return available.includes("zh") ? "zh" : "en";
   };
 
   const toggleSelection = (name: string) => {
@@ -95,6 +97,8 @@ export function ImportBuiltinModal({
         return t("skillPool.importStatusCurrent");
       case "outdated":
         return t("skillPool.importStatusOutdated");
+      case "removed":
+        return t("skillPool.statusRemoved");
       case "conflict":
         return t("skillPool.importStatusConflict");
       default:

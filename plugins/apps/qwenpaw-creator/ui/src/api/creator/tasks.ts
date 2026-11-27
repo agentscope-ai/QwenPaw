@@ -76,14 +76,17 @@ export interface TimelineRenderResult {
   replayed: boolean;
 }
 
-/** User-initiated final-cut export: deterministic compositing, no Agent. */
+/** Dispatch a deterministic final cut. Automatic requests respect regeneration holds. */
 export function renderTimeline(
   projectId: string,
   timelineId: string,
   clientRequestId = newClientId("timeline-render"),
+  automatic = false,
 ): Promise<TimelineRenderResult> {
   return creatorRequest(
-    `${project(projectId)}/timelines/${encodeURIComponent(timelineId)}/render`,
+    `${project(projectId)}/timelines/${encodeURIComponent(timelineId)}/render${
+      automatic ? "?automatic=true" : ""
+    }`,
     {
       method: "POST",
       headers: { "Idempotency-Key": clientRequestId },

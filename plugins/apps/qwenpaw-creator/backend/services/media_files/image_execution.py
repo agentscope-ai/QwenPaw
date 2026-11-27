@@ -50,6 +50,7 @@ from domain.errors import (
 from models.config import is_media_review_enabled
 from models.reference_markers import canonical_marker, canonical_marker_indices
 from models.image.base import (
+    REFERENCE_DOWNLOAD_ERROR_CODE,
     image_reference_capability,
     image_reference_limit,
     is_content_refusal,
@@ -82,6 +83,10 @@ from services.media_files.element_adapter import (
     find_timeline_element,
     selected_element_output,
     target_element_id,
+)
+from services.media_files.provider_source_url import (
+    provider_source_url_usable as _provider_source_url_usable,
+    stored_provider_source_url,
 )
 from services.media_files.review_admission import (
     assert_media_review_admission,
@@ -825,15 +830,8 @@ def _resolve_version_references(
         # Check for source_url stored by Token Plan image generation.
         # Stored at metadata["provider"]["source_url"] by
         # _materialize_and_publish.
-        source_url = ""
-        if artifact is not None and isinstance(
-            getattr(artifact, "metadata", None),
-            dict,
-        ):
-            provider_meta = artifact.metadata.get("provider", {})
-            if isinstance(provider_meta, dict):
-                source_url = provider_meta.get("source_url", "")
-        if source_url:
+        source_url = stored_provider_source_url(artifact)
+        if source_url and _provider_source_url_usable(source_url):
             indexed = project.assets.files_by_id.get(version.file_id)
             if indexed is None or not indexed.media_type.casefold().startswith(
                 "image/",
@@ -851,6 +849,16 @@ def _resolve_version_references(
                 },
             )
             continue
+        if source_url:
+            # The pre-signed URL outlived its grant.  Sending it makes the
+            # provider refuse the reference download, and that refusal is
+            # indistinguishable from a model failure; the immutable local
+            # copy is always fetchable instead.
+            logger.warning(
+                "Stored provider source URL for %s expired or is "
+                "unverifiable; falling back to the local asset copy",
+                version_id,
+            )
         remote_url = public_source_url(source) if source is not None else None
         if remote_url is not None:
             if not version.media_type.casefold().startswith("image/"):
@@ -2170,10 +2178,20 @@ class FileImageExecutionService:
                     model_name=getattr(exc, "model_name", ""),
                     retryable=False,
                 )
+            # Keep the provider's structured reason when it named one. The
+            # workbench keys its next-step hint off this code, so a reference
+            # image that could not be downloaded must not be flattened into a
+            # generic model failure that sends the user to model settings.
+            failure_code = (
+                REFERENCE_DOWNLOAD_ERROR_CODE
+                if isinstance(exc, ModelError)
+                and exc.code == REFERENCE_DOWNLOAD_ERROR_CODE
+                else "IMAGE_GENERATION_FAILED"
+            )
             await self._fail_if_running(
                 project_id,
                 ids,
-                "IMAGE_GENERATION_FAILED",
+                failure_code,
                 message=message
                 + _accepted_provider_task_hint(ids["task_id"], project_id),
                 error=exc,

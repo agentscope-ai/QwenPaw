@@ -184,15 +184,12 @@ qwenpaw doctor fix -y --only seed-missing-agent-json,reset-invalid-agent-json
 
 管理 LLM 提供商和活跃模型。
 
-| 命令                                     | 说明                                   |
-| ---------------------------------------- | -------------------------------------- |
-| `qwenpaw models list`                    | 查看所有提供商、API Key 状态和当前模型 |
-| `qwenpaw models config`                  | 完整交互式配置：API Key → 选择模型     |
-| `qwenpaw models config-key [provider]`   | 单独配置某个提供商的 API Key           |
-| `qwenpaw models set-llm`                 | 只切换活跃模型（不改 API Key）         |
-| `qwenpaw models local`                   | 查看已下载的本地模型                   |
-| `qwenpaw models download <repo_id>`      | 下载一个本地模型（llama.cpp）          |
-| `qwenpaw models remove-local <model_id>` | 删除已下载的本地模型                   |
+| 命令                                   | 说明                                   |
+| -------------------------------------- | -------------------------------------- |
+| `qwenpaw models list`                  | 查看所有提供商、API Key 状态和当前模型 |
+| `qwenpaw models config`                | 完整交互式配置：API Key → 选择模型     |
+| `qwenpaw models config-key [provider]` | 单独配置某个提供商的 API Key           |
+| `qwenpaw models set-llm`               | 只切换活跃模型（不改 API Key）         |
 
 ```bash
 qwenpaw models list                    # 看当前状态
@@ -205,34 +202,11 @@ qwenpaw models set-llm                 # 只切换模型
 
 #### 本地模型
 
-QwenPaw 也支持通过 llama.cpp，Ollama 或 LM Studio 在本地运行模型——无需 API Key。
-但在此之前需要先下载对应的应用，例如 [Ollama](https://ollama.com/download) 或 [LM Studio](https://lmstudio.ai/download)。
-
-```bash
-# 下载模型（自动选择 Q4_K_M GGUF）
-qwenpaw models download Qwen/Qwen3-4B-GGUF
-
-# 从 ModelScope 下载
-qwenpaw models download Qwen/Qwen2-0.5B-Instruct-GGUF --source modelscope
-
-# 查看已下载模型
-qwenpaw models local
-
-# 删除已下载模型
-qwenpaw models remove-local <model_id>
-qwenpaw models remove-local <model_id> --yes   # 跳过确认
-```
-
-| 选项       | 简写 | 默认值        | 说明                                           |
-| ---------- | ---- | ------------- | ---------------------------------------------- |
-| `--source` | `-s` | `huggingface` | 下载源（`huggingface` 或 `modelscope`）        |
-| `--file`   | `-f` | _（自动）_    | 指定文件名。省略时自动选择（GGUF 优先 Q4_K_M） |
+启用 QwenPaw Local 插件后，可以在控制台管理 GGUF 模型，也可以用 `qwenpaw models download <仓库名>` 下载、`qwenpaw models local` 列出、`qwenpaw models remove-local <模型 ID>` 删除。插件安装、权重导入及启动见[QwenPaw Local 配置](./models#QwenPaw-Local-llamacpp-配置)。Ollama 和 LM Studio 的权重由各自的服务管理。
 
 #### Ollama 模型
 
 QwenPaw 集成 Ollama 以在本地运行模型。模型从 Ollama 守护进程动态加载——请先从 [ollama.com](https://ollama.com) 安装 Ollama。
-
-安装 Ollama SDK：`pip install 'qwenpaw[ollama]'`（或使用 `--extras ollama` 重新运行安装脚本）
 
 ```bash
 # 下载 Ollama 模型
@@ -250,11 +224,11 @@ qwenpaw models config           # 选择 Ollama → 从模型列表中选择
 qwenpaw models set-llm          # 切换到其他 Ollama 模型
 ```
 
-**与本地模型的主要区别：**
+**Ollama 和 QwenPaw Local 的区别：**
 
 - 模型来自 Ollama 守护进程（不由 QwenPaw 下载）
 - 使用 `ollama` 命令管理模型（非 `qwenpaw models`）
-- 通过 Ollama CLI 或 QwenPaw 添加/删除模型时，模型列表自动更新
+- 在 Ollama 中添加或删除权重后，在控制台点击 **更新模型列表** 同步候选模型
 
 > **注意：** API Key 的有效性需要用户自行保证，QwenPaw 不会验证。
 > 详见 [配置 — 模型提供商](./config#模型提供商)。
@@ -802,7 +776,7 @@ qwenpaw --host 0.0.0.0 --port 9090 cron list
 | `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `enable` · `disable` · `info` · `test` |        否         |
 | `qwenpaw task`      | —                                                                                    |        否         |
 | `qwenpaw auth`      | `reset-password`                                                                     |        否         |
-| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        否         |
+| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate` · `dependency-upgrade`        |        否         |
 | `qwenpaw acp`       | —                                                                                    |        否         |
 | `qwenpaw clean`     | —                                                                                    |        否         |
 | `qwenpaw shutdown`  | —                                                                                    |        否         |
@@ -819,6 +793,7 @@ qwenpaw --host 0.0.0.0 --port 9090 cron list
 - [控制台](./console) —— Web 管理界面
 - [频道配置](./channels) —— 钉钉、飞书、iMessage、Discord、QQ 详细步骤
 - [心跳](./heartbeat) —— 定时自检/摘要
+- [插件管理](./plugins#插件管理) —— 安装插件和确认共享包升级
 - [技能](./skills) —— 内置技能与自定义技能
 - [配置与工作目录](./config) —— 工作目录与 config.json
 - [多智能体](./multi-agent) —— 多智能体配置、管理与协作

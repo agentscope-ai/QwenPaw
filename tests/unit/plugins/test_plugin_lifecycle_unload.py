@@ -36,6 +36,7 @@ from qwenpaw.plugins.provision import (
     teardown_created_locations,
 )
 from qwenpaw.plugins.safe_fs import safe_remove
+from qwenpaw.plugins.source_usage import SourceBusyError, source_reader
 
 
 @pytest.fixture()
@@ -298,11 +299,14 @@ async def test_unload_mode_leaves_agent_json_and_removes_manifest(
     await loader.load_plugin(manifest, plugin_dir)
     assert "ok-plugin" in loader.registry.get_all_plugin_manifests()
 
-    report = await loader.unload_plugin(
-        "ok-plugin",
-        delete_files=False,
-        mode=UnloadMode.UNLOAD,
-    )
+    with source_reader(plugin_dir):
+        with pytest.raises(SourceBusyError):
+            await loader.unload_plugin("ok-plugin", delete_files=True)
+        report = await loader.unload_plugin(
+            "ok-plugin",
+            delete_files=False,
+            mode=UnloadMode.UNLOAD,
+        )
     assert report.mode is UnloadMode.UNLOAD
     assert not report.leftovers
     assert "ok-plugin" not in loader.registry.get_all_plugin_manifests()

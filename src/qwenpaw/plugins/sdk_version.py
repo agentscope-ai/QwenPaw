@@ -21,6 +21,9 @@ SDK_CAPABILITIES = frozenset(
         "hooks",
         "prompts",
         "modes",
+        "stops",
+        "shell",
+        "workflows",
         "skills",
         "markets",
         "providers",
@@ -31,6 +34,9 @@ SDK_CAPABILITIES = frozenset(
         "channels",
         "drivers",
         "harnesses",
+        "cli",
+        "extensions",
+        "dependencies",
     },
 )
 
@@ -60,6 +66,14 @@ def validate_sdk(declaration, plugin_id=None):
     supported = Version(SDK_VERSION)
     if requested.major != supported.major or requested > supported:
         raise SDKCompatibilityError(f"Unsupported SDK version: {requested}")
+    if "legacy_storage" in declaration:
+        from ._storage_migration import validate_sources
+
+        if requested < Version("1.2.0"):
+            raise SDKCompatibilityError(
+                "sdk.legacy_storage requires SDK >= 1.2.0",
+            )
+        validate_sources(declaration, plugin_id)
     capabilities = declaration.get("capabilities", [])
     if not isinstance(capabilities, list) or not all(
         isinstance(x, str) for x in capabilities
@@ -70,6 +84,13 @@ def validate_sdk(declaration, plugin_id=None):
         raise SDKCompatibilityError(
             f"Unsupported SDK capabilities: {sorted(missing)}",
         )
+    if {"stops", "shell", "workflows"}.intersection(
+        capabilities,
+    ) and requested < Version("1.2.0"):
+        raise SDKCompatibilityError(
+            "stops/shell/workflows capabilities require SDK >= 1.2.0",
+        )
+
     if "harnesses" in capabilities and requested < Version("1.1.0"):
         raise SDKCompatibilityError("harnesses requires SDK version >= 1.1.0")
     if "drivers" in capabilities and requested < Version("1.2.0"):

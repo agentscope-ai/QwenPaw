@@ -2,17 +2,272 @@
 """Strict external-author typing: returned streams can always be closed."""
 
 from pathlib import Path
-from typing import Any, AsyncGenerator, assert_type
+from typing import Any, AsyncGenerator, Literal, assert_type
 
 from qwenpaw.plugins.harnesses import HarnessBackend, HarnessCallContext
 
 from qwenpaw.plugins import PluginContext
 from qwenpaw.plugins.apps import AppContext, ChatRequest, TaskSnapshot
+from qwenpaw.plugins.cli import CliContext
+from qwenpaw.plugins.context import RequestContext
 from qwenpaw.plugins.drivers import DriverContext, DriverRequestContext
 from qwenpaw.plugins.events import ChatEvent
 from qwenpaw.plugins.providers import ModelChunk
 from qwenpaw.plugins.testing import PluginTestHost, TestModel
 from qwenpaw.plugins.tools import ToolEvent, ToolContext
+
+
+async def channel_worker_contract() -> None:
+    from qwenpaw.plugins.channel_workers import (
+        ChannelDriver,
+        ChannelWorkerContext,
+        ChannelResponse,
+        ChannelContent,
+        ChannelSendResult,
+        ChannelDeliveryStep,
+        ChannelReceiveResult,
+        ChannelApprovalAction,
+        ResponsePolicy,
+        ReplyTarget,
+    )
+    from qwenpaw.plugins.channels import ChannelMessage, ChannelRunEvent
+    from qwenpaw.plugins.channel_ingress import (
+        ChannelIngressBinding,
+        ChannelIngressSpec,
+    )
+    from qwenpaw.plugins.channel_management import (
+        ChannelManagementRequest,
+        ChannelManagementResult,
+        ChannelVerification,
+    )
+
+    class Driver(ChannelDriver):
+        def response_policy_for(self, target: ReplyTarget) -> ResponsePolicy:
+            return ResponsePolicy(
+                streaming=not bool(target.metadata.get("thread_id")),
+                configured_prefix=False,
+            )
+
+        async def on_run(
+            self,
+            ch: ChannelWorkerContext,
+            event: ChannelRunEvent,
+        ) -> None:
+            assert_type(event.run_id, str)
+            assert_type(event.message_ids, tuple[str, ...])
+
+        @staticmethod
+        async def manage(
+            request: ChannelManagementRequest,
+        ) -> ChannelManagementResult:
+            assert_type(request.workspace_id, str)
+            assert_type(request.remaining_timeout(), float)
+            request.check_cancelled()
+            return ChannelVerification("credentials", "passed")
+
+        async def start(self, ch: ChannelWorkerContext) -> None:
+            assert_type(ch.workspace_id, str)
+            assert_type(ch.deadline, float | None)
+            assert_type(ch.ingress.path, str)
+            binding = await ch.ingress.register(
+                ChannelIngressSpec("127.0.0.1", 8080),
+            )
+            assert_type(binding, ChannelIngressBinding)
+            assert_type(binding.paths, tuple[str, ...])
+            assert_type(binding.verify({"header": "value"}), str)
+            assert_type(binding.url(binding.paths[0]), str)
+            await ch.ingress.close()
+            await ch.auth.required("https://example.test/scan")
+            assert_type(
+                await ch.approvals.resolve(
+                    ChannelApprovalAction(
+                        "request-id",
+                        "deny",
+                        ChannelMessage(
+                            "actor",
+                            (),
+                            session_id="s",
+                            message_id="button",
+                        ),
+                    ),
+                ),
+                ChannelReceiveResult,
+            )
+            await ch.report_status("connected")
+            assert_type(
+                await ch.receive(
+                    ChannelMessage("user", (), session_id="s", message_id="m"),
+                ),
+                ChannelReceiveResult,
+            )
+
+        async def send(
+            self,
+            ch: ChannelWorkerContext,
+            response: ChannelResponse,
+        ) -> ChannelSendResult:
+            assert_type(response.previous, ChannelSendResult | None)
+            assert_type(response.content, tuple[ChannelContent, ...])
+            for block in response.content:
+                assert_type(block.output, str | tuple[ChannelContent, ...])
+                assert_type(
+                    block.role,
+                    Literal["message", "reasoning", "refusal", "rendered"],
+                )
+            step = await ch.delivery.prepare_step("create")
+            assert_type(step, ChannelDeliveryStep)
+            result = ChannelSendResult("platform-message")
+            await ch.delivery.record_progress(step, result)
+            return result
+
+    assert_type(Driver(), Driver)
+    policy = ResponsePolicy(
+        text_merge_delay_ms=200,
+        continue_on_delivery_error=True,
+        content_source="semantic",
+    )
+    assert_type(policy.text_merge_delay_ms, int | None)
+    assert_type(policy.continue_on_delivery_error, bool)
+    assert_type(policy.content_source, Literal["rendered", "semantic"])
+    assert_type(policy.configured_prefix, bool)
+
+
+def workflow_contract(plugin: PluginContext) -> None:
+    from typing import Mapping
+    from qwenpaw.plugins.events import JSONValue
+    from qwenpaw.plugins.resources import Registration
+    from qwenpaw.plugins.workflows import (
+        WorkflowContext,
+        WorkflowSpec,
+        WorkflowSchedule,
+        WorkflowResult,
+        WorkflowNotification,
+    )
+
+    async def report(
+        call: WorkflowContext,
+        values: Mapping[str, JSONValue],
+    ) -> WorkflowResult:
+        assert_type(call.scheduled, bool)
+        assert_type(call.identity, RequestContext)
+        assert_type(call.cancelled, bool)
+        return WorkflowResult(
+            notification=WorkflowNotification("report", "done"),
+        )
+
+    assert_type(
+        plugin.register_workflow(
+            WorkflowSpec("report", report, WorkflowSchedule("0 * * * *")),
+        ),
+        Registration,
+    )
+
+
+async def workflow_test_contract(host: PluginTestHost) -> None:
+    from qwenpaw.plugins.workflows import WorkflowResult
+
+    assert_type(
+        await host.run_workflow("plugin:report", parameters={"scope": "one"}),
+        WorkflowResult,
+    )
+
+
+def static_channel_contract(path: Path) -> None:
+    from typing import Mapping
+    from qwenpaw.plugins.events import JSONData, JSONValue
+    from qwenpaw.plugins.channel_workers import (
+        ChannelDefinition,
+        ChannelExclusiveResource,
+    )
+
+    definition = assert_type(ChannelDefinition.load(path), ChannelDefinition)
+    assert_type(definition.to_dict(), dict[str, JSONData])
+    assert_type(definition.config_schema, Mapping[str, JSONValue])
+    assert_type(
+        definition.exclusive_resources,
+        tuple[ChannelExclusiveResource, ...],
+    )
+    assert_type(
+        ChannelExclusiveResource("example.account", ("account",)).fields,
+        tuple[str, ...],
+    )
+
+
+def uploaded_file_contract() -> None:
+    from qwenpaw.plugins.apps import (
+        HttpRequest,
+        HttpResponse,
+        PawApp,
+        UploadedFile,
+        FileResponse,
+    )
+
+    app = PawApp(app_id="files")
+
+    @app.route("/upload", methods=("POST",), body="form", max_body_bytes=1024)
+    async def upload(call: AppContext, request: HttpRequest) -> HttpResponse:
+        for value in request.form.get("file", ()):
+            if isinstance(value, UploadedFile):
+                assert_type(value.content, bytes)
+                assert_type(value.size, int)
+                assert_type(value.filename, str)
+        return HttpResponse({"ok": True})
+
+    @app.route("/download")
+    async def download(call: AppContext, request: HttpRequest) -> FileResponse:
+        return FileResponse(call.storage.path("report.txt"))
+
+
+async def checkpoint_contract(call: ToolContext) -> None:
+    from qwenpaw.plugins.checkpoints import (
+        CheckpointEntry,
+        SnapshotResult,
+        RestoreResult,
+    )
+
+    assert_type(await call.checkpoints.timeline(), tuple[CheckpointEntry, ...])
+    assert_type(await call.checkpoints.snapshot(name="before"), SnapshotResult)
+    assert_type(await call.checkpoints.restore("target"), RestoreResult)
+
+
+def terminal_contract(context: "PluginContext", call: "CliContext") -> None:
+    import click
+    from qwenpaw.plugins.cli import CliSpec
+    from qwenpaw.plugins.doctor import (
+        DOCTOR,
+        DoctorContext,
+        DoctorSpec,
+        DoctorResult,
+    )
+    from qwenpaw.plugins.resources import Registration
+    from qwenpaw.plugins.logging import PluginLogger
+
+    async def operation() -> str:
+        return "result"
+
+    def legacy_check(_call: DoctorContext) -> list[str]:
+        return ["ready"]
+
+    async def status_check(_call: DoctorContext) -> list[DoctorResult]:
+        return [DoctorResult("OK", "ready")]
+
+    assert_type(call.run(operation()), str)
+    assert_type(call.logger, PluginLogger)
+    assert_type(
+        context.register_cli(
+            CliSpec("hello", lambda ctx: click.Command("hello")),
+        ),
+        Registration,
+    )
+    assert_type(
+        context.register_extension(
+            DOCTOR,
+            DoctorSpec("hello", status_check),
+        ),
+        Registration,
+    )
+
+    assert_type(DoctorSpec("legacy", legacy_check), DoctorSpec)
 
 
 async def close_streams(
@@ -61,6 +316,12 @@ async def delegate_workspace(app: AppContext) -> None:
 
 
 async def channel_contract(host: PluginTestHost) -> None:
+    from qwenpaw.plugins.messages import Message
+
+    assert_type(
+        await host.call_control_command("/checkpoint", user_id="owner"),
+        Message | None,
+    )
     from qwenpaw.plugins.channels import (
         ChannelHealth,
         ChannelMessage,
@@ -150,6 +411,104 @@ async def async_storage(call: ToolContext) -> None:
     await call.storage.awrite_json("state.json", {"count": 1})
     await call.storage.adelete("state.json")
     assert_type(await call.media.awrite("result.txt", b"result"), Attachment)
+
+
+async def sdk_1_1_services(call: ToolContext) -> None:
+    import asyncio
+    from qwenpaw.plugins.context import RequestContext
+    from qwenpaw.plugins.models import ModelDescription, ModelSelection
+    from qwenpaw.plugins.resources import ResourceScope
+
+    assert_type(call.identity, RequestContext)
+    assert_type(call.identity.user_id, str)
+    assert_type(call.workspace_ops.directory, Path)
+    assert_type(
+        await call.workspace_ops.project_directories(),
+        tuple[Path, ...],
+    )
+    assert_type(await call.workspace_ops.resolve_path("file"), Path)
+    from qwenpaw.plugins.events import JSONData
+
+    assert_type(ChatEvent("response").to_dict(), dict[str, JSONData])
+    assert_type(call.storage.path("state.sqlite"), Path)
+    assert_type(call.storage.import_legacy("profile", "profile.json"), bool)
+    assert_type(
+        call.storage.import_legacy_tree("history", "history"),
+        tuple[str, ...],
+    )
+    assert_type(await call.models.configured(), ModelSelection | None)
+    assert_type(await call.models.catalog(), tuple[ModelDescription, ...])
+    async with call.resources.child() as child:
+        assert_type(child, ResourceScope)
+        assert_type(await child.run_sync(int, "42"), int)
+        process = assert_type(
+            await child.async_process(["example"], tree=True),
+            asyncio.subprocess.Process,
+        )
+        assert_type(process.pid, int)
+
+
+async def stop_contract(host: PluginTestHost) -> None:
+    from qwenpaw.plugins import PluginContext
+    from qwenpaw.plugins.context import RequestContext
+    from qwenpaw.plugins.resources import Registration
+    from qwenpaw.plugins.stops import StopContext, StopResult, StopSpec
+
+    def declare(plugin: PluginContext) -> None:
+        async def decide(call: StopContext) -> StopResult:
+            assert_type(call.identity, RequestContext)
+            assert_type(call.iteration, int)
+            return StopResult("continue", "Check the result")
+
+        assert_type(
+            plugin.register_stop(
+                StopSpec(
+                    "example",
+                    decide,
+                    lambda identity: bool(identity.session_id),
+                ),
+            ),
+            Registration,
+        )
+
+    assert_type(await host.evaluate_stop(iteration=2), StopResult)
+
+
+async def main_conversation(call: AppContext) -> None:
+    from qwenpaw.plugins.conversations import ConversationMessage
+
+    assert_type(
+        await call.conversations.history(limit=12),
+        tuple[ConversationMessage, ...],
+    )
+
+
+def shell_backend(plugin: PluginContext) -> None:
+    from qwenpaw.plugins.shell import (
+        ShellBackendSpec,
+        ShellRequest,
+        ShellResult,
+    )
+    from qwenpaw.plugins.resources import Registration
+
+    async def execute(call: ToolContext, request: ShellRequest) -> ShellResult:
+        assert_type(request.command, str)
+        assert_type(request.cwd, str | None)
+        assert_type(request.timeout, float)
+        assert_type(call.identity, RequestContext)
+        return ShellResult(0, "done")
+
+    assert_type(
+        plugin.register_shell_backend(
+            ShellBackendSpec("example", lambda _: True, execute),
+        ),
+        Registration,
+    )
+
+
+async def select_shell_backend(call: AppContext) -> None:
+    assert_type(await call.select_shell_backend("example"), None)
+    assert_type(await call.select_shell_backend(None), None)
 
 
 async def driver_contract(
@@ -367,6 +726,17 @@ async def harness_author_host(host: PluginTestHost) -> None:
         AsyncGenerator[ChatEvent, None],
     )
     await events.aclose()
+
+
+async def rejected_author_usage(tool: ToolContext, app: AppContext) -> None:
+    # Strict mypy reports an unused ignore if the SDK accepts an invalid call.
+    await tool.models.nonexistent()  # type: ignore[attr-defined]
+    await tool.models.configured(arbitrary_user="other")  # type: ignore[call-arg]
+    await tool.resources.async_process(["test"], tree="yes")  # type: ignore[arg-type]
+    tool.identity.user_id = "other"  # type: ignore[misc]
+    async with tool.resources.child() as child:
+        child.nonexistent()  # type: ignore[attr-defined]
+    await app.conversations.history(session_id="other")  # type: ignore[call-arg]
 
 
 async def native_provider(context: "PluginContext") -> None:

@@ -54,9 +54,13 @@ from ..providers.hub_managed import (
     managed_provider,
     managed_slot,
 )
-from ..providers.model_selection import resolve_model_slot_override
+from ..providers.model_selection import (
+    resolve_model_slot_override,
+    select_primary_model,
+)
 from ..providers.capping_formatter import (
     CappingFormatterMixin,
+    MAX_IMAGE_SIDE,
     MAX_INLINE_MEDIA_BYTES,
     SEEN_MEDIA_KEYS as _FORMATTER_SEEN_MEDIA_KEYS,
     inline_media_size as _inline_media_size,
@@ -90,7 +94,10 @@ from ..utils.media_paths import (
 _model_creation_observer = ContextVar("model_creation_observer", default=None)
 
 
-def _create_provider_model(provider, model_id):
+def _create_provider_model(provider, model_id, *, explicit=False):
+    if explicit:
+        provider.validate_chat_model_override(model_id)
+    provider.validate_chat_model(model_id)
     observer = _model_creation_observer.get()
     if observer is not None:
         observer.before_create(provider)
@@ -704,13 +711,42 @@ async def _normalize_messages_for_formatter(
     else:
         target_family = "openai"
 
+    # The formatter owns the media limits for this model. Passing them down
+    # keeps the downscale pass from shrinking to a different budget than the
+    # one the formatter enforces a moment later.
+    max_bytes = int(
+        getattr(formatter_instance, "max_bytes", MAX_INLINE_MEDIA_BYTES),
+    )
+    max_image_side = int(
+        getattr(formatter_instance, "max_image_side", MAX_IMAGE_SIDE),
+    )
+    observed_sides: list[int] = []
     normalized_msgs = await normalize_messages_for_model_request_async(
         msgs,
         supports_multimodal=supports_multimodal,
         target_family=target_family,
         strip_audio=strip_audio,
         strip_video=strip_video,
+        max_bytes=max_bytes,
+        max_side=max_image_side,
+        observed_sides=observed_sides,
     )
+    # Remember the largest image this request actually carried. A rejection
+    # then shrinks below that dimension instead of halving a configured limit
+    # the image never approached, which used to resend identical bytes. The
+    # count is separate: zero means no image could be re-encoded at all (an
+    # HTTPS ``image_url`` is forwarded as-is), so tightening cannot change
+    # the payload and the retry must not be spent on it.
+    try:
+        # pylint: disable=protected-access
+        formatter_instance._qwenpaw_last_wire_max_image_side = (
+            max(observed_sides) if observed_sides else 0
+        )
+        formatter_instance._qwenpaw_last_wire_resizable_images = len(
+            observed_sides,
+        )
+    except (AttributeError, TypeError):
+        pass
 
     return (
         normalized_msgs,
@@ -769,6 +805,153 @@ _WIRE_MEDIA_BLOCK_TYPES = frozenset(
 )
 _WIRE_MEDIA_CONTAINER_KEYS = frozenset({"file_data", "inline_data"})
 _WIRE_AUDIO_BLOCK_TYPES = frozenset({"audio", "input_audio"})
+
+
+def _split_data_url(url: str) -> tuple[str, str]:
+    """Return ``(media_type, payload)`` from a ``data:`` URL, else empties."""
+    if not url.startswith("data:"):
+        return "", ""
+    header, _, payload = url.partition(",")
+    return header[len("data:") :].split(";", 1)[0], payload
+
+
+def _wire_media_label(block: dict, index: int) -> str | None:
+    """Describe one wire media block so a rejection can name it.
+
+    Providers spell the same payload three ways (Anthropic ``source``,
+    OpenAI ``image_url``, Gemini ``inline_data``/``file_data``), so the
+    label looks in all of them and reports what it can see: position,
+    media type and decoded size. Nothing here decodes the image.
+    """
+    media_type = ""
+    payload = ""
+
+    source = block.get("source")
+    if isinstance(source, dict):
+        media_type = str(source.get("media_type") or "")
+        payload = str(source.get("data") or "")
+
+    if not media_type:
+        inline = block.get("inline_data") or block.get("file_data")
+        if isinstance(inline, dict):
+            media_type = str(inline.get("mime_type") or "")
+            payload = str(inline.get("data") or "")
+
+    if not media_type:
+        image_url = block.get("image_url")
+        if isinstance(image_url, str):
+            media_type, payload = _split_data_url(image_url)
+        elif isinstance(image_url, dict):
+            media_type, payload = _split_data_url(
+                str(image_url.get("url") or ""),
+            )
+
+    if not media_type:
+        media_type = str(
+            block.get("mime_type") or block.get("media_type") or "",
+        )
+    if not media_type:
+        return None
+
+    size = len(payload) * 3 // 4 if payload else 0
+    return f"#{index} {media_type} {size / 1048576:.1f} MiB"
+
+
+def _describe_wire_media_blocks(value: Any) -> list[str]:
+    """Label each media block in wire order so a rejection can name it.
+
+    Keeps the same traversal and container rules as
+    :func:`_count_wire_media_blocks`, so the labels and the count always
+    refer to the same blocks.
+    """
+    collected: list[dict] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        if node.get("type") in _WIRE_MEDIA_BLOCK_TYPES:
+            collected.append(node)
+            return
+        if any(key in node for key in _WIRE_MEDIA_CONTAINER_KEYS):
+            collected.append(node)
+            return
+        for item in node.values():
+            _walk(item)
+
+    _walk(value)
+
+    labels: list[str] = []
+    for block in collected:
+        # Every block gets a label, even when its form carries no MIME type
+        # or size (an HTTPS ``image_url``, for instance). The omission notice
+        # counts removed blocks from this list, and a skipped label made two
+        # removed blocks — one labelled, one not — read as a single omission.
+        labels.append(
+            _wire_media_label(block, len(labels) + 1)
+            or f"#{len(labels) + 1} unknown",
+        )
+    return labels
+
+
+def _max_wire_image_bytes(value: Any) -> int:
+    """Largest encoded image payload on the wire, in bytes.
+
+    A tightened limit only changes the request when it actually re-encodes
+    the image. Dropping a 2 MiB budget to 1 MiB cannot change a 120-byte
+    PNG, so the retry would resend the same payload and be refused again.
+    The recovery compares the new budget against this number instead of
+    against the previous limit.
+    """
+    largest = 0
+
+    def _payload(block: dict) -> tuple[str, str]:
+        media_type = ""
+        payload = ""
+        source = block.get("source")
+        if isinstance(source, dict):
+            media_type = str(source.get("media_type") or "")
+            payload = str(source.get("data") or "")
+        if not media_type:
+            inline = block.get("inline_data") or block.get("file_data")
+            if isinstance(inline, dict):
+                media_type = str(inline.get("mime_type") or "")
+                payload = str(inline.get("data") or "")
+        if not media_type:
+            image_url = block.get("image_url")
+            if isinstance(image_url, str):
+                media_type, payload = _split_data_url(image_url)
+            elif isinstance(image_url, dict):
+                media_type, payload = _split_data_url(
+                    str(image_url.get("url") or ""),
+                )
+        return media_type, payload
+
+    def _walk(node: Any) -> None:
+        nonlocal largest
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        if node.get("type") in _WIRE_MEDIA_BLOCK_TYPES:
+            media_type, payload = _payload(node)
+            if media_type.startswith("image/") and payload:
+                largest = max(largest, len(payload) * 3 // 4)
+            return
+        if any(key in node for key in _WIRE_MEDIA_CONTAINER_KEYS):
+            media_type, payload = _payload(node)
+            if media_type.startswith("image/") and payload:
+                largest = max(largest, len(payload) * 3 // 4)
+        for item in node.values():
+            _walk(item)
+
+    _walk(value)
+    return largest
 
 
 def _count_wire_media_blocks(value: Any) -> int:
@@ -2169,6 +2352,17 @@ def _create_file_block_support_formatter(
             self._qwenpaw_last_wire_media_count = _count_wire_media_blocks(
                 wire_messages,
             )
+            # Largest encoded image on this wire payload. The media recovery
+            # uses it to notice that a smaller budget cannot change the
+            # image, which would make the retry byte-for-byte identical.
+            self._qwenpaw_last_wire_max_image_bytes = _max_wire_image_bytes(
+                wire_messages,
+            )
+            # Same traversal as the count, so a rejection can name the blocks
+            # it is about to strip instead of only saying "some media".
+            self._qwenpaw_last_wire_media_summary = (
+                _describe_wire_media_blocks(wire_messages)
+            )
             self._qwenpaw_last_wire_audio_count = _count_wire_audio_blocks(
                 wire_messages,
             )
@@ -2433,7 +2627,6 @@ def _apply_model_fallbacks(
         # from being built: skip the slot instead of propagating.
         try:
             with agent_thinking_level(thinking_level, thinking_budget):
-                fallback_provider.validate_chat_model(fallback_slot.model)
                 fallback_model = _create_provider_model(
                     fallback_provider,
                     fallback_slot.model,
@@ -2500,8 +2693,11 @@ def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
         settings.thinking_level,
         settings.thinking_budget,
     ):
-        provider.validate_chat_model(selected.model)
-        model = _create_provider_model(provider, selected.model)
+        model = _create_provider_model(
+            provider,
+            selected.model,
+            explicit=explicit,
+        )
     _ensure_model_context_size(model, provider, selected.model)
     formatter = _install_model_formatter(
         model,
@@ -2536,7 +2732,8 @@ def create_model_and_formatter(
             If None, tries to get from context, then falls back to global.
         model_slot_override: Optional per-request model override. When
             provided, it takes precedence over the agent's persisted
-            ``active_model``. Accepts a ``ModelSlotConfig``, a dict matching
+            ``active_model`` and must refer to an available configured chat
+            model. Accepts a ``ModelSlotConfig``, a dict matching
             its schema, or a string of the form ``"<provider_id>:<model>"``.
             The model name itself may contain ``:`` (e.g. version tags);
             only the first ``:`` is treated as the separator.
@@ -2561,10 +2758,10 @@ def create_model_and_formatter(
             pass
 
     settings = _load_agent_model_settings(agent_id, agent_config)
-    model_slot = settings.model_slot
-    slot = resolve_model_slot_override(model_slot_override)
-    if slot is not None and slot.provider_id and slot.model:
-        model_slot = slot
+    request_override = resolve_model_slot_override(model_slot_override)
+    request_slot = select_primary_model(None, request_model=request_override)
+    explicit = request_slot is not None
+    model_slot = request_slot or settings.model_slot
 
     if hub_mode() and model_slot is None:
         model_slot = ProviderManager.get_instance().active_model
@@ -2572,7 +2769,7 @@ def create_model_and_formatter(
         model, formatter = _create_hub_model_and_formatter(
             settings,
             model_slot,
-            explicit=slot is not None,
+            explicit=explicit,
         )
         if resize_images_to_max_bytes and isinstance(
             formatter,
@@ -2596,8 +2793,11 @@ def create_model_and_formatter(
         settings.thinking_level,
         settings.thinking_budget,
     ):
-        provider.validate_chat_model(model_slot.model)
-        model = _create_provider_model(provider, model_slot.model)
+        model = _create_provider_model(
+            provider,
+            model_slot.model,
+            explicit=explicit,
+        )
     provider_id = _resolved_provider_id(provider, model_slot.provider_id)
     selected_model_id = model_slot.model
 
@@ -2652,7 +2852,7 @@ def create_model_and_formatter(
         compact_threshold=settings.compact_threshold,
         retry_config=settings.retry_config,
         rate_limit_config=settings.rate_limit_config,
-        has_model_override=slot is not None,
+        has_model_override=request_override is not None,
         require_image_support=(
             require_image_support
             and model_info is not None

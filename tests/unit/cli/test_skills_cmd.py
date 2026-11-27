@@ -12,12 +12,38 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import click
 import pytest
 from click.testing import CliRunner
 
 import qwenpaw.cli.skills_cmd as sc
+
+
+@pytest.mark.parametrize("process_value", ["process-key", ""])
+def test_skill_test_environment_preserves_process_precedence(
+    monkeypatch,
+    tmp_path,
+    process_value,
+):
+    from qwenpaw.agents.skill_system import registry
+
+    monkeypatch.setattr(registry, "_skill_env_key", str.upper)
+    monkeypatch.setattr(
+        sc,
+        "os",
+        SimpleNamespace(environ={"API_KEY": process_value}),
+    )
+    monkeypatch.setattr(
+        sc,
+        "load_envs",
+        lambda: {"API_KEY": "saved-first", "api_key": "saved-second"},
+    )
+
+    env = sc._get_skill_test_env(tmp_path, ["API_KEY"], None)
+
+    assert env["API_KEY"] == process_value
 
 
 def _skill_md(name: str) -> str:

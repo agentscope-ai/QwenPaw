@@ -359,6 +359,39 @@ async def upload_local_file_to_dashscope_temp(
         return url
 
 
+async def upload_reference_file_for_provider(
+    path: Path,
+    *,
+    api_key: str,
+    model_name: str,
+    media_type: str,
+    base_url: str,
+    protocol: str = "",
+) -> str:
+    """Send local references only through the configured provider's transport."""
+    # Imported here because vlm_model also uses the transport primitives.
+    from models.vlm_model import (
+        transport_local_media_url,
+        uses_dashscope_transport,
+    )
+
+    if uses_dashscope_transport(base_url, protocol):
+        return await upload_local_file_to_dashscope_temp(
+            path,
+            api_key=api_key,
+            model_name=model_name,
+            media_type=media_type,
+        )
+    return await transport_local_media_url(
+        path,
+        api_key=api_key,
+        model_name=model_name,
+        media_type=media_type,
+        base_url=base_url,
+        protocol=protocol,
+    )
+
+
 def _reference_media_type(filename: str, content: bytes) -> str:
     media_type = mimetypes.guess_type(filename or "")[0]
     if not media_type:
