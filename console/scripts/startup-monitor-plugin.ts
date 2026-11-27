@@ -26,6 +26,7 @@ export function startupMonitorPlugin(): Plugin {
               const {
                 startup,
                 reload,
+                reloadFailed,
                 details,
                 copy,
                 copied,
@@ -40,6 +41,7 @@ export function startupMonitorPlugin(): Plugin {
                 {
                   startup,
                   reload,
+                  reloadFailed,
                   details,
                   copy,
                   copied,

@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import threading
 import time
 from dataclasses import replace
 from types import SimpleNamespace
@@ -19,9 +20,9 @@ from qwenpaw.app import auth
 from qwenpaw.app.routers.console_frontend import (
     create_console_frontend_router,
 )
+from qwenpaw.app.routers.remote_access import router as platform_router
 from qwenpaw.hub.models import RuntimeState
 from qwenpaw.hub.platform_access import HubPlatformConnections
-from qwenpaw.remote_access.enrollment import RelayEnrollmentService
 from qwenpaw.remote_access.operation_dispatcher import RelayLocalApi
 from qwenpaw.remote_access.platform_client import (
     PlatformRelayClient,
@@ -36,7 +37,7 @@ from qwenpaw.remote_access.protocol import (
     RelayOperation,
     decode_frame,
 )
-from qwenpaw.remote_access.store import RelayNodeStore
+from qwenpaw.remote_access.runtime import PlatformRuntimeConnection
 from qwenpaw.security import secret_store
 
 
@@ -47,7 +48,10 @@ def isolated_key(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_oauth_binding_retry_refresh_and_local_logout(tmp_path):
+async def test_oauth_binding_retry_refresh_and_local_logout(
+    tmp_path,
+    monkeypatch,
+):
     class Platform:
         base_url = "https://platform.test"
         fail = True
@@ -99,8 +103,10 @@ async def test_oauth_binding_retry_refresh_and_local_logout(tmp_path):
         async def revoke_oauth_refresh_token(self, _refresh):
             raise RelayPlatformError("offline", "Offline", status_code=503)
 
-    store = RelayNodeStore(tmp_path / "platform.json")
-    service = RelayEnrollmentService(store, client_factory=Platform)
+    connection = PlatformRuntimeConnection(tmp_path, "http://127.0.0.1:19088")
+    store = connection.store
+    service = connection.account
+    monkeypatch.setattr(service, "_client_factory", Platform)
     login = await service.start(
         platform_url=Platform.base_url,
         name="Office",
@@ -132,12 +138,41 @@ async def test_oauth_binding_retry_refresh_and_local_logout(tmp_path):
     assert not (await service.status()).logged_in
     assert (await service.status()).node_id == "node"
 
+    store.path.write_text("{", encoding="utf-8")
+    await connection.start()
+    assert store.path.exists()
+    app = FastAPI()
+    app.state.platform_connection = connection
+    app.include_router(platform_router, prefix="/api")
+    api = "/api/remote-access/platform"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://127.0.0.1",
+    ) as client:
+        assert (await client.get(api)).json()["status"] == "recovery_required"
+        assert (await client.delete(api)).json() == {
+            "remote_cleanup_confirmed": False,
+        }
+        (backup,) = tmp_path.glob("*.corrupt")
+        assert backup.read_text(encoding="utf-8") == "{"
+        assert (await client.get(api)).json()["status"] == "not_connected"
+        retry = await client.post(api + "/login", json={"name": "Office"})
+        assert retry.json()["status"] == "authorization_pending"
+
 
 @pytest.mark.asyncio
 async def test_sse_is_delivered_before_completion_and_cancel_closes_upstream():
     first = asyncio.Event()
     complete = asyncio.Event()
     closed = asyncio.Event()
+    caller_thread = threading.get_ident()
+
+    def endpoint():
+        assert threading.get_ident() != caller_thread
+        return (
+            "http://127.0.0.1:19088",
+            {"X-QwenPaw-Runtime-Token": "boundary"},
+        )
 
     class Stream(httpx.AsyncByteStream):
         async def __aiter__(self):
@@ -163,9 +198,8 @@ async def test_sse_is_delivered_before_completion_and_cancel_closes_upstream():
         transport=httpx.MockTransport(respond),
     ) as client:
         dispatcher = RelayLocalApi(
-            "http://127.0.0.1:19088",
+            endpoint,
             client=client,
-            headers=lambda: {"X-QwenPaw-Runtime-Token": "boundary"},
         ).dispatcher()
         response = await dispatcher.dispatch(
             RelayOperation.CONSOLE_REQUEST,
@@ -253,7 +287,8 @@ async def test_sse_is_delivered_before_completion_and_cancel_closes_upstream():
             )
 
 
-def test_hub_bindings_are_scoped_to_local_user_and_runtime_owner(
+@pytest.mark.asyncio
+async def test_hub_bindings_are_scoped_to_local_user_and_runtime_owner(
     tmp_path,
     monkeypatch,
 ):
@@ -275,7 +310,7 @@ def test_hub_bindings_are_scoped_to_local_user_and_runtime_owner(
     hub = HubPlatformConnections(
         tmp_path,
         SimpleNamespace(get_user=users.get),
-        SimpleNamespace(get=runtimes.__getitem__),
+        SimpleNamespace(get=runtimes.get),
         SimpleNamespace(
             get_runtime_secret=lambda **kw: kw["runtime_id"],
             get_or_create_system_secret=lambda _name: (
@@ -283,8 +318,8 @@ def test_hub_bindings_are_scoped_to_local_user_and_runtime_owner(
             ),
         ),
     )
-    for name, user in users.items():
-        connection = hub.get(user)
+    for name in users:
+        connection = hub.get(name)
         state = connection.store.create(
             platform_url="https://platform.test",
             qwenpaw_id=name,
@@ -304,10 +339,9 @@ def test_hub_bindings_are_scoped_to_local_user_and_runtime_owner(
                 ),
             ),
         )
-    assert (
-        hub.get(users["alice"]).store.path != hub.get(users["bob"]).store.path
-    )
-    key = hub.get(users["alice"]).store.load().key_pair.thumbprint()
+    alice, bob = hub.get("alice"), hub.get("bob")
+    assert alice.store.path != bob.store.path
+    key = alice.store.load().key_pair.thumbprint()
     monkeypatch.setattr(secret_store, "_cached_master_key", b"x" * 32)
     monkeypatch.setattr(secret_store, "_cached_fernet", None)
     restored = HubPlatformConnections(
@@ -316,21 +350,50 @@ def test_hub_bindings_are_scoped_to_local_user_and_runtime_owner(
         hub.runtimes,
         hub.credentials,
     )
-    loaded = restored.get(users["alice"]).store.load()
+    loaded = restored.get("alice").store.load()
     assert loaded.key_pair.thumbprint() == key
     assert loaded.session.access_token == "alice-access"
-    assert (
-        "alice-access"
-        not in restored.get(users["alice"]).store.path.read_text()
-    )
-    assert hub._headers("alice")["X-QwenPaw-Runtime-Token"] == "alice"
-    assert hub._headers("bob")["X-QwenPaw-Runtime-Token"] == "bob"
+    assert "alice-access" not in restored.get("alice").store.path.read_text()
+    for name in users:
+        assert hub._endpoint(name) == (
+            "http://127.0.0.1:19088",
+            {"X-QwenPaw-Runtime-Token": name},
+        )
+
+    started = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def fail():
+        raise ValueError("Unusable binding")
+
+    async def start_bob():
+        started.set()
+
+    async def close_bob():
+        closed.set()
+
+    monkeypatch.setattr(alice, "start", fail)
+    monkeypatch.setattr(alice, "close", fail)
+    monkeypatch.setattr(bob, "start", start_bob)
+    monkeypatch.setattr(bob, "close", close_bob)
+    watcher = asyncio.create_task(hub.watch())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
+    assert watcher.cancelled()
+    assert closed.is_set()
+
     runtimes["alice"].owner_user_id = "bob"
     with pytest.raises(ValueError, match="ownership"):
-        hub._headers("alice")
+        hub._endpoint("alice")
+    del runtimes["alice"]
+    with pytest.raises(ValueError, match="no longer exists"):
+        hub._endpoint("alice")
     users["bob"].disabled = True
     with pytest.raises(ValueError, match="disabled"):
-        hub._headers("bob")
+        hub._endpoint("bob")
 
 
 @pytest.mark.asyncio
@@ -383,11 +446,12 @@ async def test_versioned_console_assets_stream_with_bounded_backpressure(
         transport = RelayNodeTransport(
             RelayLocalApi("http://127.0.0.1", client=client).dispatcher(),
         )
+        sent = asyncio.Queue()
         frames = []
 
         class Socket:
             async def send(self, wire):
-                frames.append(decode_frame(wire))
+                sent.put_nowait(decode_frame(wire))
 
         socket = Socket()
         await transport._receive(
@@ -417,19 +481,47 @@ async def test_versioned_console_assets_stream_with_bounded_backpressure(
             RelayFrame(RelayFrameType.END, stream_id="asset"),
         )
         task = transport._tasks["asset"]
-        for _ in range(100):
-            if len(frames) >= 9:
-                break
-            await asyncio.sleep(0.01)
-        assert len(frames) == 9
-        assert not task.done()
-        while not task.done():
-            await transport._receive(
-                socket,
-                RelayFrame(RelayFrameType.WINDOW_UPDATE, stream_id="asset"),
+        task.add_done_callback(lambda _: sent.put_nowait(None))
+
+        async def receive_frame():
+            frame = await sent.get()
+            if frame is None:
+                await task
+                pytest.fail(f"Relay task ended after {len(frames)} frames")
+            assert frame.frame_type is not RelayFrameType.ERROR, frame.metadata
+            frames.append(frame)
+            return frame
+
+        try:
+            async with asyncio.timeout(10):
+                meta = await receive_frame()
+                assert meta.frame_type is RelayFrameType.RESULT_META
+                assert meta.metadata["status"] == 200
+                for _ in range(8):
+                    frame = await receive_frame()
+                    assert frame.frame_type is RelayFrameType.DATA
+                assert sent.empty()
+                assert not task.done()
+                while frame.frame_type is RelayFrameType.DATA:
+                    await transport._receive(
+                        socket,
+                        RelayFrame(
+                            RelayFrameType.WINDOW_UPDATE,
+                            stream_id="asset",
+                        ),
+                    )
+                    frame = await receive_frame()
+                assert frame.frame_type is RelayFrameType.END
+                await task
+        except TimeoutError:
+            pytest.fail(
+                f"Timed out after {len(frames)} frames "
+                f"(Relay task done: {task.done()})",
             )
-            await asyncio.sleep(0)
-        await task
+        finally:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         chunks = [f.payload for f in frames if f.frame_type == "data"]
         assert b"".join(chunks) == content
         assert max(map(len, chunks)) <= 64 * 1024
