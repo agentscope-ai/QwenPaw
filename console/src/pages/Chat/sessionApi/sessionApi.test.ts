@@ -1363,6 +1363,31 @@ describe("buildUserCard", () => {
 });
 
 describe("history bubble identity", () => {
+  it("uses the stored message id as the boundary for migrated history", () => {
+    const migratedUser = (id: string, ordinal: number) =>
+      msg({
+        id,
+        metadata: {
+          original_id: "legacy-user",
+          qwenpaw_transcript_position: {
+            turn_id: "legacy:1",
+            turn_seq: 1,
+            ordinal,
+          },
+        },
+      });
+    const first = migratedUser("stored-user-1", 0);
+    const second = migratedUser("stored-user-2", 1);
+    const messages = T.convertMessages([first, second], true);
+    const nextPage = T.convertMessages([second], true);
+
+    expect(messages.map(({ id }) => id)).toEqual([
+      "stored-user-1",
+      "stored-user-2",
+    ]);
+    expect(T.mergeHistoryMessages(messages, nextPage)).toHaveLength(2);
+  });
+
   it("uses durable history identity when the API regenerates message ids", () => {
     const read = (suffix: string) =>
       T.convertMessages([
