@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import re
@@ -72,6 +73,7 @@ CONSOLE_API_ROOTS = frozenset(
 )
 METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"})
 RESPONSE_HEADERS = ("content-disposition", "content-range", "accept-ranges")
+RuntimeEndpoint = str | Callable[[], tuple[str, Mapping[str, str]]]
 
 
 class RelayLocalApi:
@@ -79,15 +81,13 @@ class RelayLocalApi:
 
     def __init__(
         self,
-        base_url: str | Callable[[], str],
+        endpoint: RuntimeEndpoint,
         *,
         client: httpx.AsyncClient | None = None,
-        headers: Callable[[], Mapping[str, str]] | None = None,
     ) -> None:
-        self._base_url = base_url
+        self._endpoint = endpoint
         self._client = client
         self._owns_client = client is None
-        self._headers = headers or dict
 
     async def close(self) -> None:
         """Close the binding's shared pool after transport shutdown."""
@@ -121,7 +121,7 @@ class RelayLocalApi:
         content = base64.b64decode(body.get("body", ""), validate=True)
         if len(content) > 8 * 1024 * 1024:
             raise ValueError("Console request exceeds 8 MiB")
-        headers = {**self._headers(), "X-Agent-Id": agent_id}
+        headers = {"X-Agent-Id": agent_id}
         run_id = body.get("run_id")
         if run_id is not None:
             if not isinstance(run_id, str) or not re.fullmatch(
@@ -161,9 +161,11 @@ class RelayLocalApi:
             )
         return self._client
 
-    def _url(self) -> httpx.URL:
-        base = self._base_url() if callable(self._base_url) else self._base_url
-        return httpx.URL(base)
+    async def _resolve_endpoint(self) -> tuple[httpx.URL, Mapping[str, str]]:
+        if isinstance(self._endpoint, str):
+            return httpx.URL(self._endpoint), {}
+        base_url, headers = await asyncio.to_thread(self._endpoint)
+        return httpx.URL(base_url), headers
 
     async def sync_runs(
         self,
@@ -171,12 +173,11 @@ class RelayLocalApi:
         finished: list[str],
     ) -> dict[str, list[str]]:
         """Read task state from the personal Runtime that executes the run."""
-        url = self._url().copy_with(
-            path=f"/api/remote-access/relay-runs/{node_id}",
-        )
+        base_url, headers = await self._resolve_endpoint()
+        path = "/api/remote-access/relay-runs/" + node_id
         response = await self._http_client().post(
-            url,
-            headers=self._headers(),
+            base_url.copy_with(path=path),
+            headers=headers,
             json=finished,
             timeout=5.0,
         )
@@ -192,14 +193,15 @@ class RelayLocalApi:
         headers: dict[str, str],
         content: bytes,
     ) -> AsyncIterator[RelayResponse]:
-        url = self._url().copy_with(
-            path=f"/api{path}",
+        base_url, runtime_headers = await self._resolve_endpoint()
+        url = base_url.copy_with(
+            path="/api" + path,
             query=query.encode("utf-8"),
         )
         async with self._http_client().stream(
             method,
             url,
-            headers=headers,
+            headers={**runtime_headers, **headers},
             content=content,
         ) as response:
             yield RelayResponse(

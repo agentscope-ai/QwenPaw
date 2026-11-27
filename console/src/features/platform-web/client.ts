@@ -1,9 +1,8 @@
 import { create } from "zustand";
 import { hostRequest } from "./context";
+import { consoleHostOrigin } from "./hostBridge";
 
-export const isPlatformWebApp = !!document.querySelector(
-  'meta[name="qwenpaw-platform-origin"]',
-);
+export const isPlatformWebApp = consoleHostOrigin() !== undefined;
 export interface WebAccount {
   id: string;
   display_name: string;
