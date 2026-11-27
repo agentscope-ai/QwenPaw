@@ -1,5 +1,5 @@
 # Reusable "prepare" half of the desktop release: build the Tauri desktop
-# packages (Windows + macOS), run the install/launch/chat UI verification,
+# packages (Windows + macOS + Linux), run the install/launch/chat UI verification,
 # and upload the installers + updater sidecars as run artifacts.
 #
 # This workflow performs NO publishing. It is called by release.yml during the
@@ -386,3 +386,161 @@ jobs:
             dist/QwenPaw-Tauri-*-macOS.app.tar.gz.sig.sha256
             dist/tauri-darwin-*-updater.json
             dist/tauri-darwin-*-updater.json.sha256
+
+  build-tauri-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+
+      - name: Install Linux packaging dependencies
+        run: |
+          sudo apt-get update
+          # Numba's TBB extension needs libtbb.so.12 during dependency collection.
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl file libtbb12 pkgconf \
+            libgtk-3-dev libsoup-3.0-dev librsvg2-dev \
+            libayatana-appindicator3-dev libwebkit2gtk-4.1-dev xvfb
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        env:
+          PIP_NO_CACHE_DIR: "1"
+        with:
+          python-version: "3.11"
+
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
+
+      - name: Install packaging helper dependencies
+        run: python -m pip install packaging
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.4"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: "npm"
+          cache-dependency-path: console/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: console/src-tauri
+
+      - name: Clean dist directory
+        run: rm -rf dist && mkdir -p dist
+
+      - name: Build Tauri Linux package
+        env:
+          NODE_OPTIONS: "--max-old-space-size=8192"
+          # Authenticate the python-build-standalone release lookup in
+          # stage_python_runtime.py to avoid anonymous API rate limits.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_UPDATER_PUBKEY: ${{ vars.TAURI_UPDATER_PUBKEY }}
+          TAURI_UPDATER_ENDPOINTS: ${{ vars.TAURI_UPDATER_ENDPOINTS }}
+        run: bash scripts/pack-tauri/build_linux_pyinstaller.sh
+
+      - name: Verify desktop (Tauri Linux)
+        timeout-minutes: 30
+        uses: ./.github/actions/verify-tauri-linux
+        with:
+          dashscope-api-key: ${{ secrets.QWENPAW_DASHSCOPE_API_KEY }}
+
+      - name: Stop desktop server (Tauri Linux)
+        if: always()
+        run: |
+          pkill -f "qwenpaw-desktop" 2>/dev/null || true
+          pkill -f "qwenpaw-backend" 2>/dev/null || true
+          sleep 2
+          pkill -9 -f "qwenpaw-desktop" 2>/dev/null || true
+          pkill -9 -f "qwenpaw-backend" 2>/dev/null || true
+
+      - name: Checksum desktop artifacts (Tauri Linux)
+        run: |
+          shopt -s nullglob
+          deb_artifacts=(dist/QwenPaw-Tauri-*-linux-*.deb)
+          if [ ${#deb_artifacts[@]} -ne 1 ]; then
+            echo "::error::Expected exactly one Linux deb, found ${#deb_artifacts[@]}"
+            exit 1
+          fi
+          (
+            cd "$(dirname "${deb_artifacts[0]}")"
+            sha256sum "$(basename "${deb_artifacts[0]}")" > "$(basename "${deb_artifacts[0]}").sha256"
+          )
+          dpkg-deb -I "${deb_artifacts[0]}" | sed -n '/Depends/p'
+
+      - name: Sign Tauri Linux updater
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "No signing key configured, skipping Linux updater signature"
+            exit 0
+          fi
+          deb="QwenPaw-Tauri-${VERSION}-linux-x86_64.deb"
+          # Sign only after the build has finalized the deb control metadata.
+          (cd console && npm exec -- tauri signer sign "${GITHUB_WORKSPACE}/dist/${deb}")
+          python scripts/pack-tauri/generate_update_manifest.py stage \
+            --bundle-dir dist \
+            --pattern "$deb" \
+            --target linux-x86_64-deb \
+            --output "dist/$deb" \
+            --pubkey-config console/src-tauri/tauri.version.conf.json
+          (
+            cd dist
+            sha256sum "${deb}.sig" > "${deb}.sig.sha256"
+            sha256sum tauri-linux-x86_64-deb-updater.json > tauri-linux-x86_64-deb-updater.json.sha256
+          )
+
+      - name: Upload desktop artifacts (Tauri Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: QwenPaw-Desktop-Tauri-Linux-${{ steps.version.outputs.version }}
+          path: |
+            dist/QwenPaw-Tauri-*-linux-*.deb
+            dist/QwenPaw-Tauri-*-linux-*.deb.sha256
+
+      - name: Upload Tauri Linux updater metadata
+        if: hashFiles('dist/tauri-linux-x86_64-deb-updater.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-updater-meta-linux
+          if-no-files-found: error
+          path: |
+            dist/QwenPaw-Tauri-*-linux-x86_64.deb.sig
+            dist/QwenPaw-Tauri-*-linux-x86_64.deb.sig.sha256
+            dist/tauri-linux-x86_64-deb-updater.json
+            dist/tauri-linux-x86_64-deb-updater.json.sha256
+
+      - name: Upload desktop verify evidence (Tauri Linux)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-verify-logs-tauri-linux-${{ steps.version.outputs.version }}
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/qwenpaw-desktop-stdout.log
+            ${{ runner.temp }}/qwenpaw-desktop-stderr.log
+            ${{ runner.temp }}/verify-screenshots/

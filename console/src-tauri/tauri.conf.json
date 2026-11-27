@@ -40,10 +40,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "nsis"],
+    "targets": ["app", "nsis", "deb"],
+    "shortDescription": "Personal AI assistant that runs on your computer",
+    "longDescription": "QwenPaw Desktop runs your personal AI assistant locally. Use local or cloud models, extend it with skills and plugins, and connect it to your chat channels.",
     "icon": [
       "../../scripts/pack/assets/icon.icns",
-      "../../scripts/pack/assets/icon.ico"
+      "../../scripts/pack/assets/icon.ico",
+      "icons/icon.png"
     ],
     "resources": [
       "binaries/qwenpaw-backend",
@@ -51,6 +54,19 @@
       "binaries/channel-runtime",
       "binaries/node-runtime"
     ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0t64 | libgtk-3-0",
+          "libayatana-appindicator3-1",
+          "pkexec"
+        ],
+        "files": {
+          "/var/lib/swcatalog/yaml/qwenpaw-desktop.yml": "linux/qwenpaw-desktop.yml"
+        }
+      }
+    },
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",
