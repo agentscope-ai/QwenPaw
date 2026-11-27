@@ -36,6 +36,7 @@ class PlatformRuntimeConnection:
         self.runs = runs if runs is not None else RelayRuns()
         local_api = RelayLocalApi(endpoint)
         self._local_api = local_api
+        self._closing: asyncio.Task[None] | None = None
         self.supervisor = RelayNodeSupervisor(
             RelayNodeConnectionService(
                 self.store,
@@ -58,7 +59,7 @@ class PlatformRuntimeConnection:
                     type(exc.__cause__).__name__,
                 )
                 return
-            if state and state.registered_node:
+            if state and state.registered_node and self._closing is None:
                 self.supervisor.start()
 
     async def disconnect(self) -> bool:
@@ -76,10 +77,22 @@ class PlatformRuntimeConnection:
 
     async def close(self) -> None:
         """Detach streams and close the outbound transport at shutdown."""
+        if self._closing is None:
+            self._closing = asyncio.create_task(self._close_transport())
+            self._closing.add_done_callback(self._close_finished)
+        await asyncio.shield(self._closing)
+
+    async def _close_transport(self) -> None:
         try:
             await self.supervisor.stop()
         finally:
             await self._local_api.close()
+
+    def _close_finished(self, task: asyncio.Task[None]) -> None:
+        self._closing = None
+        # A caller may have stopped waiting at its shutdown deadline.
+        if not task.cancelled():
+            task.exception()
 
     async def mobile_login(self) -> dict:
         """Create an explicit full-account mobile login request."""
