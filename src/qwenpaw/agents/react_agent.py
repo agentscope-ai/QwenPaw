@@ -1945,9 +1945,8 @@ class QwenPawAgent(Agent):
                         omitted,
                         tightened_limits is not None,
                     )
-                if (
-                    generic_bad_request_retry
-                    or (not omitted and tightened_limits is None)
+                if generic_bad_request_retry or (
+                    not omitted and tightened_limits is None
                 ):
                     # Dropping every media block is the only recovery left
                     # when no smaller rendition is available and nothing
