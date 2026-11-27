@@ -1775,9 +1775,9 @@ def _grant_object_access(  # pylint: disable=too-many-return-statements
         )
         return
 
-    _dacl_present = ctypes.wintypes.BOOL()
+    _dacl_present = ctypes.wintypes.BOOL(0)
     _p_dacl = ctypes.c_void_p()
-    _dacl_defaulted = ctypes.wintypes.BOOL()
+    _dacl_defaulted = ctypes.wintypes.BOOL(0)
     ok = advapi32.GetSecurityDescriptorDacl(
         ctypes.cast(sd_buf, ctypes.c_void_p),
         ctypes.byref(_dacl_present),

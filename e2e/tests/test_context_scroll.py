@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+from urllib.parse import urlsplit
 
 import pytest
 from playwright.sync_api import Page, expect, TimeoutError
@@ -124,6 +125,7 @@ class TestLongConversationCompression:
     def test_long_conversation_compression(
         self,
         clean_chat_page: ChatPage,
+        api_context,
         request: pytest.FixtureRequest,
     ):
         """
@@ -136,7 +138,7 @@ class TestLongConversationCompression:
         4. Verify compression log appears
         5. Send follow-up question referencing early messages
         6. Verify AI understands context (compression preserved key info)
-        7. Check token usage increased
+        7. Verify the full conversation history
         """
         test_name = request.node.name
         log_test_step("1. Open Chat page and create new chat")
@@ -145,19 +147,9 @@ class TestLongConversationCompression:
 
         log_test_step("2. Send 25 short messages rapidly")
         for i in range(25):
-            clean_chat_page.send_message(f"Message {i+1}: count to {i+1}")
-            # 2026-09-18: widened per-round budget. After upstream #7382
-            # (chat SDK 1.1.73 -> 1.2.0) a round can stall while an earlier
-            # one is cancelled by the queue stabiliser; the gate-2/3 window
-            # used to be hard-capped at 30 s inside wait_for_ai_response
-            # (stability_timeout = min(timeout, 30000)), so raising only the
-            # outer timeout had no effect. The shared helper now takes
-            # stability_cap_ms (default unchanged = 30 s for all other
-            # callers); this 25-round case opts into a 60 s window.
-            ai_response = clean_chat_page.wait_for_ai_response(
-                timeout=60000, stability_cap_ms=60000
-            )
-            assert ai_response is not None, f"AI response {i+1} timed out"
+            prompt = f"Message {i+1}: count to {i+1}"
+            clean_chat_page.send_message(prompt)
+            clean_chat_page.wait_for_reply_to(prompt, timeout=60000)
 
         log_test_step("3. Wait for compression to trigger")
         # Compression happens asynchronously, wait for log entry
@@ -175,46 +167,25 @@ class TestLongConversationCompression:
             logger.info("Compression log not visible (may be in backend)")
 
         log_test_step("5. Send follow-up question referencing early messages")
-        clean_chat_page.send_message(
-            "What was the first number I asked you to count to?"
-        )
-        ai_response = clean_chat_page.wait_for_ai_response(
-            timeout=60000, stability_cap_ms=60000
-        )
-        assert ai_response is not None, "Follow-up AI response timed out"
+        follow_up = "What was the first number I asked you to count to?"
+        clean_chat_page.send_message(follow_up)
+        ai_response = clean_chat_page.wait_for_reply_to(follow_up, timeout=60000)
 
         log_test_step("6. Verify AI understands context")
-        last_ai_msg = clean_chat_page.get_last_ai_message()
-        if last_ai_msg is not None:
-            response_text = last_ai_msg.inner_text()
-            # Strip the bubble scaffold before matching: the raw text always
-            # carries "Completed 1 steps" and an HH:MM:SS stamp, both of which
-            # contain "1", so asserting on it was true no matter what the model
-            # answered (see extract_answer_body for the proof and the cancelled
-            # variant, which made a queue-stabiliser cancellation pass too).
-            answer_body = extract_answer_body(response_text)
-            logger.info(
-                "compression follow-up: raw=%r answer_body=%r",
-                response_text[:200], answer_body[:200],
-            )
-            # An answer-less body is its own failure: it means the bubble the
-            # reader resolved carried nothing but scaffold, which is exactly the
-            # case the old assertion silently accepted.
-            assert answer_body, (
-                "AI bubble carried no answer body after stripping the "
-                f"step counter, timestamp and brand: raw={response_text[:200]!r}"
-            )
-            # AI should remember the first message asked to count to 1
-            assert "1" in answer_body or "one" in answer_body.lower(), \
-                f"AI lost context after compression: answer={answer_body[:200]!r}"
-        else:
-            logger.warning("Could not get last AI message")
+        response_text = ai_response.inner_text()
+        answer_body = extract_answer_body(response_text)
+        logger.info("Compression follow-up answer: %r", answer_body[:200])
+        assert answer_body, f"AI bubble carried no answer: {response_text[:200]!r}"
+        assert "1" in answer_body or "one" in answer_body.lower(), \
+            f"AI lost context after compression: answer={answer_body[:200]!r}"
 
-        log_test_step("7. Check token usage increased")
-        # Token usage is tracked in backend; verify via API if available
-        # For now, just verify conversation completed successfully
-        all_messages = clean_chat_page.get_all_messages()
-        assert len(all_messages) >= 50, "Message history incomplete"
+        log_test_step("7. Verify the full conversation history")
+        chat_id = urlsplit(clean_chat_page.page.url).path.rstrip("/").split("/")[-1]
+        history = api_context.get(f"/api/chats/{chat_id}?full_history=true")
+        assert history.ok, f"Could not read chat history: HTTP {history.status}"
+        roles = [message["role"] for message in history.json()["messages"]]
+        assert roles.count("user") >= 25, "User message history incomplete"
+        assert roles.count("assistant") >= 25, "Assistant message history incomplete"
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")
