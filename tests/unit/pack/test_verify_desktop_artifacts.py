@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Regression tests for downloaded desktop updater integrity checks."""
+"""Regression tests for downloaded desktop artifact integrity checks."""
 
 from __future__ import annotations
 
@@ -105,7 +105,10 @@ def _create_valid_artifacts(root: Path) -> dict[str, Path]:
     }
 
 
-def _run_verifier(root: Path) -> subprocess.CompletedProcess[str]:
+def _run_verifier(
+    root: Path,
+    *args: str,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
             sys.executable,
@@ -116,6 +119,7 @@ def _run_verifier(root: Path) -> subprocess.CompletedProcess[str]:
             "windows",
             "--require",
             "macos",
+            *args,
         ],
         check=False,
         capture_output=True,
@@ -131,6 +135,58 @@ def test_valid_installers_and_updater_metadata_pass(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "verified windows-updater metadata" in result.stdout
     assert "verified macos-updater metadata" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("state", "error"),
+    [
+        ("valid", None),
+        ("missing", "Missing required linux artifact"),
+        ("corrupt", "SHA-256 mismatch"),
+        ("wrong-signature", "linux updater signature names"),
+    ],
+)
+def test_linux_release_artifact(
+    tmp_path: Path,
+    state: str,
+    error: str | None,
+) -> None:
+    _create_valid_artifacts(tmp_path)
+    if state != "missing":
+        linux = _write_file(
+            tmp_path
+            / "QwenPaw-Desktop-Tauri-Linux-1.0.0"
+            / "QwenPaw-Tauri-1.0.0-linux-x86_64.deb",
+            b"Linux installer",
+        )
+        if state == "corrupt":
+            linux.write_bytes(b"corrupt Linux installer")
+        updater = tmp_path / "tauri-updater-meta-linux"
+        signed_name = (
+            linux.name.replace("1.0.0", "2.0.0")
+            if state == "wrong-signature"
+            else linux.name
+        )
+        signature = _write_file(
+            updater / f"{signed_name}.sig",
+            b"complete Linux signature",
+        )
+        _write_metadata(
+            updater / "tauri-linux-x86_64-deb-updater.json",
+            target="linux-x86_64-deb",
+            artifact=signed_name,
+            signature=signature.name,
+        )
+
+    result = _run_verifier(tmp_path, "--require", "linux")
+
+    if error is None:
+        assert result.returncode == 0, result.stderr
+        assert "verified linux artifact" in result.stdout
+        assert "verified linux-updater metadata" in result.stdout
+    else:
+        assert result.returncode == 1
+        assert error in result.stderr
 
 
 @pytest.mark.parametrize(

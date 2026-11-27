@@ -1,0 +1,46 @@
+name: Verify Desktop (Tauri Linux)
+description: |
+  Install the built deb and launch it under Xvfb, assert the native WebKit window renders,
+  then run the shared Playwright web/API verifier. Stop / cleanup / log upload steps live in
+  the caller workflow because composite actions cannot use `if: always()`.
+
+inputs:
+  dashscope-api-key:
+    description: DashScope API key (empty -> verifier skips LLM round)
+    required: false
+    default: ""
+  allow-flaky-llm:
+    description: If 'true', verifier exits 0 on LLM retry exhaustion
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install built Debian package
+      shell: bash
+      run: sudo apt-get install -y --no-install-recommends ./dist/QwenPaw-Tauri-*-linux-*.deb
+
+    - name: Install verify deps (Playwright + WebKit)
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get install -y --no-install-recommends webkit2gtk-driver
+        python -m pip install --upgrade "pip>=26.2.2"
+        python -m pip install --upgrade "certifi>=2026.10.19"
+        python -m pip install -r scripts/verify/requirements-verify.txt
+        python -m playwright install webkit --with-deps
+
+    - name: Verify desktop (Tauri Linux)
+      shell: bash
+      env:
+        QWENPAW_DASHSCOPE_API_KEY: ${{ inputs.dashscope-api-key }}
+        ALLOW_FLAKY_LLM: ${{ inputs.allow-flaky-llm }}
+      run: |
+        set -euo pipefail
+        extra_flags=()
+        if [ "$ALLOW_FLAKY_LLM" = "true" ]; then
+          extra_flags+=("--allow-flaky-llm")
+        fi
+        bash scripts/verify/launch_tauri_linux.sh \
+          ${extra_flags[@]+"${extra_flags[@]}"}

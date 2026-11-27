@@ -9,7 +9,8 @@ repos:
       - id: check-yaml
         exclude: |
           (?x)^(
-              meta.yaml
+              meta.yaml|
+              console/src-tauri/linux/qwenpaw-desktop.yml
           )$
       - id: check-xml
         exclude: '(?x)(.*/skills/.*|^scripts/pack/|^e2e/)'

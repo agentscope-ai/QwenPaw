@@ -37,6 +37,8 @@ pub(super) fn current_platform() -> Option<&'static str> {
         Some("windows")
     } else if cfg!(target_os = "macos") {
         Some("macos")
+    } else if cfg!(target_os = "linux") {
+        Some("linux")
     } else {
         None
     }
@@ -120,7 +122,10 @@ pub(super) fn validate_artifact(platform: &str, bytes: &[u8]) -> Result<(), Stri
         "macos" if !bytes.starts_with(&[0x1f, 0x8b]) => {
             Err("downloaded update is not a macOS app archive".into())
         }
-        "windows" | "macos" => Ok(()),
+        "linux" if !bytes.starts_with(b"!<arch>\ndebian-binary") => {
+            Err("downloaded update is not a Debian package".into())
+        }
+        "windows" | "macos" | "linux" => Ok(()),
         _ => Err("cached updates are not supported on this platform".into()),
     }
 }
@@ -134,6 +139,7 @@ fn write_artifact(
     let file_name = match platform {
         "windows" => format!("QwenPaw-Desktop_{version}_x64-setup.exe"),
         "macos" => format!("QwenPaw-Desktop_{version}_macos.app.tar.gz"),
+        "linux" => format!("QwenPaw-Desktop_{version}_linux.deb"),
         _ => return Err("cached updates are not supported on this platform".into()),
     };
     let path = dest_dir.join(file_name);
