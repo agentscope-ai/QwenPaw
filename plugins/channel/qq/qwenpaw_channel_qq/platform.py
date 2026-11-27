@@ -199,6 +199,11 @@ class _HeartbeatController:
         if any(timer.is_alive() for timer in self._timers):
             raise RuntimeError("QQ_HEARTBEAT_STOP_INCOMPLETE")
 
+    def is_alive(self):
+        """Return whether this controller still owns a live timer thread."""
+        with self._lock:
+            return any(timer.is_alive() for timer in self._timers)
+
 
 class SequenceRegistry:
     def __init__(self):
@@ -272,6 +277,7 @@ class QQPlatform:
         self._loop = asyncio.get_running_loop()
         self._http = httpx.AsyncClient(timeout=30)
         self._stop_event.clear()
+        self._close_errors.clear()
         self._ws_thread = threading.Thread(
             target=self._run_ws_forever,
             name="qq-gateway",
@@ -1366,9 +1372,15 @@ class QQPlatform:
         )
         return not self._stop_event.wait(delay)
 
+    def _reap_heartbeats(self):
+        """Release exited controllers while retaining live stop ownership."""
+        with self._heartbeat_lock:
+            self._heartbeats = {hb for hb in self._heartbeats if hb.is_alive()}
+
     def _ws_connect_once(self, state, websocket):
         if self._stop_event.is_set():
             return False
+        self._reap_heartbeats()
         if state.should_refresh_token:
             self._clear_token_cache()
             state.should_refresh_token = False
@@ -1459,7 +1471,13 @@ class QQPlatform:
             try:
                 hb.join()
             except Exception as exc:
-                self._close_errors.append(exc)
+                if self._stop_event.is_set():
+                    self._close_errors.append(exc)
+                else:
+                    logger.warning(
+                        f"QQ heartbeat cleanup failed; continuing reconnect",
+                        exc_info=True,
+                    )
             else:
                 with self._heartbeat_lock:
                     self._heartbeats.discard(hb)
@@ -1468,12 +1486,23 @@ class QQPlatform:
                 if ws.connected:
                     raise RuntimeError("QQ_SOCKET_STOP_INCOMPLETE")
             except Exception as exc:
-                self._close_errors.append(exc)
+                if self._stop_event.is_set():
+                    # Explicit-stop callers need the failure and the still-owned
+                    # handle to remain visible for QQ_NATIVE_CLOSE_FAILED.
+                    self._close_errors.append(exc)
+                else:
+                    logger.warning(
+                        f"QQ socket cleanup failed; continuing reconnect",
+                        exc_info=True,
+                    )
             else:
                 self._ws = None
+            finally:
+                if not self._stop_event.is_set():
+                    self._ws = None
             if not self._stop_event.is_set():
                 self._bridge(self.on_state("disconnected"), epoch)
-        if self._close_errors:
+        if self._stop_event.is_set():
             return False
         delay = self._compute_reconnect_delay(state)
         state.reconnect_attempts += 1
@@ -1490,6 +1519,7 @@ class QQPlatform:
         try:
             import websocket
 
+            self._close_errors.clear()
             self._sync_http = httpx.Client(timeout=15)
             while self._ws_connect_once(self._state, websocket):
                 pass
@@ -1514,7 +1544,10 @@ class QQPlatform:
                 try:
                     self._bridge(self.on_state("failed"), self._epoch)
                 except Exception:
-                    pass
+                    logger.warning(
+                        f"QQ failed to publish platform failure state",
+                        exc_info=True,
+                    )
             self._stop_event.set()
             logger.info(f"QQ gateway thread stopped")
 
@@ -1562,6 +1595,17 @@ class QQPlatform:
             heartbeats = tuple(self._heartbeats)
         for heartbeat in heartbeats:
             await self._file_io(heartbeat.join)
+        if self._ws is not None:
+            # A peer-disconnect cleanup may race with stop(). Recheck a handle
+            # retained by that race after the gateway thread has exited.
+            try:
+                self._ws.close()
+                if self._ws.connected:
+                    raise RuntimeError("QQ_SOCKET_STOP_INCOMPLETE")
+            except Exception as exc:
+                self._close_errors.append(exc)
+            else:
+                self._ws = None
         if (
             self._http is not None
             and not self._http_closed
