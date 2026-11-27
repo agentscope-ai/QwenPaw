@@ -151,6 +151,14 @@ class CodeModeToolkit(Toolkit):
     async def call_tool(self, tool_call, state):
         invocation = _execution_toolkit.get()
         target = invocation if invocation is not None else self
+        if (
+            invocation is not None
+            and await invocation.get_tool(tool_call.name) is None
+        ):
+            # A tool that calls other tools through the current toolkit
+            # (run_tool_batch) runs in a one-tool invocation toolkit; send its
+            # nested calls through the catalog's own call pipeline (#8903).
+            target = self.catalog
         if target is self:
             async for chunk in super().call_tool(tool_call, state):
                 yield chunk
