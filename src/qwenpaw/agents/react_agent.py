@@ -254,8 +254,8 @@ _RESIZE_INEFFECTIVE_MEDIA_SIGNALS = (
     "too many image",
 )
 
-# A payload rejection only counts when the provider actually names the media
-# it refused; "invalid request" alone must keep its existing handling.
+# Text-based payload matching requires the provider to name the media.
+# The structured generic 400 case is handled separately.
 _MEDIA_PAYLOAD_MEDIA_NOUNS = (
     "image",
     "audio",
@@ -1188,6 +1188,8 @@ class QwenPawAgent(Agent):
         URLs: those requests carry no audio blocks and never reach the
         audio-strip retry.
         """
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
         error_str = " ".join(str(exc).lower().split())
         status = extract_status_code(exc)
         has_bad_request_status = status == 400 or "<400>" in error_str
@@ -1451,10 +1453,12 @@ class QwenPawAgent(Agent):
         # non-streaming call failed, so the streaming classifier has to be
         # consulted here too — otherwise the block stays in state.context
         # and every later turn replays the same rejection.
+        # Leave a generic 400 to the request-only retry in _reasoning().
         has_media = self._last_wire_request_had_media()
         media_rejection = (
             not body_overflow
             and has_media
+            and not self._is_generic_media_bad_request_error(exc)
             and not QwenPawAgent._is_modality_specific_media_rejection(exc)
             and self._is_media_payload_rejection_error(exc)
         )
@@ -1842,6 +1846,9 @@ class QwenPawAgent(Agent):
                 self._last_wire_request_had_audio()
                 and QwenPawAgent._is_audio_count_limit_error(e)
             )
+            generic_bad_request_retry = (
+                QwenPawAgent._is_generic_media_bad_request_error(e)
+            )
             media_capability_retry = (
                 self._last_wire_request_had_media()
                 and self._is_explicit_media_capability_error(e)
@@ -1904,13 +1911,16 @@ class QwenPawAgent(Agent):
                 # strip this request; only when nothing historical is left
                 # is the refusal about the active turn itself, in which case
                 # a smaller rendition is the only recovery left.
-                omitted = mark_media_omitted_after_overflow(
-                    self.state.context,
-                )
+                omitted = 0
+                if not generic_bad_request_retry:
+                    omitted = mark_media_omitted_after_overflow(
+                        self.state.context,
+                    )
                 if (
-                    not omitted
-                    and not QwenPawAgent._is_resize_ineffective_media_rejection(
-                        e,
+                    not generic_bad_request_retry
+                    and not omitted
+                    and not (
+                        QwenPawAgent._is_resize_ineffective_media_rejection(e)
                     )
                 ):
                     tightened_limits = self._tighten_media_limits()
@@ -1922,23 +1932,42 @@ class QwenPawAgent(Agent):
                 # and removes nothing, so reporting the whole summary there
                 # claimed an omission that never happened.
                 removed = omitted
-                if not omitted and tightened_limits is None:
+                if (
+                    not generic_bad_request_retry
+                    and not omitted
+                    and tightened_limits is None
+                ):
                     removed = len(self._last_wire_media_summary())
                 if removed:
                     self._note_media_omission(removed, "provider media limit")
-                logger.warning(
-                    "_reasoning failed because the provider rejected the "
-                    "media payload itself (%s); stripping %s from the "
-                    "retry request, marking %d historical block(s) as "
-                    "omitted, limits shrunk=%s. No capability loss is "
-                    "cached.",
-                    e,
-                    ", ".join(self._last_wire_media_summary())
-                    or "unlabelled media",
-                    omitted,
-                    tightened_limits is not None,
-                )
-                if not omitted and tightened_limits is None:
+                if generic_bad_request_retry:
+                    self._note_media_omission(
+                        len(self._last_wire_media_summary()),
+                        "retry without media",
+                    )
+                    logger.warning(
+                        "_reasoning failed with media in the request (%s); "
+                        "stripping media from the retry request. Stored "
+                        "history remains unchanged, and no capability loss "
+                        "is cached.",
+                        e,
+                    )
+                else:
+                    logger.warning(
+                        "_reasoning failed because the provider rejected the "
+                        "media payload itself (%s); stripping %s from the "
+                        "retry request, marking %d historical block(s) as "
+                        "omitted, limits shrunk=%s. No capability loss is "
+                        "cached.",
+                        e,
+                        ", ".join(self._last_wire_media_summary())
+                        or "unlabelled media",
+                        omitted,
+                        tightened_limits is not None,
+                    )
+                if generic_bad_request_retry or (
+                    not omitted and tightened_limits is None
+                ):
                     # Dropping every media block is the only recovery left
                     # when no smaller rendition is available and nothing
                     # historical could be omitted. It is wrong once
@@ -2155,7 +2184,24 @@ class QwenPawAgent(Agent):
 
     @staticmethod
     def _is_content_safety_error(exc: Exception) -> bool:
-        """Return True for provider-side content safety rejections."""
+        """Keep content filtering out of the agent's media retries."""
+        codes = [getattr(exc, "code", None), getattr(exc, "type", None)]
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            for error in (body, body.get("error")):
+                if isinstance(error, dict):
+                    codes.extend((error.get("code"), error.get("type")))
+        safety_codes = (
+            "content_filter",
+            "data_inspection_failed",
+            "datainspectionfailed",
+        )
+        if any(
+            isinstance(code, str) and code.lower() in safety_codes
+            for code in codes
+        ):
+            return True
+
         error_str = str(exc).lower()
         safety_markers = (
             "new_sensitive",
@@ -2164,9 +2210,13 @@ class QwenPawAgent(Agent):
             "content sensitivity",
             "content policy",
             "content_policy",
-            "moderation",
+            "content safety",
             "content_safety",
             "safety_filter",
+            "moderation",
+            "inappropriate content",
+            "data_inspection_failed",
+            "datainspectionfailed",
             "(1026)",
         )
         return any(marker in error_str for marker in safety_markers)
@@ -2209,8 +2259,21 @@ class QwenPawAgent(Agent):
         )
 
     @staticmethod
+    def _is_generic_media_bad_request_error(exc: Exception) -> bool:
+        """Identify the unqualified 400 reported for media requests."""
+        body = getattr(exc, "body", None)
+        if extract_status_code(exc) != 400 or not isinstance(body, dict):
+            return False
+        message = body.get("message")
+        return (
+            isinstance(message, str)
+            and message.strip().lower() == "invalid request parameters"
+            and body.get("param") in (None, "")
+        )
+
+    @staticmethod
     def _is_media_payload_rejection_error(exc: Exception) -> bool:
-        """Return whether the provider rejected this media payload.
+        """Return whether a rejection warrants one media-free retry.
 
         Covers the request-scoped media limits documented by
         ``_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS`` — too many images, a
@@ -2220,22 +2283,36 @@ class QwenPawAgent(Agent):
         anything about the model, so recovery is a media-free retry, never
         a cached model-wide ``rejects_media`` capability loss.
 
+        Also covers the generic 400 reported in #8887. The caller requires
+        evidence that media was actually sent before this can trigger.
+
         This matters for session health: the offending block is replayed
         from history on every later turn, so an unrecovered payload
         rejection returns the same 400 until the media is repaired in the
         stored context (see the caller in :meth:`_reasoning`).
         """
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
+
         error_str = " ".join(str(exc).lower().split())
         # A tool-schema failure is not about media, even when the tool or
         # field names contain media words: ``resize_image`` with a
         # ``dimensions`` field used to mark a valid historical image as
-        # omitted. The failing parameter is only in the structured body of
-        # an SDK error, so check that too and propagate the schema error
-        # untouched.
-        if _TOOL_PARAMETERS_PATH_RE.search(
-            error_str,
-        ) or _TOOL_PARAMETERS_PATH_RE.search(_structured_error_text(exc)):
+        # omitted. Check the error code and both forms of the parameter path
+        # before accepting a generic 400 as a media rejection.
+        body = getattr(exc, "body", None)
+        if (
+            getattr(exc, "code", None) == "invalid_function_parameters"
+            or (
+                isinstance(body, dict)
+                and body.get("code") == "invalid_function_parameters"
+            )
+            or _TOOL_PARAMETERS_PATH_RE.search(error_str)
+            or _TOOL_PARAMETERS_PATH_RE.search(_structured_error_text(exc))
+        ):
             return False
+        if QwenPawAgent._is_generic_media_bad_request_error(exc):
+            return True
         if not any(noun in error_str for noun in _MEDIA_PAYLOAD_MEDIA_NOUNS):
             return False
         if QwenPawAgent._is_content_safety_error(exc):

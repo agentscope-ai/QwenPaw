@@ -20,6 +20,7 @@ from openai import APIStatusError, AsyncOpenAI
 from PIL import Image
 import pytest
 from agentscope.agent import Agent
+from agentscope.event import TextBlockDeltaEvent
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
     Base64Source,
@@ -34,6 +35,7 @@ from agentscope.message import (
 
 from qwenpaw.agents import model_factory
 from qwenpaw.agents.react_agent import QwenPawAgent
+from qwenpaw.agents.tools import view_media
 from qwenpaw.agents.tools.send_file import send_file_to_user
 from qwenpaw.agents.utils.image_resize import downscale_image_bytes
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
@@ -614,6 +616,23 @@ def _error(status: int, message: str) -> httpx.Response:
     )
 
 
+def _mimo_bad_request(
+    status: int = 400,
+    param: str = "",
+) -> httpx.Response:
+    return httpx.Response(
+        status,
+        json={
+            "error": {
+                "code": str(status),
+                "message": "Invalid request parameters",
+                "param": param,
+                "type": "BadRequestError",
+            },
+        },
+    )
+
+
 def _parts(messages: list[dict]) -> list[dict]:
     return [
         part
@@ -626,6 +645,10 @@ def _parts(messages: list[dict]) -> list[dict]:
 @pytest.fixture
 async def video_session(monkeypatch, tmp_path):
     """Use real file-tool output and wire formatting with a mocked server."""
+    monkeypatch.setattr(
+        "qwenpaw.config.context.get_current_workspace_dir",
+        lambda: tmp_path / "workspace",
+    )
     cache = get_capability_cache()
     cache.clear()
     path = tmp_path / "clip.mp4"
@@ -714,19 +737,34 @@ async def video_session(monkeypatch, tmp_path):
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)),
     ) as client:
 
-        async def provider_reasoning(self, tool_choice=None):
-            del tool_choice
-            messages = await self.formatter.format(self.state.context)
-            response = await client.chat.completions.create(
+        async def call_provider(self, messages, tools, tool_choice=None):
+            return await client.chat.completions.create(
                 model="test-video",
-                messages=messages,
+                messages=await self.formatter.format(messages),
+            )
+
+        async def prepare_model_input():
+            return {"messages": agent.state.context, "tools": []}
+
+        async def provider_reasoning(self, tool_choice=None):
+            response = await self._call_model(
+                tool_choice=tool_choice,
+                **await self._prepare_model_input(),
+            )
+            text = response.choices[0].message.content
+            yield TextBlockDeltaEvent(
+                reply_id=self.state.reply_id,
+                block_id="response-text",
+                delta=text,
             )
             yield Msg(
                 name="agent",
                 role="assistant",
-                content=[TextBlock(text=response.choices[0].message.content)],
+                content=[TextBlock(text=text)],
             )
 
+        monkeypatch.setattr(agent, "_prepare_model_input", prepare_model_input)
+        monkeypatch.setattr(Agent, "_call_model", call_provider)
         monkeypatch.setattr(Agent, "_reasoning", provider_reasoning)
         try:
             yield session
@@ -766,6 +804,218 @@ def _assert_recovery(session, video_counts, learned):
         )
         for kind in ("video", "audio", "media")
     } == {"video": False, "audio": False, "media": False}
+
+
+@pytest.mark.parametrize("with_current_video", [False, True])
+async def test_generic_400_with_historical_tool_video_recovers_each_turn(
+    video_session,
+    monkeypatch,
+    tmp_path,
+    with_current_video,
+):
+    session = video_session
+    agent = session.agent
+    monkeypatch.setattr(
+        view_media,
+        "_check_multimodal_support",
+        lambda modality: True,
+    )
+    clip = tmp_path / "history.mp4"
+    clip.write_bytes(b"video")
+    video = await view_media.view_video(str(clip))
+    archive = tmp_path / "attachment.zip"
+    archive.write_bytes(b"zip")
+    sent = await send_file_to_user(str(archive))
+    # Windows can report this MIME type instead of application/zip.
+    sent.content[0].source.media_type = "application/x-zip-compressed"
+
+    agent.state.context = [
+        Msg(name="user", role="user", content=[TextBlock(text="Inspect")]),
+    ]
+    agent.state.context.extend(
+        Msg(
+            name="agent",
+            role="assistant",
+            content=[
+                ToolCallBlock(id=name, name=name, input="{}"),
+                ToolResultBlock(id=name, name=name, output=result.content),
+            ],
+        )
+        for name, result in [
+            ("view_video", video),
+            ("send_file_to_user", sent),
+        ]
+    )
+    agent.state.context.append(
+        Msg(name="agent", role="assistant", content=[TextBlock(text="OK")]),
+    )
+
+    for question, attach_video in (
+        ("Continue", with_current_video),
+        ("One more question", False),
+    ):
+        content = [TextBlock(text=question)]
+        if attach_video:
+            content.append(
+                DataBlock(
+                    source=URLSource(
+                        url=(tmp_path / "clip.mp4").as_uri(),
+                        media_type="video/mp4",
+                    ),
+                ),
+            )
+        agent.state.context.append(
+            Msg(name="user", role="user", content=content),
+        )
+        before = _dump_context(agent.state.context)
+        session.errors.append(_mimo_bad_request())
+        events = [event async for event in agent._reasoning()]
+
+        assert events[-1].content[0].text == "done"
+        assert _dump_context(agent.state.context) == before
+
+    video_count = 2 if with_current_video else 1
+    assert [
+        model_factory._count_wire_media_blocks(request)
+        for request in session.requests
+    ] == [video_count, 0, video_count, 0]
+    for request in session.requests:
+        tool_results = {
+            msg["tool_call_id"]: msg["content"]
+            for msg in request
+            if msg["role"] == "tool"
+        }
+        assert "Video loaded: history.mp4" in tool_results["view_video"]
+        assert "attachment.zip" in tool_results["send_file_to_user"]
+        assert "File sent successfully." in tool_results["send_file_to_user"]
+    for key in ("rejects_video", "rejects_audio", "rejects_media"):
+        assert not session.cache.get("test:video", key, False)
+    assert not agent.formatter._qwenpaw_force_strip_media
+
+
+async def test_generic_400_reports_omitted_current_attachments(video_session):
+    session = video_session
+    agent = session.agent
+    agent.state.context = agent.state.context[:1]
+    before = _dump_context(agent.state.context)
+    session.errors.append(_mimo_bad_request())
+
+    events = [event async for event in agent._reasoning()]
+
+    assert [
+        model_factory._count_wire_media_blocks(request)
+        for request in session.requests
+    ] == [3, 0]
+    assert isinstance(events[0], TextBlockDeltaEvent)
+    for event in (events[0], events[-1]):
+        assert event.metadata.get("qwenpaw_media_omitted") == {
+            "count": 3,
+            "reason": "retry without media",
+        }
+    assert _dump_context(agent.state.context) == before
+
+
+@pytest.mark.parametrize(
+    ("status", "param"),
+    [(422, ""), (400, "temperature")],
+)
+async def test_generic_error_with_media_but_wrong_status_or_named_parameter(
+    video_session,
+    status,
+    param,
+):
+    session = video_session
+    session.errors.append(_mimo_bad_request(status, param))
+    with pytest.raises(APIStatusError, match="Invalid request parameters"):
+        _ = [event async for event in session.agent._reasoning()]
+    _assert_recovery(session, [2], learned=False)
+
+
+@pytest.mark.parametrize(
+    "tool_error",
+    [
+        {"code": "invalid_function_parameters"},
+        {"details": {"path": "tools[0].function.parameters"}},
+    ],
+    ids=["error-code", "parameter-path"],
+)
+async def test_generic_400_with_tool_parameter_error_does_not_retry(
+    video_session,
+    tool_error,
+):
+    session = video_session
+    before = _dump_context(session.agent.state.context)
+    session.errors.append(
+        httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": "Invalid request parameters",
+                    "code": "400",
+                    "param": "",
+                    **tool_error,
+                },
+            },
+        ),
+    )
+
+    with pytest.raises(APIStatusError, match="Invalid request parameters"):
+        _ = [event async for event in session.agent._reasoning()]
+
+    _assert_recovery(session, [2], learned=False)
+    assert _dump_context(session.agent.state.context) == before
+
+
+@pytest.mark.parametrize(
+    ("message", "filter_field", "filter_value"),
+    [
+        ("Invalid request parameters", "code", "content_filter"),
+        ("Invalid request parameters", "type", "content_filter"),
+        (
+            "The provided URL does not appear to be valid",
+            "code",
+            "content_filter",
+        ),
+        ("Invalid request parameters", "code", "DataInspectionFailed"),
+        ("Invalid request parameters", "type", "data_inspection_failed"),
+    ],
+)
+async def test_content_filter_does_not_retry_with_media(
+    video_session,
+    message,
+    filter_field,
+    filter_value,
+):
+    session = video_session
+    session.errors.append(
+        httpx.Response(
+            400,
+            json={
+                "error": {
+                    "message": message,
+                    "param": "",
+                    filter_field: filter_value,
+                },
+            },
+        ),
+    )
+    with pytest.raises(APIStatusError, match=message):
+        _ = [event async for event in session.agent._reasoning()]
+    _assert_recovery(session, [2], learned=False)
+
+
+async def test_generic_400_media_free_retry_is_attempted_only_once(
+    video_session,
+):
+    session = video_session
+    session.errors.extend([_mimo_bad_request(), _mimo_bad_request()])
+    with pytest.raises(APIStatusError, match="Invalid request parameters"):
+        _ = [event async for event in session.agent._reasoning()]
+    assert [
+        model_factory._count_wire_media_blocks(request)
+        for request in session.requests
+    ] == [4, 0]
+    assert not session.agent.formatter._qwenpaw_force_strip_media
 
 
 @pytest.mark.parametrize(
@@ -860,13 +1110,24 @@ async def test_failed_video_retry_does_not_learn_or_mutate_history(
     assert [msg.model_dump() for msg in session.agent.state.context] == before
 
 
-async def test_schema_error_without_wire_video_does_not_retry(video_session):
+@pytest.mark.parametrize(
+    ("make_error", "match"),
+    [
+        (lambda: _error(422, _VIDEO_SCHEMA_ERROR), "unknown variant"),
+        (_mimo_bad_request, "Invalid request parameters"),
+    ],
+)
+async def test_media_fallback_without_wire_media_does_not_retry(
+    video_session,
+    make_error,
+    match,
+):
     session = video_session
     session.agent.state.context = [
         Msg(name="user", role="user", content=[TextBlock(text="hello")]),
     ]
-    session.errors.append(_error(422, _VIDEO_SCHEMA_ERROR))
-    with pytest.raises(APIStatusError, match="unknown variant"):
+    session.errors.append(make_error())
+    with pytest.raises(APIStatusError, match=match):
         _ = [event async for event in session.agent._reasoning()]
     assert len(session.requests) == 1
     assert session.cache.get("test:video", "rejects_video", False) is False
@@ -1097,8 +1358,6 @@ async def test_the_omission_notice_rides_an_event_consumers_receive():
     only to those never reaches Console or a channel, so it rides the same
     streamed events the model-fallback notice rides.
     """
-    from agentscope.event import TextBlockDeltaEvent
-
     from qwenpaw.runtime.envelope import Envelope
 
     agent: QwenPawAgent = object.__new__(QwenPawAgent)
@@ -1181,8 +1440,6 @@ async def test_the_completed_message_keeps_the_omission_notice():
     starts without any metadata. A notice that only rode the deltas reached
     Console consumers and nothing else.
     """
-    from agentscope.event import TextBlockDeltaEvent
-
     from qwenpaw.runtime.envelope import Envelope
 
     notice = {"count": 2, "reason": "provider media limit"}
