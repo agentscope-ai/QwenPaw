@@ -90,7 +90,7 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
                     key: "update",
                     icon: <RefreshCw size={16} />,
                     label: t("webApp.update"),
-                    onClick: update,
+                    onClick: () => action(update),
                   },
                 ]
               : []),

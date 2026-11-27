@@ -22,6 +22,8 @@ from .auth import HubUser
 from .models import RuntimeRecord, RuntimeState
 
 logger = logging.getLogger(__name__)
+_WATCH_INTERVAL = 5
+_CLOSE_TIMEOUT = 10
 
 
 class _RuntimeUnavailable(ValueError):
@@ -126,13 +128,13 @@ class HubPlatformConnections:
                 )
             if state.runtime_id and state.runtime_id != record.runtime_id:
                 raise HTTPException(status_code=409, detail="Disconnect first")
-            await asyncio.to_thread(
-                connection.store.save,
+            await connection.store.save_async(
                 replace(state, runtime_id=record.runtime_id),
             )
 
     async def watch(self) -> None:
         """Restore owned connections and stop disabled or moved accounts."""
+        checks: dict[str, asyncio.Task[None]] = {}
         try:
             paths = await asyncio.to_thread(
                 lambda: list(self.root.glob("*/platform-node.json")),
@@ -141,27 +143,43 @@ class HubPlatformConnections:
                 self.get(path.parent.name)
             while True:
                 for user_id, connection in tuple(self.connections.items()):
-                    try:
-                        await asyncio.to_thread(self._runtime, user_id)
-                        if connection.supervisor.status != (
-                            "authorization_required"
-                        ):
-                            await connection.start()
-                    except _RuntimeUnavailable:
-                        pass
-                    except Exception as exc:
-                        logger.warning(
-                            "Cannot restore Platform connection for %s: %s",
-                            user_id,
-                            type(exc).__name__,
+                    check = checks.get(user_id)
+                    if check is None or check.done():
+                        checks[user_id] = asyncio.create_task(
+                            self._check_connection(user_id, connection),
                         )
-                    else:
-                        continue
-                    await self._close(user_id, connection)
-                await asyncio.sleep(5)
+                await asyncio.sleep(_WATCH_INTERVAL)
         finally:
-            for user_id, connection in tuple(self.connections.items()):
-                await self._close(user_id, connection)
+            for check in checks.values():
+                check.cancel()
+            await asyncio.gather(*checks.values(), return_exceptions=True)
+            await asyncio.gather(
+                *(
+                    self._close(user_id, connection)
+                    for user_id, connection in tuple(self.connections.items())
+                ),
+            )
+
+    async def _check_connection(
+        self,
+        user_id: str,
+        connection: PlatformRuntimeConnection,
+    ) -> None:
+        try:
+            await asyncio.to_thread(self._runtime, user_id)
+            if connection.supervisor.status != "authorization_required":
+                await connection.start()
+        except _RuntimeUnavailable:
+            pass
+        except Exception as exc:
+            logger.warning(
+                "Cannot restore Platform connection for %s: %s",
+                user_id,
+                type(exc).__name__,
+            )
+        else:
+            return
+        await self._close(user_id, connection)
 
     async def _close(
         self,
@@ -169,7 +187,8 @@ class HubPlatformConnections:
         connection: PlatformRuntimeConnection,
     ) -> None:
         try:
-            await connection.close()
+            async with asyncio.timeout(_CLOSE_TIMEOUT):
+                await connection.close()
         except Exception as exc:
             logger.warning(
                 "Cannot close Platform connection for %s: %s",

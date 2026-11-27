@@ -6,7 +6,9 @@ export function HostNavigation() {
   const { pathname, search, hash } = useLocation();
   useEffect(() => {
     if (consoleHost)
-      void hostRequest("/host/navigation", { route: pathname + search + hash });
+      void hostRequest("/host/navigation", {
+        route: pathname + search + hash,
+      }).catch(() => undefined);
   }, [pathname, search, hash]);
   return null;
 }
