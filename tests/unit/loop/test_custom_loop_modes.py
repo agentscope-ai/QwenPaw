@@ -603,3 +603,52 @@ async def test_tool_call_budget_enforces_per_tool_limit() -> None:
 
     assert result.action == StopAction.TERMINATE
     assert "search" in result.reason
+
+
+def _tool_call(call_id: str, name: str) -> dict:
+    return {"type": "tool_call", "id": call_id, "name": name, "input": "{}"}
+
+
+@pytest.mark.asyncio
+async def test_tool_call_budget_counts_calls_appended_to_one_message() -> None:
+    """agentscope appends every iteration's calls to one reply message.
+
+    Each call must be counted once, not once per later iteration.
+    """
+    gate = ToolCallBudgetGate(max_calls=5)
+    gate.reset_turn()
+    message = SimpleNamespace(id="reply-1", role="assistant", content=[])
+    agent = SimpleNamespace(state=SimpleNamespace(context=[message]))
+
+    actions = []
+    for iteration in range(1, 5):
+        message.content.append(_tool_call(f"call-{iteration}", "search"))
+        result = await gate.check({"iteration": iteration, "agent": agent})
+        actions.append(result.action)
+
+    assert actions == [StopAction.BYPASS] * 4
+
+    message.content.append(_tool_call("call-5", "search"))
+    result = await gate.check({"iteration": 5, "agent": agent})
+    assert result.action == StopAction.TERMINATE
+    assert "5 calls" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_tool_call_budget_ignores_old_calls_on_final_iteration() -> None:
+    """A text-only final step must not re-count earlier calls."""
+    gate = ToolCallBudgetGate(per_tool={"search": 2})
+    gate.reset_turn()
+    message = SimpleNamespace(
+        id="reply-1",
+        role="assistant",
+        content=[_tool_call("call-1", "search")],
+    )
+    agent = SimpleNamespace(state=SimpleNamespace(context=[message]))
+
+    first = await gate.check({"iteration": 1, "agent": agent})
+    message.content.append({"type": "text", "text": "done"})
+    final = await gate.check({"iteration": 2, "agent": agent})
+
+    assert first.action == StopAction.BYPASS
+    assert final.action == StopAction.BYPASS
