@@ -1,3 +1,9 @@
+import { STEER_SUBMIT_QUEUE } from "./chatFeatures";
+import {
+  createEmptyInputQueueState,
+  enqueueInputQueueState,
+  getInputQueueStorageKey,
+} from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Chat/InputQueue";
 import { ChatSessionActivation } from "./components/ChatSessionActivation";
 import { ChatSessionTransition } from "./components/ChatSessionTransition";
 import SdkRef from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Ref";
@@ -174,6 +180,7 @@ function mountHost(
   creationGate?: ReturnType<typeof deferred>,
   observeIdle = false,
   withRetryTransition = false,
+  borrowQueueEntry = false,
 ) {
   let probe!: Probe;
   const sdkRef = {
@@ -291,7 +298,7 @@ function mountHost(
           api: adapter.api,
           onCurrentSessionChange: (id) => sessionApi.activateCreatedSession(id),
         },
-        sender: { queue: false },
+        sender: { queue: borrowQueueEntry ? STEER_SUBMIT_QUEUE : false },
         api: {
           fetch: fixture.transport,
           cancel: async (data) => {
@@ -609,13 +616,20 @@ describe("installed SDK activation after route ownership resolution", () => {
     const host = mountLinkedHost(`/chat/${B}`);
 
     expect(fixture.history).not.toHaveBeenCalled();
-    expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+    expect(screen.getByTestId("linked-messages")).toBeVisible();
+    expect(screen.getByTestId("linked-messages").parentElement).toHaveProperty(
+      "inert",
+      true,
+    );
     await act(async () => resolveGate.resolve());
     await waitFor(() => {
       expect(screen.getByTestId("linked-messages")).toHaveTextContent(
         `linked-history-${B}`,
       );
       expect(screen.getByTestId("linked-messages")).toBeVisible();
+      expect(
+        screen.getByTestId("linked-messages").parentElement,
+      ).toHaveProperty("inert", false);
     });
     expect(host.current().sessions.currentSessionId).toBe(B);
     expect(host.current().path).toBe(`/chat/${B}`);
@@ -693,7 +707,10 @@ describe("installed SDK activation after route ownership resolution", () => {
 
       await waitFor(() => expect(screen.getByRole("alert")).toBeVisible());
       expect(resolve).toHaveBeenCalledTimes(coldResolved ? 2 : 1);
-      expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+      expect(screen.getByTestId("linked-messages")).toBeVisible();
+      expect(
+        screen.getByTestId("linked-messages").parentElement,
+      ).toHaveProperty("inert", true);
       expect(host.current().path).toBe(`/chat/${B}`);
       expect(fixture.create).not.toHaveBeenCalled();
     },
@@ -743,7 +760,7 @@ describe("installed SDK activation after route ownership resolution", () => {
   );
 
   it.each([404, 409])(
-    "hides repeated-alias history while a new resolution awaits %s",
+    "keeps repeated-alias history inert while resolution awaits %s",
     async (status) => {
       const alias = `runtime-${B}`;
       const gate = deferred();
@@ -771,12 +788,18 @@ describe("installed SDK activation after route ownership resolution", () => {
       await act(async () => host.current().navigate(`/chat/${alias}`));
 
       expect(resolve).toHaveBeenCalledTimes(2);
-      expect(screen.getByRole("status")).toBeVisible();
-      expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+      expect(screen.getByText(i18n.t("common.loading"))).toBeVisible();
+      expect(screen.getByTestId("linked-messages")).toBeVisible();
+      expect(
+        screen.getByTestId("linked-messages").parentElement,
+      ).toHaveProperty("inert", true);
       expect(fixture.history).toHaveBeenCalledOnce();
       await act(async () => gate.resolve());
       await waitFor(() => expect(screen.getByRole("alert")).toBeVisible());
-      expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+      expect(screen.getByTestId("linked-messages")).toBeVisible();
+      expect(
+        screen.getByTestId("linked-messages").parentElement,
+      ).toHaveProperty("inert", true);
       expect(host.current().path).toBe(`/chat/${alias}`);
       expect(fixture.create).not.toHaveBeenCalled();
     },
@@ -862,13 +885,17 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
       fixture.records.push(record(B));
       sessionApi.preferredChatId = localId;
       await sessionApi.getSessionList();
-      sessionApi.setLastUserMessage(
-        [A, localId],
-        command,
-        undefined,
-        "reset-command",
-      );
-      fixture.history.mockResolvedValue({ status: "running", messages: [] });
+      fixture.history.mockResolvedValue({
+        status: "running",
+        messages: [
+          {
+            id: "reset-command",
+            role: "user",
+            type: "message",
+            content: [{ type: "text", text: command }],
+          },
+        ],
+      });
       const preloaded = await sessionApi.preloadSession(localId);
       expect(preloaded.realId).toBe(A);
       expect(preloaded.session.generating).toBe(true);
@@ -898,9 +925,10 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
 
   it.each(["/clear", "/new"])(
     "keeps cleared history empty after %s across navigation and remount",
-    async (command) => {
+    async () => {
       fixture.records.push(record(B));
-      sessionApi.setLastUserMessage(A, command, undefined, "reset-command");
+      // The server projection is authoritative after reset completion.
+      fixture.history.mockResolvedValue({ status: "idle", messages: [] });
       const host = mountHost(fixture);
       await waitFor(() => expect(host.adapter.isReady(A)).toBe(true));
       expect(host.current().messages.getMessages()).toEqual([]);
@@ -951,7 +979,7 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toBeVisible());
     let surface = screen.getByTestId("sdk-loader-probe").parentElement!;
     expect(surface.inert).toBe(true);
-    expect(surface).not.toBeVisible();
+    expect(surface).toBeVisible();
     expect(host.current().sessions.currentSessionId).toBe(A);
 
     await user.click(
@@ -961,7 +989,7 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     expect(screen.getByRole("alert")).toBeVisible();
     surface = screen.getByTestId("sdk-loader-probe").parentElement!;
     expect(surface.inert).toBe(true);
-    expect(surface).not.toBeVisible();
+    expect(surface).toBeVisible();
 
     await user.click(
       screen.getByRole("button", { name: i18n.t("common.retry") }),
@@ -1428,4 +1456,72 @@ describe("published SDK cancellation with CoPaw adapter", () => {
       expect(host.current().input.getSessionLoading?.(A)).toBe(false);
     },
   );
+});
+
+it("borrows the queue entry without storing, restoring or draining queued inputs", async () => {
+  const stored = JSON.stringify(
+    enqueueInputQueueState(
+      createEmptyInputQueueState(),
+      { query: "old queued input", fileList: [] },
+      { ownerTabId: "old-tab" },
+    ).state,
+  );
+  const keys = [
+    getInputQueueStorageKey(A),
+    getInputQueueStorageKey(`default::${A}`),
+  ];
+  keys.forEach((key) => localStorage.setItem(key, stored));
+  const host = mountHost(fixture, undefined, false, false, true);
+  await waitFor(() =>
+    expect(host.loaded).toContainEqual({ id: A, generating: false }),
+  );
+  expect(host.current().controller.inputQueueEnabled).toBe(true);
+  expect(host.current().controller.inputQueue).toEqual([]);
+  await act(async () => {
+    const result = await host
+      .current()
+      .controller.enqueueQueuedInput({ query: "forced enqueue", fileList: [] });
+    expect(result).toMatchObject({ ok: false, reason: "session-not-ready" });
+  });
+  expect(fixture.transport).not.toHaveBeenCalled();
+  act(() => {
+    pendingSubmissions.push(
+      Promise.resolve(
+        host.current().controller.handleSubmit({
+          query: "ordinary attachment",
+          fileList: [
+            {
+              uid: "f1",
+              name: "probe.txt",
+              status: "done",
+              response: { url: "/media/probe.txt" },
+              type: "text/plain",
+            },
+          ],
+        }),
+      ),
+    );
+  });
+  await waitFor(() => expect(fixture.transport).toHaveBeenCalledTimes(1));
+  expect(JSON.stringify(fixture.streams[0].data.input)).toContain(
+    "/media/probe.txt",
+  );
+  await act(async () => {
+    const result = await host.current().controller.enqueueQueuedInput({
+      query: "busy forced enqueue",
+      fileList: [],
+    });
+    expect(result).toMatchObject({ ok: false, reason: "session-not-ready" });
+    fixture.streams[0].close();
+    await Promise.all(pendingSubmissions);
+  });
+  expect(host.current().controller.inputQueue).toEqual([]);
+  expect(fixture.transport).toHaveBeenCalledTimes(1);
+  keys.forEach((key) => expect(localStorage.getItem(key)).toBe(stored));
+  act(() => host.current().navigate(`/chat/${B}`));
+  await waitFor(() => expect(host.current().path).toBe(`/chat/${B}`));
+  expect(host.current().controller.inputQueue).toEqual([]);
+  expect(fixture.transport).toHaveBeenCalledTimes(1);
+  keys.forEach((key) => expect(localStorage.getItem(key)).toBe(stored));
+  host.unsubscribe();
 });

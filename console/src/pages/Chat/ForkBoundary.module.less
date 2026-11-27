@@ -1,0 +1,40 @@
+.boundary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  margin: 24px 0;
+
+  &::before,
+  &::after {
+    content: "";
+    flex: 1;
+    min-width: 16px;
+    border-top: 1px solid var(--app-border-color, rgba(128, 128, 128, 0.25));
+  }
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: calc(100% - 56px);
+  font-size: 12px;
+
+  &[aria-disabled="true"] {
+    color: var(--app-text-secondary, #888);
+    cursor: not-allowed;
+  }
+
+  svg {
+    flex-shrink: 0;
+  }
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

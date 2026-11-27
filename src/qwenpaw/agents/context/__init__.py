@@ -3,7 +3,7 @@
 
 The default agent behavior is AgentScope-native compression; injecting a
 :class:`ContextManager` replaces it. The only built-in alternative today is the
-*scroll* strategy (durable ``history.db`` + an in-context eviction index + a
+*scroll* strategy (session-owned recall projection + an eviction index + a
 sandboxed ``recall_history_python`` recall REPL), selected via
 ``LightContextConfig.strategy == "scroll"``.
 
@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .base import ContextManager
-from ...config.history_path import resolve_history_db_path
 
 if TYPE_CHECKING:
     from .scroll.history import HistoryStore
@@ -58,10 +57,8 @@ def scroll_unsandboxed_allowed(scroll_config: Any) -> bool:
     return bool(getattr(scroll_config, "allow_unsandboxed", False))
 
 
-# history.db auto-purges past history_retention_days (default 30), but an
-# operator can disable that (set 0) or a very chatty agent can outpace it, so
-# the store may still grow large. Warn when it crosses this size. Process-level
-# dedupe keeps a long-lived server from re-warning on every agent build.
+# A very chatty conversation can still grow large. Warn when its database
+# crosses this size. Process-level dedupe avoids repeated warnings.
 _DB_SIZE_WARN_BYTES = 1 * 1024**3  # 1 GiB
 _DB_SIZE_WARNED: set[str] = set()
 
@@ -76,26 +73,8 @@ class ScrollComponents:
     # sandbox) — the front door for expand/search/recall_tool lookups
 
 
-def _warn_first_run(db_path: Path) -> None:
-    """Emit the one-time scroll first-run notice for a workspace.
-
-    Logged (not raised) so it never blocks startup. Fires only when
-    ``history.db`` does not yet exist, i.e. the first time scroll wires in
-    this workspace — the file's presence suppresses it on every later run.
-    """
-    logger.warning(
-        "scroll is now the DEFAULT context strategy. A durable history "
-        "store is being created at %s (this workspace had none). Conversation "
-        "turns evicted from the live window are persisted there and recalled "
-        "on demand instead of being summarized in place. To restore the "
-        "previous behavior, set running.light_context_config.strategy to "
-        '"native" in this agent\'s config (agent.json) and restart.',
-        db_path,
-    )
-
-
 def _warn_db_size(db_path: Path) -> None:
-    """Warn once per process when ``history.db`` has grown past the threshold.
+    """Warn once when a conversation database exceeds the size threshold.
 
     Sums the main db and its ``-wal`` sidecar (the bulk of uncommitted growth).
     Log-only and best-effort: a stat failure must never block wiring.
@@ -125,13 +104,10 @@ def _warn_db_size(db_path: Path) -> None:
 
 
 def create_scroll_history(db_path: Path) -> HistoryStore:
-    """Open a history store, preserving first-run and size notices."""
+    """Open a conversation history store, preserving size notices."""
     from .scroll.history import HistoryStore
 
-    if not db_path.exists():
-        _warn_first_run(db_path)
-    else:
-        _warn_db_size(db_path)
+    _warn_db_size(db_path)
     return HistoryStore(db_path)
 
 
@@ -141,6 +117,10 @@ def build_scroll_components(
     workspace_dir: Any,
     model: Any,
     session_id: str,
+    user_id: str = "",
+    channel: str = "",
+    context_generation: int = 0,
+    ephemeral: bool = False,
     agent_id: str | None = None,
     offloader: Any = None,
     history_store: HistoryStore | None = None,
@@ -149,7 +129,7 @@ def build_scroll_components(
 
     Returns ``None`` when ``strategy != "scroll"`` or no workspace is
     available, leaving the agent on its native context management.
-    An injected ``history_store`` remains owned by its workspace, including
+    An injected ``history_store`` remains owned by its caller, including
     when component construction fails. Standalone callers get an owned store.
     """
     try:
@@ -190,26 +170,47 @@ def build_scroll_components(
 
         sc = lcc.scroll_config
         trc = lcc.tool_result_pruning_config
-        db_path = resolve_history_db_path(workspace_dir, sc.db_filename)
+        from ...app.chats.transcript_catalog import (
+            resolve_session_database_path,
+        )
+
+        if ephemeral:
+            # Temporary runs retain legacy Recall without a session DB.
+            db_path = Path(workspace_dir) / sc.db_filename
+        else:
+            db_path = resolve_session_database_path(
+                workspace_dir,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+        if db_path is None:
+            raise FileNotFoundError(
+                "conversation database is not ready for recall",
+            )
         if (
             history_store is not None
             and history_store.path.resolve() == db_path.resolve()
         ):
             if not history_store.matches_path(db_path):
-                raise RuntimeError("Workspace history store no longer matches")
+                raise RuntimeError("Session history store no longer matches")
             history = history_store
             owns_history = False
         else:
-            # Config edits can precede (or never trigger) workspace reload.
-            # Own the new connection without retiring existing borrowers.
             history = create_scroll_history(db_path)
         recall_loop_guard = RecallLoopGuard()
         scratch_root = str(Path(workspace_dir) / ".scroll")
 
+        history_session_id = (
+            session_id
+            if context_generation <= 0
+            else f"{session_id}\x1fcontext:{context_generation}"
+        )
         manager = ScrollContextManager(
             history=history,
             owns_history=owns_history,
-            session_id=session_id,
+            session_id=history_session_id,
+            archive_session_id=session_id,
             agent_id=agent_id,
             # Legacy dialog archive is opt-in; only hand the manager an
             # offloader when configured, so by default scroll writes nothing
@@ -222,7 +223,7 @@ def build_scroll_components(
         )
         tool = make_recall_history_python(
             history_db_path=str(history.path),
-            session_id=session_id,
+            session_id=history_session_id,
             agent_id=agent_id,
             scratch_root=scratch_root,
             timeout_s=sc.repl_timeout_s,
@@ -235,7 +236,7 @@ def build_scroll_components(
         # sandboxed REPL is unavailable.
         recall = make_recall_history(
             history_db_path=str(history.path),
-            session_id=session_id,
+            session_id=history_session_id,
             agent_id=agent_id,
             loop_guard=recall_loop_guard,
             page_max_bytes=trc.pruning_recent_msg_max_bytes,
