@@ -83,6 +83,7 @@ jobs:
         run: |
           bash "$RELEASE_INFRA/scripts/pack/download_desktop_artifacts.sh" \
             --attempts 2 \
+            --require-linux \
             --include-updater-metadata
 
       - name: Install ossutil
@@ -145,12 +146,15 @@ jobs:
       - name: Link artifacts into updater-meta dirs for manifest generation
         if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
         run: |
-          # The manifest generator expects the artifact binary alongside the
-          # sidecar JSON.  After artifact splitting the exe lives in a separate
-          # artifact directory, so we symlink it into the meta directory.
+          # The manifest generator expects the installer beside its sidecar.
           for f in QwenPaw-Desktop-Tauri-Windows-*/QwenPaw-Tauri-*-Windows-setup.exe; do
             [ -f "$f" ] && ln -sf "../$f" tauri-updater-meta-windows/ 2>/dev/null || true
           done
+          if [ -d tauri-updater-meta-linux ]; then
+            for f in QwenPaw-Desktop-Tauri-Linux-*/QwenPaw-Tauri-*-linux-x86_64.deb; do
+              ln -sf "../$f" tauri-updater-meta-linux/
+            done
+          fi
 
       - name: Generate and upload OSS updater manifest
         # The Tauri auto-updater uses OSS only; GitHub Releases only carry
@@ -171,7 +175,8 @@ jobs:
           OSS_BASE="${OSS_PUBLIC_BASE_URL%/}"
           metadata_args=()
           for f in tauri-updater-meta-windows/tauri-windows-*-updater.json \
-                   tauri-updater-meta-macos/tauri-darwin-*-updater.json; do
+                   tauri-updater-meta-macos/tauri-darwin-*-updater.json \
+                   tauri-updater-meta-linux/tauri-linux-x86_64-deb-updater.json; do
             [ -f "$f" ] && metadata_args+=(--metadata "$f")
           done
           if [ ${#metadata_args[@]} -eq 0 ]; then
@@ -184,6 +189,7 @@ jobs:
             --base-url "$OSS_BASE" \
             --target-base "windows-x86_64=${OSS_BASE}/win-tauri" \
             --target-base "darwin-aarch64=${OSS_BASE}/mac-tauri" \
+            --target-base "linux-x86_64-deb=${OSS_BASE}/linux-tauri" \
             "${metadata_args[@]}" \
             --notes "$NOTES" \
             --output qwenpaw-tauri-latest-oss.json
@@ -236,6 +242,11 @@ jobs:
             "QwenPaw-Desktop-Tauri-macOS-*" \
             "QwenPaw-Tauri-*-macOS.zip" \
             "mac-tauri"
+          merge_tauri_metadata \
+            "linux-tauri-metadata.json" \
+            "QwenPaw-Desktop-Tauri-Linux-*" \
+            "QwenPaw-Tauri-*-linux-x86_64.deb" \
+            "linux-tauri"
 
           # Upload updated desktop/index.json
           bash "$RELEASE_INFRA/scripts/pack/oss_copy_with_readback.sh" \

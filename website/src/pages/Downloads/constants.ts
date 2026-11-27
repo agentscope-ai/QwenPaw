@@ -1,4 +1,4 @@
-import { Laptop, Monitor, type LucideIcon } from "lucide-react";
+import { Laptop, Monitor, Terminal, type LucideIcon } from "lucide-react";
 
 export const CDN_BASE = "https://download.qwenpaw.agentscope.io";
 
@@ -11,6 +11,7 @@ export const PLATFORM_ICONS: Record<string, LucideIcon> = {
   linux: Monitor,
   "win-tauri": Monitor,
   "mac-tauri": Laptop,
+  "linux-tauri": Terminal,
 };
 
 export const KNOWN_PLUGIN_PLATFORM_KINDS = [

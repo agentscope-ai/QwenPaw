@@ -3,7 +3,7 @@
 _English: [RELEASING.md](RELEASING.md)_
 
 QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜像、**桌面**应用
-（Tauri，Windows + macOS）和**插件**包。它们由一个统一编排的 workflow 一起发布：
+（Tauri，Windows + macOS + Linux）和**插件**包。它们由一个统一编排的 workflow 一起发布：
 任一产物失败都会拦下整个发布，绝不会出现"Web 版发了、却没有对应桌面版"这种情况。
 
 > 编排器：[`.github/workflows/release.yml`](.github/workflows/release.yml)。
@@ -28,7 +28,7 @@ QwenPaw 一个版本会发布四种产物——**PyPI** wheel、**Docker** 镜�
 2. **Prepare（构建 + 验证，不发布任何东西）**——并行：
    - `build-wheel`——构建 Python wheel（含打包好的 console）。
    - `verify-web`——pip 安装、Docker 健康检查、安装脚本三类验证。
-   - `build-desktop`——构建 Tauri Windows + macOS 应用，并跑
+   - `build-desktop`——构建 Tauri Windows + macOS + Linux 应用，并跑
      安装 → 启动 → 真实问答 的 UI 验证。
    - `build-plugins`——打包插件。
 3. **Gate + Publish（门禁 + 发布）**——每个 publish job 都 `needs` **全部** prepare
