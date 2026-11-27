@@ -2043,8 +2043,105 @@ describe("ChatPage coverage", () => {
         "append-newer",
         false,
       );
+
+      const latestEntry = {
+        messageId: "latest-user",
+        preview: "Latest user",
+        createdAt: "2026-10-24T00:06:00Z",
+        anchor: "latest-anchor",
+      };
+      const latest = { id: latestEntry.messageId, role: "user", history: true };
+      vi.mocked(sessionApi.loadHistoryAtAnchor).mockResolvedValueOnce({
+        messages: [latest],
+        noMore: true,
+      } as Awaited<ReturnType<typeof sessionApi.loadHistoryAtAnchor>>);
+      await act(async () => {
+        historyMessageWindow.setUserMessages("test-session", [
+          {
+            messageId: "first-user",
+            preview: "First user",
+            createdAt: "2026-10-24T00:00:00Z",
+            anchor: "first-anchor",
+          },
+          latestEntry,
+        ]);
+        historyMessageWindow
+          .getSnapshot()
+          ?.onNavigateToUserMessage(latestEntry, "replace");
+      });
+      expect(sessionApi.loadHistoryAtAnchor).toHaveBeenLastCalledWith(
+        "test-session",
+        "latest-anchor",
+        "latest-user",
+        expect.any(AbortSignal),
+        "replace",
+        true,
+      );
+      await waitFor(() =>
+        expect(historyMessageWindow.getSnapshot()).toMatchObject({
+          turnRows: [[latest]],
+          canLoadNewer: false,
+          loading: false,
+        }),
+      );
     },
   );
+
+  it("carries a detached live viewport into completed history", async () => {
+    const { historyMessageWindow } = await import(
+      "./historyMessageWindowStore"
+    );
+    const source = sessionApi.bindToOwner();
+    const getSession = vi.fn<typeof source.getSession>(async (id: string) => ({
+      id,
+      name: id,
+      messages: [],
+    }));
+    vi.mocked(sessionApi.bindToOwner).mockReturnValueOnce({
+      ...source,
+      getSession,
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    const scroller = document.createElement("div");
+    scroller.className =
+      "qwenpaw-chat-anywhere-message-list-bubble-scroll " +
+      "bubble-list-order-desc";
+    Object.defineProperties(scroller, {
+      clientHeight: { value: 500 },
+      scrollHeight: { value: 2000 },
+    });
+    scroller.getBoundingClientRect = () => ({ top: 0, bottom: 500 }) as DOMRect;
+    const anchor = document.createElement("div");
+    anchor.id = "reading-message";
+    anchor.dataset.role = "assistant";
+    anchor.getBoundingClientRect = () => ({ top: 80, bottom: 180 }) as DOMRect;
+    scroller.append(anchor);
+    screen.getByTestId("chat-ui").append(scroller);
+    await act(async () => {});
+    fireEvent.wheel(scroller, { deltaY: -400 });
+    scroller.scrollTop = -400;
+    fireEvent.scroll(scroller);
+    getSession.mockResolvedValue({
+      id: "test-session",
+      name: "test-session",
+      generating: false,
+      messages: [{ id: "reading-message", role: "assistant" }],
+    });
+
+    await act(async () => {
+      await capturedOptions.session.api.getSession("test-session");
+    });
+
+    expect(historyMessageWindow.getSnapshot()).toMatchObject({
+      sessionId: "test-session",
+      initialScrollAnchor: { id: "reading-message", offsetTop: 80 },
+    });
+  });
 
   it("pauses automatic older history loads after failure until manual retry", async () => {
     const { historyMessageWindow } = await import(
