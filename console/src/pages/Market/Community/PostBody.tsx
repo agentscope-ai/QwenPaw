@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DOUBLE_TILDE_REMARK_GFM_OPTIONS } from "../../../utils/markdownStrikethrough";
 import { useTranslation } from "react-i18next";
 import { openExternalLink } from "@/utils/openExternalLink";
 import type { Post } from "./api";
@@ -176,7 +177,7 @@ function MarkdownFallback({
   return (
     <div className={styles.body} onClick={onBodyClick}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[[remarkGfm, DOUBLE_TILDE_REMARK_GFM_OPTIONS]]}
         components={{
           ...videoMarkdownComponents,
           table: ({ children }) => (

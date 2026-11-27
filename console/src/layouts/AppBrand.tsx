@@ -14,6 +14,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DOUBLE_TILDE_REMARK_GFM_OPTIONS } from "../utils/markdownStrikethrough";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import api from "../api";
@@ -373,7 +374,10 @@ export default function AppBrand({
         <div className={styles.updateModalBody}>
           {updateMarkdown ? (
             <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkMath]}
+              remarkPlugins={[
+                [remarkGfm, DOUBLE_TILDE_REMARK_GFM_OPTIONS],
+                remarkMath,
+              ]}
               rehypePlugins={[rehypeKatex]}
               components={{
                 a: ExternalMarkdownLink,

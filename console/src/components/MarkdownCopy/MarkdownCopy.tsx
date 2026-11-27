@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import type { CSSProperties } from "react";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { stripFrontmatter } from "../../utils/markdown";
+import { DOUBLE_TILDE_MARKED_CONFIG } from "../../utils/markdownStrikethrough";
 import { renderableCodeComponents } from "../RenderableCodeBlock";
 import styles from "./index.module.less";
 
@@ -179,6 +180,7 @@ export function MarkdownCopy({
         <div className={styles.markdownViewer}>
           <XMarkdown
             content={markdownContent}
+            config={DOUBLE_TILDE_MARKED_CONFIG}
             {...defaultMarkdownViewerProps}
             components={renderableCodeComponents}
             dompurifyConfig={{

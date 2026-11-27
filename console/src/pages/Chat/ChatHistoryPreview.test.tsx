@@ -62,4 +62,32 @@ describe("ChatHistoryPreview", () => {
     expect(screen.getByText("All checks passed.")).toBeVisible();
     expect(screen.getByText("Plan the inspection")).not.toBeVisible();
   });
+
+  it("keeps single-tilde ranges literal while rendering double-tilde strikethrough", () => {
+    const tildeHistory: ChatHistory = {
+      messages: [
+        {
+          id: "answer-tilde",
+          role: "assistant",
+          type: "message",
+          content: [
+            {
+              type: "text",
+              text: "range A 600~1500 t/s, range B 170~220 t/s, RAM 64~128G, ~~removed~~",
+            },
+          ],
+        },
+      ],
+    };
+
+    const { container } = render(<ChatHistoryPreview history={tildeHistory} />);
+
+    const dels = Array.from(container.querySelectorAll("del")).map(
+      (node) => node.textContent,
+    );
+    expect(dels).toEqual(["removed"]);
+    expect(container.textContent).toContain("600~1500 t/s");
+    expect(container.textContent).toContain("170~220 t/s");
+    expect(container.textContent).toContain("64~128G");
+  });
 });

@@ -536,3 +536,45 @@ describe("segmented Markdown rendering", () => {
     expect(view.container.textContent).toContain("Tail continues");
   });
 });
+
+describe("strikethrough delimiters", () => {
+  it("keeps single tildes literal in numeric ranges while rendering double-tilde strikethrough", () => {
+    const view = render(
+      <AssistantMarkdown
+        messageId="single-tilde-ranges"
+        content="range A 600~1500 t/s, range B 170~220 t/s, RAM 64~128G, ~~strikethrough~~, ~~600~1500~~"
+        cursor={false}
+      />,
+    );
+
+    const dels = Array.from(view.container.querySelectorAll("del")).map(
+      (node) => node.textContent,
+    );
+    expect(dels).toEqual(["strikethrough", "600~1500"]);
+    expect(view.container.textContent).toContain("600~1500 t/s");
+    expect(view.container.textContent).toContain("170~220 t/s");
+    expect(view.container.textContent).toContain("64~128G");
+  });
+
+  it("keeps single tildes intact inside bold text and multiple ranges", () => {
+    const content =
+      "参考机配置 64~128G 内存、单卡 32~48G 显存。关键区间如下：**上下文 ~128K（262K 理论可行但吃紧）、prefill 600~1500 t/s（llama.cpp）/ ~5K t/s（Strata）、decode 30~50 t/s（llama.cpp）/ 170~220 t/s（Strata，MTP 再 +30~70%）**";
+    const view = render(
+      <AssistantMarkdown
+        messageId="single-tilde-bold"
+        content={content}
+        cursor={false}
+      />,
+    );
+
+    expect(view.container.querySelectorAll("del")).toHaveLength(0);
+    expect(view.container.querySelector("strong")?.textContent).toContain(
+      "prefill 600~1500 t/s",
+    );
+    expect(view.container.querySelector("strong")?.textContent).toContain(
+      "170~220 t/s",
+    );
+    expect(view.container.textContent).toContain("64~128G");
+    expect(view.container.textContent).toContain("32~48G");
+  });
+});

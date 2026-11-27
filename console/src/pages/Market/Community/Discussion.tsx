@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DOUBLE_TILDE_REMARK_GFM_OPTIONS } from "../../../utils/markdownStrikethrough";
 import { ThumbsUp } from "lucide-react";
 import { SparkThumbsUpFill, SparkThumbsUpLine } from "@agentscope-ai/icons";
 import type { CommunityConnectionStatus } from "@/api/modules/community";
@@ -1060,7 +1061,7 @@ function AnswerCard({
       </div>
       <div className={styles.commentContent}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[[remarkGfm, DOUBLE_TILDE_REMARK_GFM_OPTIONS]]}
           components={{
             a: CommunityAnchor,
             img: ({ src, alt }) => (

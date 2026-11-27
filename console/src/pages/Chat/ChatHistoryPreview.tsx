@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatHistory, Message } from "../../api/types";
 import { externalLinkMarkdownComponents } from "../../components/Markdown/externalLinkComponents";
+import { DOUBLE_TILDE_REMARK_GFM_OPTIONS } from "../../utils/markdownStrikethrough";
 import { groupPreviewTurns } from "./chatHistoryPreviewModel";
 import { latestHistoryMarkdownChunk } from "./historyMarkdownChunks";
 import styles from "./ChatHistoryPreview.module.less";
@@ -96,7 +97,9 @@ export function ChatHistoryPreview({ history }: { history: ChatHistory }) {
                   {finalMessages.map((message, messageIndex) => (
                     <ReactMarkdown
                       key={String(message.id ?? `answer-${messageIndex}`)}
-                      remarkPlugins={[remarkGfm]}
+                      remarkPlugins={[
+                        [remarkGfm, DOUBLE_TILDE_REMARK_GFM_OPTIONS],
+                      ]}
                       components={externalLinkMarkdownComponents}
                     >
                       {latestHistoryMarkdownChunk(contentText(message.content))}

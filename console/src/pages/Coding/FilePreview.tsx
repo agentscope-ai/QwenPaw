@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DOUBLE_TILDE_REMARK_GFM_OPTIONS } from "../../utils/markdownStrikethrough";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import { workspaceApi } from "../../api/modules/workspace";
@@ -477,7 +478,11 @@ function MarkdownPreview({
         </dl>
       )}
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath, preserveMathCodeBlocks]}
+        remarkPlugins={[
+          [remarkGfm, DOUBLE_TILDE_REMARK_GFM_OPTIONS],
+          remarkMath,
+          preserveMathCodeBlocks,
+        ]}
         rehypePlugins={[rehypeKatex]}
         components={components}
       >
