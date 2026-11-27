@@ -225,7 +225,14 @@ class ModelContextUnfitError(AgentModelError):
     message at the price of a full model call. The run stops and waits for a
     human to shorten the input; every other ``AgentModelError`` describes a
     fault a retry can plausibly clear.
+
+    ``recovery_terminal`` is read by the host's overflow boundary. A recovery
+    step that stops on purpose raises this class, and the boundary must not
+    read the freshly built object as another refusal of a different part of
+    the same request and spend the rest of its budget re-running the step.
     """
+
+    recovery_terminal = True
 
 
 class RateLimitExhaustedError(AgentModelError):
@@ -1111,7 +1118,9 @@ class AgentScopeAgentChatClient:
         further along still describes this request.
         """
         if not media_observation_degrade_enabled():
-            raise AgentModelError(format_budget_failure(failure)) from failure
+            raise ModelContextUnfitError(
+                format_budget_failure(failure),
+            ) from failure
         vault = self._media_vault()
         token_budget = self._input_token_budget()
         record: list[tuple[str, Mapping[str, Any]]] = []

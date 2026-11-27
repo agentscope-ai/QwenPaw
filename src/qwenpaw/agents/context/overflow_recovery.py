@@ -17,6 +17,17 @@ from typing import Any
 from ...providers.stream_progress import has_meaningful_stream_content
 from ...runtime.turn_context import current_run_streams
 
+# A give-up has to carry a report, and a report has to be a fresh exception
+# object, so object identity alone cannot express it. A recovery marks its
+# terminal exception with this attribute instead of inheriting a host type,
+# which keeps plugins free of a hard dependency on this module.
+RECOVERY_TERMINAL_ATTRIBUTE = "recovery_terminal"
+
+
+def _recovery_gave_up(exc: Exception) -> bool:
+    """Whether *exc* was marked by the recovery as a deliberate stop."""
+    return bool(getattr(exc, RECOVERY_TERMINAL_ATTRIBUTE, False))
+
 
 async def call_with_overflow_recovery(
     call_model: Callable[..., Awaitable[Any]],
@@ -32,6 +43,12 @@ async def call_with_overflow_recovery(
     second refusal has to reach the same budget — otherwise it ends the turn
     with the active image still at its original size. Retrying without a cap
     would let a provider loop forever, so the budget counts the recoveries.
+
+    A recovery ends the loop in one of two shapes: it re-raises the exception
+    it was handed, or it raises a new exception whose class sets
+    ``recovery_terminal = True``. The second shape exists because a give-up
+    report has to be built fresh every time — identity alone would read it as
+    another refusal and spend the rest of the budget.
     """
     budget = [max_recoveries]
 
@@ -49,11 +66,12 @@ async def call_with_overflow_recovery(
             try:
                 return await recover(exc)
             except Exception as retry_exc:
-                # Re-raising the same exception means the recovery gave up
-                # (for example, context recovery could not change the
-                # input). Retrying it would repeat work that just decided
-                # there is nothing to do.
-                if retry_exc is exc:
+                # A recovery gives up in one of two shapes: it re-raises the
+                # exception it was handed, or it raises a new exception marked
+                # as terminal because the give-up report has to travel with it.
+                # Retrying either would repeat work that just decided there is
+                # nothing left to do.
+                if retry_exc is exc or _recovery_gave_up(retry_exc):
                     raise
                 exc = retry_exc
                 if budget[0] <= 0:
