@@ -122,7 +122,7 @@ def _schema_permits_string(schema: Any) -> bool:
         return True
     if isinstance(declared, list) and "string" in declared:
         return True
-    for combinator in ("anyOf", "oneOf"):
+    for combinator in ("anyOf", "oneOf", "allOf"):
         branches = schema.get(combinator)
         if isinstance(branches, list) and branches:
             return any(_schema_permits_string(s) for s in branches)

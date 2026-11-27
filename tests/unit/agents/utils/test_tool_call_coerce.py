@@ -262,3 +262,17 @@ def test_float_literal_preserved_when_sibling_coerced() -> None:
     assert parsed == {"id": "7", "count": 240.5}
     assert isinstance(parsed["count"], float)
     assert isinstance(parsed["id"], str)
+
+
+def test_allof_string_field_coerced_and_numeric_untouched() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "v": {"allOf": [{"type": "string"}, {"minLength": 1}]},
+            "n": {"allOf": [{"type": "integer"}, {"minimum": 0}]},
+        },
+    }
+    raw = '{"v": 1.000001, "n": 42}'
+    parsed = json.loads(_coerce_tool_input(raw, schema))
+    assert parsed == {"v": "1.000001", "n": 42}
+    assert isinstance(parsed["n"], int)
