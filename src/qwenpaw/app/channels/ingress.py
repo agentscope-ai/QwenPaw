@@ -434,15 +434,13 @@ class ChannelIngressService:
             raise _Unavailable(400) from None
         if len(selectors) > 1 or selectors == [""]:
             raise _Unavailable(400)
-        if (
-            request.scope["path"].startswith("/channel-callbacks/")
-            and not selectors
-        ):
+        route_path = get_route_path(request.scope)
+        if route_path.startswith("/channel-callbacks/") and not selectors:
             raise _Unavailable(400)
         candidates = [
             binding
             for binding in self._bindings.values()
-            if (method, get_route_path(request.scope)) in binding.routes
+            if (method, route_path) in binding.routes
             and (not selectors or binding.wire.route_selector == selectors[0])
             and self._current(binding, binding.reference)
         ]

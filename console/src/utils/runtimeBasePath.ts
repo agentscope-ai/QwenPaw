@@ -1,15 +1,22 @@
 export function getRuntimeBasePath(): string {
+  // The server injects this token; <base href> may be only the Vite build base.
   if (typeof document === "undefined") return "";
-  // Read the server's raw directory path, not the browser's normalized URL.
-  const href = document.head?.querySelector("base[href]")?.getAttribute("href");
+  const path = document.head
+    ?.querySelector('meta[name="qwenpaw-base-path"]')
+    ?.getAttribute("content");
+  if (path === "") return "";
   if (
-    !href?.startsWith("/") ||
-    !href.endsWith("/") ||
-    /[%?#\\\t\n\r]/.test(href)
+    typeof path !== "string" ||
+    !path.startsWith("/") ||
+    path.endsWith("/") ||
+    /[%?#\\]/.test(path) ||
+    [...path].some((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+    })
   ) {
     return "";
   }
-  const path = href.slice(0, -1);
   const invalid = path
     .split("/")
     .slice(1)

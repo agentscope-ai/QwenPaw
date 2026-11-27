@@ -9,8 +9,19 @@ import {
 
 const setViteBase = (v: string) => vi.stubGlobal("VITE_API_BASE_URL", v);
 const setToken = (v: string) => vi.stubGlobal("TOKEN", v);
+let runtimeBaseMeta: HTMLMetaElement | undefined;
 
-afterEach(() => vi.unstubAllGlobals());
+function setRuntimeBase(content: string) {
+  runtimeBaseMeta = document.createElement("meta");
+  runtimeBaseMeta.name = "qwenpaw-base-path";
+  runtimeBaseMeta.content = content;
+  document.head.append(runtimeBaseMeta);
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  runtimeBaseMeta?.remove();
+});
 
 describe("getApiUrl", () => {
   let baseElement: HTMLBaseElement | undefined;
@@ -49,9 +60,18 @@ describe("getApiUrl", () => {
     baseElement = document.createElement("base");
     baseElement.href = "/app/qwenpaw/web/";
     document.head.append(baseElement);
+    setRuntimeBase("/app/qwenpaw/web");
     expect(getApiUrl("/models")).toBe("/app/qwenpaw/web/api/models");
     setViteBase("http://localhost:8088");
     expect(getApiUrl("/models")).toBe("http://localhost:8088/api/models");
+  });
+
+  it("does not use a custom Console build basename as the API prefix", () => {
+    baseElement = document.createElement("base");
+    baseElement.href = "/custom/";
+    document.head.append(baseElement);
+    setRuntimeBase("");
+    expect(getApiUrl("/auth/status")).toBe("/api/auth/status");
   });
 });
 

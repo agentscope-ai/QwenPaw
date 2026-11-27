@@ -5,11 +5,12 @@ import { describe, expect, it } from "vitest";
 function loadDeploymentConfig(
   basename: string | undefined,
   mode = "production",
+  apiBaseUrl = "/backend",
 ) {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     BASE_URL: "https://unrelated.example.com",
-    VITE_API_BASE_URL: "/backend",
+    VITE_API_BASE_URL: apiBaseUrl,
   };
   delete env.VITE_CONSOLE_BASENAME;
   if (basename !== undefined) env.VITE_CONSOLE_BASENAME = basename;
@@ -27,7 +28,9 @@ function loadDeploymentConfig(
        const document = config.plugins.find(p => p.name === "console-host-document");
        process.stdout.write(JSON.stringify({
          base: config.base ?? "/",
-         html: document.transformIndexHtml('<head><base href="/" /></head>'),
+         html: document.transformIndexHtml(
+           '<head><base href="/" /><meta name="qwenpaw-base-path" content="" /></head>',
+         ),
          apiBase: config.define.VITE_API_BASE_URL,
          assetBaseOverride: config.define["import.meta.env.BASE_URL"],
          assetUrlOverride: Boolean(config.experimental?.renderBuiltUrl),
@@ -63,10 +66,11 @@ describe("console deployment configuration", () => {
     },
   );
 
-  it("keeps the backend's document-base token without a base-setting script", () => {
+  it("includes the runtime base-path meta marker", () => {
     const html = readFileSync("index.html", "utf8");
     expect(html).toContain('<base href="/" />');
-    expect(html).not.toContain("__qpBase");
+    expect(html).toContain('<meta name="qwenpaw-base-path" content="" />');
+    expect(html).not.toContain("window.__qpBase");
   });
 
   it.each([
@@ -88,6 +92,12 @@ describe("console deployment configuration", () => {
     expect(config.apiBase).toBe('"/backend"');
     expect(config.assetUrlOverride).toBe(false);
     expect(config.assetBaseOverride).toBeUndefined();
+  });
+
+  it("keeps the API at /api when a custom build basename has no API base", () => {
+    const config = loadDeploymentConfig("/custom", "production", "");
+    expect(config.base).toBe("/custom/");
+    expect(config.apiBase).toBe('""');
   });
 
   it("keeps the Tauri asset base at the root regardless of the web basename", () => {

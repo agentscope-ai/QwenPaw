@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Runtime base-path mounting keeps application routes prefix-aware."""
+
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -149,7 +149,9 @@ def test_mount_root_redirects_to_slash_without_losing_the_query():
 @pytest.mark.parametrize("base_path", [None, "", "/"])
 def test_root_console_index_preserves_file_response(tmp_path, base_path):
     index = tmp_path / "index.html"
-    content = b'<base href="/" /><script>window.__qpBase = "";</script>'
+    content = (
+        b'<base href="/" />' b'<meta name="qwenpaw-base-path" content="" />'
+    )
     index.write_bytes(content)
     application = FastAPI()
 
@@ -165,11 +167,13 @@ def test_root_console_index_preserves_file_response(tmp_path, base_path):
         assert response.headers["last-modified"]
 
 
-def test_console_index_injects_only_base_path_tokens(tmp_path):
+def test_console_index_serves_runtime_meta_under_strict_script_csp(tmp_path):
     index = tmp_path / "index.html"
     index.write_text(
-        '<html><head><base href="/" />'
-        '<script>window.__qpBase = "";</script>'
+        "<html><head>"
+        '<meta http-equiv="Content-Security-Policy" content="script-src \'self\'">'
+        '<base href="/" />'
+        '<meta name="qwenpaw-base-path" content="" />'
         '</head><body><script src="./assets/index.js"></script></body></html>',
         encoding="utf-8",
     )
@@ -184,22 +188,40 @@ def test_console_index_injects_only_base_path_tokens(tmp_path):
         assert response.status_code == 200
         assert '<base href="/app/qwenpaw/web/">' in response.text
         assert (
-            "window.__qpBase = "
-            + json.dumps(
-                "/app/qwenpaw/web",
-            )
-            in response.text
-        )
+            '<meta name="qwenpaw-base-path" ' 'content="/app/qwenpaw/web" />'
+        ) in response.text
+        assert "script-src 'self'" in response.text
         assert '<script src="./assets/index.js"></script>' in response.text
-        assert "__QWENPAW_BASE_HREF__" not in response.text
-        assert "__QWENPAW_BASE_PATH_JSON__" not in response.text
+        assert response.text.count("<script") == 1
         assert response.headers["content-length"] == str(len(response.content))
 
 
-def test_console_index_escapes_html_attributes_and_inline_script(tmp_path):
+def test_console_index_updates_legacy_runtime_base_for_old_bundle(tmp_path):
     index = tmp_path / "index.html"
     index.write_text(
         '<base href="/" /><script>window.__qpBase = "";</script>',
+        encoding="utf-8",
+    )
+    application = FastAPI()
+
+    @application.get("/")
+    def index_response():
+        return ConsoleIndexResponse(index, base_path="/review-mount")
+
+    with TestClient(application) as client:
+        response = client.get("/")
+        assert response.status_code == 200
+        assert '<base href="/review-mount/">' in response.text
+        assert 'window.__qpBase = "/review-mount";' in response.text
+        assert 'window.__qpBase = "";' not in response.text
+
+
+def test_console_index_escapes_meta_and_legacy_runtime_config(tmp_path):
+    index = tmp_path / "index.html"
+    index.write_text(
+        '<base href="/" />'
+        '<meta name="qwenpaw-base-path" content="" />'
+        '<script>window.__qpBase = "";</script>',
         encoding="utf-8",
     )
     application = FastAPI()
@@ -211,9 +233,14 @@ def test_console_index_escapes_html_attributes_and_inline_script(tmp_path):
     with TestClient(application) as client:
         response = client.get("/")
         assert response.status_code == 200
-        assert "&quot;&gt;&lt;script&gt;" in response.text
-        assert "\\u003cscript\\u003e" in response.text
-        assert "\\u003c/script\\u003e" in response.text
+        assert (
+            'content="/app/&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"'
+            in response.text
+        )
+        assert (
+            r'window.__qpBase = "/app/\"\u003e\u003cscript\u003e'
+            r'alert(1)\u003c/script\u003e";' in response.text
+        )
         assert '"><script>alert(1)</script>' not in response.text
         assert response.text.count("<script>") == 1
         assert response.text.count("</script>") == 1
@@ -250,7 +277,7 @@ def test_production_app_serves_api_console_and_assets_below_base_path(
     assets.mkdir(parents=True)
     (console / "index.html").write_text(
         '<base href="/" />'
-        '<script>window.__qpBase = "";</script>'
+        '<meta name="qwenpaw-base-path" content="" />'
         '<script type="module" src="./assets/index.js"></script>',
         encoding="utf-8",
     )
@@ -288,7 +315,11 @@ def test_production_app_serves_api_console_and_assets_below_base_path(
                     page = client.get(path)
                     assert page.status_code == 200, path
                     assert '<base href="/app/qwenpaw/web/">' in page.text
-                    assert 'window.__qpBase = "/app/qwenpaw/web"' in page.text
+                    assert (
+                        '<meta name="qwenpaw-base-path" '
+                        'content="/app/qwenpaw/web" />'
+                    ) in page.text
+                    assert "<script>" not in page.text
                     assert 'src="./assets/index.js"' in page.text
                 asset = client.get("/app/qwenpaw/web/assets/index.js")
                 assert asset.status_code == 200

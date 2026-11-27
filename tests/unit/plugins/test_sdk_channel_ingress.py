@@ -15,6 +15,7 @@ from fastapi import FastAPI
 import pytest
 import uvicorn
 
+from qwenpaw.app.base_path import BasePathMiddleware
 from qwenpaw.app.channels.ingress import ChannelIngressService, IngressLimits
 from qwenpaw.app.routers.channel_callbacks import channel_callbacks_router
 from qwenpaw.plugins.channel_ingress import ChannelIngressRoute
@@ -341,6 +342,91 @@ async def test_real_ingress_two_workspaces_updates_close_and_lifecycle(
             for task in pending:
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
+            await ingress.aclose()
+            server.should_exit = True
+            await asyncio.wait_for(serving, 5)
+            listener.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workspaces", [("one",), WORKSPACES])
+async def test_prefixed_sdk_callbacks_require_workspace_selector(
+    tmp_path,
+    ingress_plugin,
+    workspaces,
+):
+    report = check_plugin(ingress_plugin)
+    assert report.ok, report.findings
+    base_path = "/review-mount"
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = listener.getsockname()[1]
+    origin = f"http://127.0.0.1:{port}"
+    app = FastAPI()
+    app.include_router(channel_callbacks_router)
+    app.add_middleware(BasePathMiddleware, base_path=base_path)
+    server = uvicorn.Server(
+        uvicorn.Config(app, log_level="error", lifespan="off"),
+    )
+    serving = asyncio.create_task(server.serve(sockets=[listener]))
+    await eventually(lambda: server.started, timeout=5)
+
+    async with PluginTestHost(
+        tmp_path / "host",
+        process_channels=(KEY,),
+    ) as host:
+        ingress = ChannelIngressService(
+            host._loader.registry,
+            host_port=port,
+            base_path=base_path,
+        )
+        app.state.channel_ingress = ingress
+        try:
+            assert (await host.install(ingress_plugin)).ok
+            for workspace in workspaces:
+                await host.start_channel(
+                    KEY,
+                    {"public_origin": origin, "secret": "key-" + workspace},
+                    workspace_id=workspace,
+                )
+
+            async with aiohttp.ClientSession() as client:
+                for workspace in workspaces:
+                    binding_path = (
+                        workspace_store(
+                            tmp_path / "host",
+                            KEY,
+                            workspace,
+                        )
+                        / "binding.json"
+                    )
+                    binding = json.loads(binding_path.read_text())
+                    url = binding["urls"]["echo"]
+                    parsed = urlsplit(url)
+                    assert parsed.path.startswith(
+                        base_path + "/channel-callbacks/",
+                    )
+                    assert parsed.query.startswith("_qp_endpoint=")
+                    async with client.post(
+                        url,
+                        data=b"mounted",
+                        headers=signed(url, "key-" + workspace, b"mounted"),
+                    ) as response:
+                        assert response.status == 200
+                        assert await response.json() == {
+                            "workspace": workspace,
+                            "body": "mounted",
+                            "original": url,
+                        }
+
+                    # The host must reject an unselected callback before it
+                    # can reach the worker, even when only one workspace owns
+                    # the route.
+                    async with client.post(
+                        parsed._replace(query="").geturl(),
+                    ) as response:
+                        assert response.status == 400
+        finally:
             await ingress.aclose()
             server.should_exit = True
             await asyncio.wait_for(serving, 5)

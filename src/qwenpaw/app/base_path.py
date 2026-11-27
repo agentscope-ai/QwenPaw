@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Mount the HTTP application and its prebuilt console below one URL prefix."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,7 +16,8 @@ from fastapi.responses import FileResponse, RedirectResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 _BASE_HREF_TOKEN = b'<base href="/" />'
-_BASE_PATH_JSON_TOKEN = b'window.__qpBase = "";'
+_BASE_PATH_META_TOKEN = b'<meta name="qwenpaw-base-path" content="" />'
+_BASE_PATH_LEGACY_TOKEN = b'window.__qpBase = "";'
 _BASE_PATH_ENV = "QWENPAW_BASE_PATH"
 _server_base_path: str | None = None
 
@@ -132,7 +134,15 @@ class ConsoleIndexResponse(FileResponse):
         content = await asyncio.to_thread(Path(self.path).read_bytes)
         base_href = f'<base href="{escape(self.base_path, quote=True)}/">'
         content = content.replace(_BASE_HREF_TOKEN, base_href.encode("utf-8"))
-        base_path_json = (
+        runtime_config = (
+            '<meta name="qwenpaw-base-path" '
+            f'content="{escape(self.base_path, quote=True)}" />'
+        )
+        content = content.replace(
+            _BASE_PATH_META_TOKEN,
+            runtime_config.encode("utf-8"),
+        )
+        legacy_base_path = (
             json.dumps(self.base_path)
             .replace("&", "\\u0026")
             .replace("<", "\\u003c")
@@ -140,10 +150,10 @@ class ConsoleIndexResponse(FileResponse):
             .replace("\u2028", "\\u2028")
             .replace("\u2029", "\\u2029")
         )
-        runtime_config = f"window.__qpBase = {base_path_json};"
+        legacy_runtime_config = f"window.__qpBase = {legacy_base_path};"
         content = content.replace(
-            _BASE_PATH_JSON_TOKEN,
-            runtime_config.encode("utf-8"),
+            _BASE_PATH_LEGACY_TOKEN,
+            legacy_runtime_config.encode("utf-8"),
         )
         self.body = content
         self.headers["content-length"] = str(len(content))
