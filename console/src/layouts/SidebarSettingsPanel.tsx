@@ -62,6 +62,7 @@ import {
 } from "./constants";
 import styles from "./sidebarSettingsPanel.module.less";
 import LocalAvatarPicker from "./LocalAvatarPicker";
+import { PlatformAccount } from "../features/platform-access/PlatformAccess";
 
 type ContentWidth = "standard" | "wide";
 
@@ -425,6 +426,11 @@ export default function SidebarSettingsPanel({
 
   return (
     <div ref={panelRef} className={styles.panel}>
+      <PlatformAccount
+        className={styles.menuItem}
+        onSelect={() => onClose?.()}
+      />
+      <div className={styles.divider} />
       <LocalAvatarPicker />
       <FlyoutItem
         icon={<Palette size={16} />}

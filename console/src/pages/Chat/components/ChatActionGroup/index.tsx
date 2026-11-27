@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Flex, Tooltip, message } from "antd";
 import { Files, Terminal } from "lucide-react";
 import styles from "./ChatActionGroup.module.less";
+import { PlatformMobileButton } from "../../../../features/platform-access/PlatformAccess";
 
 interface ChatActionGroupProps {
   onToggleTerminal?: () => void;
@@ -27,6 +28,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
 
   return (
     <Flex className={styles.actionGroup} gap={8} align="center">
+      <PlatformMobileButton />
       {onToggleTerminal && (
         <Tooltip title={t("terminal.title")} mouseEnterDelay={0.5}>
           <IconButton

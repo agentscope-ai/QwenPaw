@@ -243,7 +243,7 @@ describe("bounded resource rechecks", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(completed).toBe(false);
-    finish(new TextEncoder().encode(content).buffer);
+    finish(new TextEncoder().encode(content).buffer as ArrayBuffer);
     expect(await check).toMatchObject({
       outcome: "available",
       status: 200,

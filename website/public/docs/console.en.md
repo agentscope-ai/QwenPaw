@@ -708,3 +708,4 @@ Password submissions require `Content-Type: application/json`; plain-text and fo
 - [Security](./security) — Web login, tool guard, file guard
 - [CLI](./cli) — Command-line reference
 - [Multi-Agent](./multi-agent) — Multi-agent setup, management, collaboration
+- [Mobile Web App](./mobile) — Platform connection, phone sign-in, and home-screen installation
