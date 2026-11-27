@@ -835,8 +835,7 @@ async def _application_lifespan(  # pylint: disable=too-many-statements,too-many
         base_url = str(httpx.URL(scheme="http", host=host, port=port))
         app.state.platform_connection = PlatformRuntimeConnection(
             SECRET_DIR,
-            base_url,
-            headers=platform_runtime_headers,
+            lambda: (base_url, platform_runtime_headers()),
             runs=app.state.relay_runs,
         )
         await app.state.platform_connection.start()

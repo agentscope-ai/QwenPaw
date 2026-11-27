@@ -715,7 +715,12 @@ class TestEnvironmentIdentity:
         alias = tmp_path / "caseparent" / "casesite"
         if alias_kind == "symlink":
             alias = tmp_path / "alias"
-            alias.symlink_to(site, target_is_directory=True)
+            try:
+                alias.symlink_to(site, target_is_directory=True)
+            except OSError as exc:
+                if getattr(exc, "winerror", None) != 1314:
+                    raise  # 1314: needs admin or Developer Mode on Windows
+                pytest.skip("requires symlink creation privilege")
         elif alias_kind == "case":
             if not alias.exists() or not alias.samefile(site):
                 pytest.skip("requires a case-insensitive filesystem")
@@ -784,16 +789,18 @@ async def test_reader_admission_waits_for_publication(tmp_path, outcome):
     import sys
 
     from qwenpaw.plugins import dependency_maintenance as maintenance
+    from .timing import WAIT_TIMEOUT
 
     site = tmp_path / "site"
     site.mkdir()
-    source = str(Path(lock_mod.__file__).resolve().parents[2])
-    script = (
-        f"import sys\nsys.path.insert(0, {source!r})\n"
-        + """
+    script = """import importlib.util
+import os
+import sys
 from pathlib import Path
-from qwenpaw.plugins import dependency_maintenance as m
-site = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location('maintenance', sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+site = Path(sys.argv[2])
 original = m._try_lock
 attempts = 0
 def observed(fd):
@@ -807,21 +814,25 @@ def observed(fd):
 m._try_lock = observed
 try:
     m.lease_environment([site])
-    print('admitted', flush=True)
+    print('admitted', os.getpid(), flush=True)
     sys.stdin.readline()
 except RuntimeError as exc:
     print(str(exc).split(':')[0], flush=True)
 finally:
     m._close_readers()
 """
-    )
     peer = None
     repair = maintenance.repair_marker(site)
     barrier = maintenance.marker(site)
 
     async def line():
         return (
-            (await asyncio.wait_for(peer.stdout.readline(), 5))
+            (
+                await asyncio.wait_for(
+                    peer.stdout.readline(),
+                    WAIT_TIMEOUT,
+                )
+            )
             .decode()
             .strip()
         )
@@ -844,6 +855,7 @@ finally:
                 "-I",
                 "-c",
                 script,
+                maintenance.__file__,
                 str(site),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
@@ -875,14 +887,24 @@ finally:
                 if outcome == "success"
                 else "DEPENDENCY_REPAIR_REQUIRED"
             )
-            assert await line() == expected
+            last_line = await line()
             readers = maintenance.live_readers([site])
-            assert [row["pid"] for row in readers] == (
-                [peer.pid] if outcome == "success" else []
-            )
+            if outcome == "success":
+                # The lease records the interpreter's os.getpid(), which is
+                # not peer.pid on a Windows venv (launcher process), so the
+                # child reports the pid that owns its lease.
+                assert last_line.startswith("admitted "), last_line
+                lease_pid = int(last_line.split()[1])
+                assert [row["pid"] for row in readers] == [lease_pid]
+            else:
+                assert last_line == expected
+                assert readers == []
             if outcome == "success":
                 await resume()
-        _stdout, stderr = await asyncio.wait_for(peer.communicate(), 5)
+        _stdout, stderr = await asyncio.wait_for(
+            peer.communicate(),
+            WAIT_TIMEOUT,
+        )
         assert peer.returncode == 0, stderr.decode()
         assert not maintenance.live_readers([site])
     finally:
@@ -1001,13 +1023,14 @@ async def test_observation_child_custody_is_temporary(
     sites = [site, other]
     script = """
 import importlib.util
+import os
 import sys
 from pathlib import Path
 spec = importlib.util.spec_from_file_location('maintenance', sys.argv[1])
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 m.lease_environment([Path(sys.argv[2])], parent_pid=int(sys.argv[3]) or None)
-sys.stdout.buffer.write(b'READY\\n')
+sys.stdout.buffer.write(("READY %d" % os.getpid()).encode() + b"\\n")
 sys.stdout.buffer.flush()
 sys.stdin.readline()
 m._close_readers()
@@ -1050,16 +1073,20 @@ m._close_readers()
                         ),
                     },
                 )
-                assert (
+                ready_line = (
                     await asyncio.wait_for(
                         peer.stdout.readline(),
                         WAIT_TIMEOUT,
                     )
-                    == b"READY\n"
-                )
+                ).decode()
+                assert ready_line.startswith("READY "), ready_line
+                # The lease records the interpreter's os.getpid(), which is
+                # not peer.pid on a Windows venv (launcher process), so the
+                # child reports the pid that owns its lease.
+                child_pid = int(ready_line.split()[1])
                 assert sorted(
                     row["pid"] for row in maintenance.live_readers([site])
-                ) == sorted([os.getpid(), peer.pid])
+                ) == sorted([os.getpid(), child_pid])
                 peer.stdin.write(b"RELEASE\n")
                 await peer.stdin.drain()
                 _, error = await asyncio.wait_for(

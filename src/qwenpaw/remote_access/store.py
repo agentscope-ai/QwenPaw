@@ -3,17 +3,24 @@
 
 from __future__ import annotations
 
-import base64
 import asyncio
-from dataclasses import asdict, dataclass, field
+import base64
 from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
+from uuid import uuid4
 
-from ..security.secret_store import decrypt, encrypt
+from cryptography.fernet import InvalidToken
+
+from ..security.secret_store import decrypt, encrypt, is_encrypted
 from ..utils.io_utils import read_json, write_json_atomic
 from .identity import RelayKeyPair
 from .platform_client import PlatformSession, RegisteredNode
+
+
+class RelayNodeStateError(ValueError):
+    """The saved binding could not be read or decrypted."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,20 +60,47 @@ class RelayNodeStore:
 
     def load(self) -> RelayNodeState | None:
         """Read the current state, returning None when it does not exist."""
-        if not self.path.exists():
+        try:
+            payload = read_json(self.path)
+            return self._decode(payload)
+        except FileNotFoundError:
             return None
-        payload = read_json(self.path)
+        except (
+            OSError,
+            InvalidToken,
+            ValueError,
+            KeyError,
+            TypeError,
+            OverflowError,
+            RecursionError,
+        ) as exc:
+            raise RelayNodeStateError(
+                "Cannot read the local Platform binding. Disconnect it and "
+                "connect again.",
+            ) from exc
+
+    def _decode(self, payload: Any) -> RelayNodeState:
         if not isinstance(payload, Mapping):
             raise ValueError("Relay node state must be a JSON object")
         registered = payload.get("registered_node")
         session = payload.get("session")
+        if any(
+            item is not None and not isinstance(item, Mapping)
+            for item in (registered, session)
+        ):
+            raise ValueError("Invalid Relay node credentials")
+        private_key = base64.b64decode(
+            self._read_secret(payload, "private_key"),
+            altchars=b"-_",
+            validate=True,
+        )
+        if len(private_key) != 32:
+            raise ValueError("Invalid Ed25519 private key")
         return RelayNodeState(
             platform_url=_string(payload, "platform_url"),
             qwenpaw_id=_string(payload, "qwenpaw_id"),
             name=_string(payload, "name"),
-            private_key=base64.urlsafe_b64decode(
-                self._unprotect(_string(payload, "private_key")),
-            ),
+            private_key=private_key,
             account_id=payload.get("account_id"),
             account_name=payload.get("account_name"),
             runtime_id=payload.get("runtime_id"),
@@ -74,12 +108,8 @@ class RelayNodeStore:
                 PlatformSession(
                     user_id=_string(session, "user_id"),
                     display_name=_string(session, "display_name"),
-                    access_token=self._unprotect(
-                        _string(session, "access_token"),
-                    ),
-                    refresh_token=self._unprotect(
-                        _string(session, "refresh_token"),
-                    ),
+                    access_token=self._read_secret(session, "access_token"),
+                    refresh_token=self._read_secret(session, "refresh_token"),
                     expires_at=float(session["expires_at"]),
                 )
                 if isinstance(session, Mapping)
@@ -88,9 +118,7 @@ class RelayNodeStore:
             registered_node=(
                 RegisteredNode(
                     node_id=_string(registered, "node_id"),
-                    credential=self._unprotect(
-                        _string(registered, "credential"),
-                    ),
+                    credential=self._read_secret(registered, "credential"),
                     dpop_nonce=_string(registered, "dpop_nonce"),
                     credential_generation=_integer(
                         registered,
@@ -101,6 +129,19 @@ class RelayNodeStore:
                 else None
             ),
         )
+
+    def _read_secret(self, payload: Mapping[str, Any], name: str) -> str:
+        value = _string(payload, name)
+        plaintext = self._unprotect(value)
+        if plaintext == value and is_encrypted(value):
+            raise ValueError("Cannot decrypt the Relay node credential")
+        return plaintext
+
+    def quarantine(self) -> None:
+        """Move an unreadable binding aside during an explicit disconnect."""
+        suffix = self.path.suffix + "." + uuid4().hex + ".corrupt"
+        backup = self.path.with_suffix(suffix)
+        self.path.replace(backup)
 
     def save(self, state: RelayNodeState) -> None:
         """Encrypt credentials and atomically replace the state file."""

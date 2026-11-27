@@ -161,6 +161,7 @@
     "genericTitle": "Something went wrong",
     "genericSubTitle": "An unexpected error occurred while rendering this page.",
     "reload": "Reload",
+    "reloadFailed": "Could not reload the Console. Try again.",
     "details": "View error details",
     "copy": "Copy error information",
     "copied": "Error information copied",

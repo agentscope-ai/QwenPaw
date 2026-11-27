@@ -19,7 +19,7 @@ from .platform_client import (
     PlatformSession,
     RelayPlatformError,
 )
-from .store import RelayNodeState, RelayNodeStore
+from .store import RelayNodeState, RelayNodeStateError, RelayNodeStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +65,10 @@ class RelayEnrollmentService:
 
     async def status(self) -> RelayEnrollmentStatus:
         """Return current identity without exposing any credentials."""
-        state = await asyncio.to_thread(self.store.load)
+        try:
+            state = await asyncio.to_thread(self.store.load)
+        except RelayNodeStateError:
+            return RelayEnrollmentStatus(status="recovery_required")
         pending = self._pending
         if pending and pending.expires_at <= time.monotonic():
             self._pending = None
