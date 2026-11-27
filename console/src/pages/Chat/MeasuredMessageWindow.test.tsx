@@ -9,6 +9,30 @@ import {
 describe("measured message window", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it("keeps the position restored by the history window after measuring rows", () => {
+    const scroller = document.createElement("div");
+    scroller.dataset.historyMessageWindow = "true";
+    document.body.append(scroller);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const top = this.hasAttribute("data-window-row")
+          ? -scroller.scrollTop
+          : 0;
+        return new DOMRect(0, top, 600, 300);
+      },
+    );
+    scroller.addEventListener("chat-message-window-rendered", () => {
+      scroller.scrollTop = 80;
+    });
+    render(
+      <MeasuredMessageWindow ids={["reading"]}>
+        {() => <article>Reading</article>}
+      </MeasuredMessageWindow>,
+      { container: scroller },
+    );
+    expect(scroller.scrollTop).toBe(80);
+  });
+
   it("fills a tall viewport with short steps after measurement without another scroll", () => {
     vi.useFakeTimers();
     vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(

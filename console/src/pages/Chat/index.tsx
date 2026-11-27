@@ -4222,7 +4222,7 @@ export default function ChatPage() {
   }, []);
 
   const loadOlderHistory = useCallback(
-    (_target: HTMLElement, accumulate = false) => {
+    (target: HTMLElement, accumulate = false) => {
       const sessionId = chatIdRef.current;
       if (!sessionId || historyLoadRef.current || historyLoadFailedRef.current)
         return;
@@ -4276,6 +4276,10 @@ export default function ChatPage() {
             historyMessageWindow.begin({
               sessionId,
               turnRows,
+              initialScrollAnchor:
+                distanceFromBottom(target) > BOTTOM_THRESHOLD_PX
+                  ? captureMessageScrollAnchor(target) ?? undefined
+                  : undefined,
               canLoadOlder: !noMore,
               userMessages: [],
               onLoadOlder: loadOlderHistory,

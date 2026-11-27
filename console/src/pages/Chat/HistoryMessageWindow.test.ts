@@ -271,13 +271,14 @@ describe("history message window store", () => {
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockImplementation(function getBounds(this: HTMLElement) {
         if (this.id === "reading-message") {
-          return rect(140 - (scrollTarget?.scrollTop ?? 0));
+          return rect(readingTop - (scrollTarget?.scrollTop ?? 0));
         }
         if (this.hasAttribute("data-history-message-window")) {
           return rect(0, 500);
         }
         return rect(0);
       });
+    let readingTop = 140;
     historyMessageWindow.begin({
       sessionId: "chat-1",
       turnRows: Array.from({ length: 40 }, (_, index) => [
@@ -308,108 +309,123 @@ describe("history message window store", () => {
 
     expect(scrollTarget?.scrollTop).toBe(100);
 
+    readingTop += 1384;
+    fireEvent(scrollTarget!, new Event("chat-message-window-rendered"));
+    expect(scrollTarget?.scrollTop).toBe(1484);
+    fireEvent.wheel(scrollTarget!, { deltaY: -50 });
+    readingTop += 200;
+    fireEvent(scrollTarget!, new Event("chat-message-window-rendered"));
+    expect(scrollTarget?.scrollTop).toBe(1484);
+
     bounds.mockRestore();
     clientHeight.mockRestore();
     scrollHeight.mockRestore();
     vi.useRealTimers();
   });
 
-  it("replaces scroll reserves without moving the thumb backward on prepend", () => {
-    const turn = (seq: number) => [
-      {
-        id: `user-${seq}`,
-        role: "user" as const,
-        cards: [
-          {
-            code: "AgentScopeRuntimeRequestCard",
-            data: {
-              input: [
-                {
-                  metadata: { qwenpaw_transcript_position: { turn_seq: seq } },
-                },
-              ],
+  it.each([4100, 14000])(
+    "holds the thumb and reading anchor on a %ipx prepend",
+    (pageHeight) => {
+      const turn = (seq: number) => [
+        {
+          id: `user-${seq}`,
+          role: "user" as const,
+          cards: [
+            {
+              code: "AgentScopeRuntimeRequestCard",
+              data: {
+                input: [
+                  {
+                    metadata: {
+                      qwenpaw_transcript_position: { turn_seq: seq },
+                    },
+                  },
+                ],
+              },
             },
-          },
-        ],
-      },
-    ];
-    const onLoadOlder = vi.fn();
-    const useBounds = vi
-      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockReturnValue(rect(-10000, 0));
-    historyMessageWindow.begin({
-      sessionId: "chat-reserve",
-      turnRows: [turn(17), turn(22)],
-      canLoadOlder: true,
-      onLoadOlder,
-      onFillOlder: vi.fn(),
-    });
-    historyMessageWindow.setLoading("chat-reserve", false);
-    const { container } = render(
-      createElement(
-        "div",
-        { className: "qwenpaw-chat-anywhere-message-list" },
-        createElement(HistoryMessageWindowCard),
-      ),
-    );
-    const scroll = container.querySelector<HTMLElement>(
-      "[data-history-message-window]",
-    )!;
-    const page = scroll.firstElementChild as HTMLElement;
-    const reserve = (side: "before" | "after") =>
-      Number.parseFloat(
-        page.style.getPropertyValue(`--history-space-${side}`),
-      ) || 0;
-    const insertedHeight = () =>
-      document.getElementById("user-12") ? 4100 : 0;
-    const retainedTail = () => (document.getElementById("user-22") ? 700 : 0);
-    const height = () =>
-      reserve("before") +
-      insertedHeight() +
-      1100 +
-      retainedTail() +
-      reserve("after");
-    Object.defineProperties(scroll, {
-      clientHeight: { value: 500 },
-      scrollHeight: { get: height },
-    });
-    useBounds.mockImplementation(function (this: HTMLElement) {
-      if (this === scroll) return rect(0, 500);
-      if (this === page) return rect(-scroll.scrollTop, height());
-      if (this.id === "user-17")
-        return rect(
-          reserve("before") + insertedHeight() + 250 - scroll.scrollTop,
-        );
-      return rect(-10000, 0);
-    });
-    expect(reserve("before")).toBeGreaterThan(4100);
-    scroll.scrollTop = reserve("before") + 180;
-    const ratio = scroll.scrollTop / scroll.scrollHeight;
-    fireEvent.wheel(scroll, { deltaY: -20 });
-    expect(onLoadOlder).toHaveBeenCalledOnce();
-
-    act(() => {
-      historyMessageWindow.setCanLoadNewer("chat-reserve", true);
-      historyMessageWindow.setTurnRows(
-        "chat-reserve",
-        [turn(12), turn(17)],
-        true,
+          ],
+        },
+      ];
+      const onLoadOlder = vi.fn();
+      const useBounds = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockReturnValue(rect(-10000, 0));
+      historyMessageWindow.begin({
+        sessionId: "chat-reserve",
+        turnRows: [turn(17), turn(22)],
+        canLoadOlder: true,
+        onLoadOlder,
+        onFillOlder: vi.fn(),
+      });
+      historyMessageWindow.setLoading("chat-reserve", false);
+      const { container } = render(
+        createElement(
+          "div",
+          { className: "qwenpaw-chat-anywhere-message-list" },
+          createElement(HistoryMessageWindowCard),
+        ),
       );
-    });
+      const scroll = container.querySelector<HTMLElement>(
+        "[data-history-message-window]",
+      )!;
+      const page = scroll.firstElementChild as HTMLElement;
+      const reserve = (side: "before" | "after") =>
+        Number.parseFloat(
+          page.style.getPropertyValue(`--history-space-${side}`),
+        ) || 0;
+      const insertedHeight = () =>
+        document.getElementById("user-12") ? pageHeight : 0;
+      const retainedTail = () => (document.getElementById("user-22") ? 700 : 0);
+      const height = () =>
+        reserve("before") +
+        insertedHeight() +
+        1100 +
+        retainedTail() +
+        reserve("after");
+      Object.defineProperties(scroll, {
+        clientHeight: { value: 500 },
+        scrollHeight: { get: height },
+      });
+      useBounds.mockImplementation(function (this: HTMLElement) {
+        if (this === scroll) return rect(0, 500);
+        if (this === page) return rect(-scroll.scrollTop, height());
+        if (this.id === "user-17")
+          return rect(
+            reserve("before") + insertedHeight() + 250 - scroll.scrollTop,
+          );
+        return rect(-10000, 0);
+      });
+      expect(reserve("before")).toBe(16 * 528);
+      scroll.scrollTop = reserve("before") + 180;
+      const progress = () =>
+        scroll.scrollTop / (scroll.scrollHeight - scroll.clientHeight);
+      const ratio = progress();
+      fireEvent.wheel(scroll, { deltaY: -20 });
+      expect(onLoadOlder).toHaveBeenCalledOnce();
 
-    expect(
-      document.getElementById("user-17")!.getBoundingClientRect().top,
-    ).toBe(70);
-    expect(reserve("after")).toBe(700);
-    expect(scroll.scrollTop / scroll.scrollHeight).toBeCloseTo(ratio);
+      act(() => {
+        historyMessageWindow.setCanLoadNewer("chat-reserve", true);
+        historyMessageWindow.setTurnRows(
+          "chat-reserve",
+          [turn(12), turn(17)],
+          true,
+        );
+      });
 
-    fireEvent.pointerDown(scroll);
-    scroll.scrollTop = 0;
-    fireEvent.scroll(scroll);
-    expect(scroll.scrollTop).toBe(reserve("before"));
-    expect(onLoadOlder).toHaveBeenCalledTimes(2);
-    useBounds.mockRestore();
-  });
+      expect(
+        document.getElementById("user-17")!.getBoundingClientRect().top,
+      ).toBe(70);
+      if (pageHeight === 4100) expect(reserve("after")).toBe(700);
+      expect(progress()).toBeCloseTo(ratio, 4);
+
+      fireEvent.pointerDown(scroll);
+      scroll.scrollTop = 0;
+      fireEvent.scroll(scroll);
+      expect(scroll.scrollTop).toBe(reserve("before"));
+      expect(onLoadOlder).toHaveBeenCalledTimes(2);
+      useBounds.mockRestore();
+    },
+  );
 
   it("fills another page when the history viewport is not scrollable", () => {
     vi.useFakeTimers();

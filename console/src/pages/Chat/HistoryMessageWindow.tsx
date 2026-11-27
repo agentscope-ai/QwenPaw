@@ -23,7 +23,10 @@ import {
   MeasuredMessageWindow,
   revealCachedMessage,
 } from "./MeasuredMessageWindow";
-import { followInitialHistoryBottom } from "./initialHistoryBottom";
+import {
+  followInitialHistoryBottom,
+  followInitialHistoryPosition,
+} from "./initialHistoryBottom";
 import { restoreMessageScrollAnchor } from "./messageScroll";
 import {
   createMessageWindowState,
@@ -39,6 +42,7 @@ const EDGE_TOLERANCE_PX = 1;
 const WHEEL_GESTURE_IDLE_MS = 160;
 // One user bubble and one reply, with their gaps.
 const ESTIMATED_TURN_HEIGHT = 528;
+const MAX_SCROLL_RESERVE = 1_000_000;
 const EMPTY_TURN_ROWS: IAgentScopeRuntimeWebUIMessage[][] = [];
 
 function turnSequence(message: IAgentScopeRuntimeWebUIMessage) {
@@ -231,6 +235,7 @@ interface ScrollAnchor {
   offset: number;
   fromStart: number;
   fromEnd: number;
+  progress: number;
 }
 
 // Capture the actual visible DOM before React inserts a page.
@@ -239,6 +244,7 @@ class HistoryContents extends PureComponent<ContentsProps> {
   private windowState = createMessageWindowState();
   private before = 0;
   private after = 0;
+  private rangeAfter = 0;
   private latestTurn = 0;
 
   private reserve(before: number, after: number) {
@@ -248,7 +254,10 @@ class HistoryContents extends PureComponent<ContentsProps> {
       "--history-space-before",
       `${this.before}px`,
     );
-    this.content?.style.setProperty("--history-space-after", `${this.after}px`);
+    this.content?.style.setProperty(
+      "--history-space-after",
+      `${this.after + this.rangeAfter}px`,
+    );
   }
 
   private estimateSpace() {
@@ -261,13 +270,33 @@ class HistoryContents extends PureComponent<ContentsProps> {
     this.latestTurn = Math.max(this.latestTurn, newest);
     // Stay below browser layout limits even for unusually long sessions.
     const estimate = (count: number) =>
-      Math.min(count * ESTIMATED_TURN_HEIGHT, 1_000_000);
+      Math.min(count * ESTIMATED_TURN_HEIGHT, MAX_SCROLL_RESERVE);
     return [estimate(oldest - 1), estimate(this.latestTurn - newest)] as const;
   }
 
   componentDidMount() {
     this.reserve(...this.estimateSpace());
+    this.content?.parentElement?.addEventListener("scroll", this.releaseTail);
   }
+
+  componentWillUnmount() {
+    this.content?.parentElement?.removeEventListener(
+      "scroll",
+      this.releaseTail,
+    );
+  }
+
+  private releaseTail = () => {
+    const scroll = this.content?.parentElement;
+    if (!scroll || !this.rangeAfter || this.props.canLoadNewer) return;
+    if (
+      scroll.scrollTop + EDGE_TOLERANCE_PX >=
+      historyScrollEdges(scroll).end
+    ) {
+      this.rangeAfter = 0;
+      this.reserve(this.before, this.after);
+    }
+  };
 
   getSnapshotBeforeUpdate(): ScrollAnchor | null {
     const content = this.content;
@@ -288,11 +317,14 @@ class HistoryContents extends PureComponent<ContentsProps> {
       offset: anchorTop - viewport.top,
       fromStart: anchorTop - bounds.top,
       fromEnd: bounds.bottom - anchorTop,
+      progress:
+        scroll.scrollTop /
+        Math.max(1, scroll.scrollHeight - scroll.clientHeight),
     };
   }
 
   componentDidUpdate(
-    _previous: ContentsProps,
+    previous: ContentsProps,
     _state: unknown,
     anchor: ScrollAnchor | null,
   ) {
@@ -304,21 +336,48 @@ class HistoryContents extends PureComponent<ContentsProps> {
     ).find((item) => item.id === anchor?.messageId);
     const estimate = this.estimateSpace();
     if (!element || !anchor) {
+      this.rangeAfter = 0;
       this.reserve(...estimate);
       return;
     }
     const bounds = content.getBoundingClientRect();
     const anchorTop = element.getBoundingClientRect().top;
-    // Replace reserves with real content without moving the visible message
-    // or changing the native scroll range when a page is inserted or evicted.
+    // Replace reserves with real content while keeping the message in view.
+    const growth = anchorTop - bounds.top - anchor.fromStart;
+    let before = this.before - growth;
+    const first =
+      this.props.messages[0] && turnSequence(this.props.messages[0]);
+    const previousFirst =
+      previous.messages[0] && turnSequence(previous.messages[0]);
+    const prepend = first && previousFirst && first < previousFirst;
+    if (prepend && growth > 0 && before < growth && this.props.canLoadOlder) {
+      // If another page this tall would exhaust the leading space, estimate
+      // the remaining turns using the height that was actually inserted.
+      const perTurn = growth / (previousFirst - first);
+      before = Math.max(
+        before,
+        Math.min(MAX_SCROLL_RESERVE, perTurn * (first - 1)),
+      );
+    }
     this.reserve(
-      this.before + anchor.fromStart - (anchorTop - bounds.top),
+      before,
       this.after + anchor.fromEnd - (bounds.bottom - anchorTop),
     );
     const offset =
       element.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
     if (Math.abs(offset - anchor.offset) > 0.5) {
       scroll.scrollTop += offset - anchor.offset;
+    }
+    // Moving the reader's anchor forward by one pixel per added pixel of
+    // padding needs a corresponding adjustment to the available scroll range.
+    if (prepend && anchor.progress > 0 && anchor.progress < 1) {
+      const extra =
+        scroll.scrollTop / anchor.progress -
+        (scroll.scrollHeight - scroll.clientHeight);
+      if (extra > 1) {
+        this.rangeAfter = Math.min(MAX_SCROLL_RESERVE, this.rangeAfter + extra);
+        this.reserve(this.before, this.after);
+      }
     }
   }
 
@@ -364,7 +423,6 @@ export function HistoryMessageWindowCard() {
   const pendingNavigationRef = useRef<string>();
   const pendingBottomRef = useRef(false);
   const stopBottomFollowRef = useRef<() => void>();
-  const restoredInitialAnchorRef = useRef<string>();
   const [atBottom, setAtBottom] = useState(true);
   const wheelUntilRef = useRef(0);
   const scrollIntentRef = useRef<"older" | "newer" | null>(null);
@@ -420,19 +478,14 @@ export function HistoryMessageWindowCard() {
     const scroll = scrollRef.current;
     if (!scroll || !current?.sessionId) return;
     const initialAnchor = current.initialScrollAnchor;
-    if (
-      initialAnchor &&
-      restoredInitialAnchorRef.current !== current.sessionId
-    ) {
-      restoredInitialAnchorRef.current = current.sessionId;
-      stopBottomFollowRef.current?.();
-      const restore = () => {
-        restoreMessageScrollAnchor(scroll, initialAnchor);
-      };
-      if (restoreMessageScrollAnchor(scroll, initialAnchor)) return;
-      if (revealCachedMessage(scroll, initialAnchor.id, restore)) return;
-    }
-    followBottom();
+    if (initialAnchor) {
+      let cached: boolean | undefined;
+      stopBottomFollowRef.current = followInitialHistoryPosition(scroll, () => {
+        if (restoreMessageScrollAnchor(scroll, initialAnchor)) return;
+        cached ??= revealCachedMessage(scroll, initialAnchor.id);
+        if (!cached) scroll.scrollTop = scroll.scrollHeight;
+      });
+    } else followBottom();
     return () => stopBottomFollowRef.current?.();
   }, [
     current?.initialScrollAnchor,
