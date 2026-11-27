@@ -6,6 +6,7 @@ import type {
   AgentRequest,
   AgentsRunningConfig,
   EmbeddingModelConfig,
+  RerankerConfig,
 } from "../types";
 
 export interface EmbeddingTestResponse {
@@ -14,6 +15,34 @@ export interface EmbeddingTestResponse {
   actual_dimensions: number | null;
   latency_ms: number;
   message: string;
+}
+
+export interface RerankerCaseResponse {
+  query: string;
+  scores: number[] | null;
+  correct: boolean | null;
+}
+
+export interface RerankerHistoryRecord {
+  ts: number;
+  latency_ms: number;
+  precision: number | null;
+  correct_count: number;
+  total: number;
+}
+
+export interface RerankerTestResponse {
+  success: boolean;
+  latency_ms: number;
+  message: string;
+  total: number;
+  correct_count: number;
+  incomplete_count?: number;
+  precision: number | null;
+  cases: RerankerCaseResponse[] | null;
+  fingerprint?: string;
+  history: RerankerHistoryRecord[] | null;
+  history_error?: string | null;
 }
 
 export interface MemoryBackendDescriptor {
@@ -105,6 +134,23 @@ export const agentApi = {
       body: JSON.stringify(config),
       timeout: Math.max(30, (config.health_check_timeout ?? 15) * 2 + 5) * 1000,
     }),
+
+  testReranker: (config: RerankerConfig) =>
+    request<RerankerTestResponse>("/workspace/reranker/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+      // Mirrors reme_reranker.py::reranker_suite_deadline_seconds: five
+      // sequential requests at the per-request timeout plus a fixed 10s
+      // overhead for DNS validation and connection setup. A 5s client margin
+      // covers transport/parse time so the browser never aborts first.
+      timeout: (5 * (config.timeout ?? 10) + 10 + 5) * 1000,
+    }),
+
+  getRerankerHistory: () =>
+    request<{ fingerprint: string; history: RerankerHistoryRecord[] }>(
+      "/workspace/reranker/history",
+      { timeout: 15_000 },
+    ),
 
   getAgentLanguage: () => request<{ language: string }>("/workspace/language"),
 

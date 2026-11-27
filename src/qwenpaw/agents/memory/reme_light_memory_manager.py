@@ -521,7 +521,35 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                     misfire_grace_seconds=600,
                 ),
             )
+        reranker = getattr(cfg, "reranker_config", None)
+        if (
+            reranker is not None
+            and getattr(reranker, "enabled", False)
+            and (getattr(reranker, "base_url", "") or "").strip()
+            and (getattr(reranker, "model_name", "") or "").strip()
+            and (getattr(reranker, "api_key", "") or "").strip()
+            and (getattr(reranker, "auto_verify_interval_hours", 0) or 0) > 0
+        ):
+            from .reranker_auto_probe import RERANKER_AUTO_VERIFY_CRON
+
+            jobs.append(
+                ServiceCronJob(
+                    key="reranker-auto-verify",
+                    cron=RERANKER_AUTO_VERIFY_CRON,
+                    callback=self._run_reranker_auto_probe,
+                    misfire_grace_seconds=600,
+                    jitter_seconds=60,
+                ),
+            )
         return jobs
+
+    async def _run_reranker_auto_probe(self) -> None:
+        """Probe this ReMe workspace's reranker when its interval is due."""
+        if self._reme is None or not getattr(self._reme, "is_started", False):
+            return
+        from .reranker_auto_probe import probe_agent_reranker_if_due
+
+        await probe_agent_reranker_if_due(self.agent_id)
 
     def is_memory_search_enabled(self) -> bool:
         """Return whether the agent-facing search tool is enabled."""
