@@ -265,6 +265,69 @@ function readLocaleValue(
   }, resource);
 }
 
+const SETTINGS_CONFIRMATION_KEYS = [
+  "skillPool.importBuiltin",
+  "skillPool.importBuiltinHint",
+  "skillPool.importBuiltinAlertHint",
+  "skillPool.importBuiltinSuccess",
+  "skillPool.importBuiltinNoChanges",
+  "skillPool.importBuiltinFailed",
+  "skillPool.importBuiltinConflictTitle",
+  "skillPool.importBuiltinConflictContent",
+  "skillPool.importStatusMissing",
+  "skillPool.importStatusCurrent",
+  "skillPool.importStatusOutdated",
+  "skillPool.importStatusConflict",
+  "skillPool.importStatusLanguageSwitchTo",
+  "skillPool.statusRemoved",
+  "skillPool.builtinNoticeSummary",
+  "skillPool.builtinNoticeLineAdded",
+  "skillPool.builtinNoticeLineMissing",
+  "skillPool.builtinNoticeLineUpdated",
+  "skillPool.builtinNoticeLineRemoved",
+  "skillPool.sourceVersion",
+  "skillPool.currentVersion",
+  "skillPool.langDefault",
+  "skillPool.langDefaultTooltip",
+  "skillPool.langEn",
+  "skillPool.langZh",
+  "backup.deleteConfirm",
+  "backup.deleteSuccess",
+  "models.localDeleteModel",
+  "models.localDeleteConfirm",
+  "models.localModelDeleted",
+  "models.localDeleteFailed",
+] as const;
+
+describe("settings confirmation translations", () => {
+  afterEach(() => vi.resetModules());
+
+  it.each(["en", "zh", "ja", "ru", "pt-BR", "id", "vi"])(
+    "localizes skill updates and deletion flows in %s without English fallback",
+    async (language) => {
+      const { loadLocale } = await freshI18nModule();
+      const [resource, english] = await Promise.all([
+        loadLocale(language),
+        loadLocale("en"),
+      ]);
+      const placeholders = /{{\w+}}/g;
+
+      for (const key of SETTINGS_CONFIRMATION_KEYS) {
+        const value = readLocaleValue(resource, key);
+        const source = readLocaleValue(english, key);
+        const context = `${language}: ${key}`;
+        expect(value, context).toEqual(expect.stringMatching(/\S/));
+        if (language !== "en") {
+          expect(value, context).not.toBe(source);
+        }
+        expect(String(value).match(placeholders)?.sort(), context).toEqual(
+          String(source).match(placeholders)?.sort(),
+        );
+      }
+    },
+  );
+});
+
 describe("approval notification translations", () => {
   afterEach(() => {
     vi.resetModules();
