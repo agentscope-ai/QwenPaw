@@ -22,6 +22,8 @@ from uuid import uuid4
 from ....app.chats.event_schema import advance_projection_watermark
 
 from ..types import LogEntry
+from ....constant import QWENPAW_MESSAGE_TAG_KEY, RUNTIME_CONTEXT_MESSAGE_TAG
+from ....runtime.context_injection import is_runtime_context_message
 from ....utils.io_utils import run_async_to_completion, run_sync_io
 from ....utils.sqlite_uri import sqlite_uri
 
@@ -33,6 +35,7 @@ _WRITE_RETRY_DEADLINE_S = 5.0
 _WRITE_RETRY_MIN_S = 0.020
 _WRITE_RETRY_MAX_S = 0.150
 _SCHEMA_VERSION = 1
+_RUNTIME_CONTEXT_CLEANUP = "scroll:runtime-context-cleanup-v1"
 _REQUIRED_COLUMNS = {"seq", "session_id", "kind"}
 
 _CONTENTION_CODES = {
@@ -379,6 +382,7 @@ class HistoryStore:
                 lambda: self._conn.execute("PRAGMA journal_mode=WAL"),
             )
             self._init_schema()
+            self._migrate_runtime_context()
         else:
             _validate_history_schema(self._conn)
             self._fts = (
@@ -645,6 +649,46 @@ class HistoryStore:
             # this transaction has succeeded.
             if version != _SCHEMA_VERSION:
                 self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
+
+    def _migrate_runtime_context(self) -> None:
+        """Remove explicitly tagged legacy rows without changing the schema."""
+        # Scroll can share the transcript's database and its user_version.
+        # Use a database-wide history marker for this data-only migration.
+        if self.migration_complete("", _RUNTIME_CONTEXT_CLEANUP):
+            return
+        with self._lock, _immediate_transaction(self._conn):
+            started = self._conn.execute(
+                "INSERT INTO history_migrations VALUES (?, ?, ?) "
+                "ON CONFLICT(agent_id, migration_key) DO NOTHING",
+                (
+                    "",
+                    _RUNTIME_CONTEXT_CLEANUP,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            ).rowcount
+            if not started:
+                return
+            doomed = self._conn.execute(
+                "SELECT seq FROM conversation_history WHERE "
+                "CASE WHEN json_valid(metadata) "
+                "THEN json_extract(metadata, ?) END = ?",
+                (f"$.{QWENPAW_MESSAGE_TAG_KEY}", RUNTIME_CONTEXT_MESSAGE_TAG),
+            ).fetchall()
+            if not doomed:
+                return
+            self._append_purge_fact([int(row["seq"]) for row in doomed])
+            self._conn.executemany(
+                "DELETE FROM conversation_history WHERE seq = ?",
+                [(row["seq"],) for row in doomed],
+            )
+            if self._fts:
+                try:
+                    self._rebuild_fts()
+                except sqlite3.DatabaseError as exc:
+                    raise RuntimeError(
+                        "Runtime-context migration failed; "
+                        f"history preserved: {self._path}",
+                    ) from exc
 
     def _init_fts(self) -> None:
         """Create the FTS5 full-text index over ``content``, if available.
@@ -1185,6 +1229,10 @@ class HistoryStore:
         for raw in rows:
             seq = int(raw["seq"])
             value = {key: raw[key] for key in _INSERT_COLUMNS}
+            if is_runtime_context_message(
+                {"metadata": _from_json(value["metadata"])},
+            ):
+                continue
             value["agent_id"] = value["agent_id"] or agent_id
             value["dedup_key"] = value["dedup_key"] or f"legacy:seq:{seq}"
             incoming[seq] = value

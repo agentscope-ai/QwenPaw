@@ -20,6 +20,7 @@ from ...runtime.console_turn_state import (
     repair_invalid_history_images,
     stamp_console_turn,
 )
+from ...runtime.context_injection import remove_runtime_context_from_state
 from ...runtime.hooks import HookContext, HookResult
 from ...runtime.phases import Phase
 from ..._session_signals import (
@@ -64,6 +65,14 @@ class SessionLoadHook(LifecycleHook):
                 agent=proxy,
             )
             if proxy.data:
+                removed = remove_runtime_context_from_state(proxy.data)
+                if removed:
+                    logger.info(
+                        "session_load: removed %d persisted runtime "
+                        "context message(s) (session=%s)",
+                        removed,
+                        ctx.session_id,
+                    )
                 ctx.session_state = proxy.data
                 mode_state = proxy.data.get("mode_state")
                 if isinstance(mode_state, dict):
