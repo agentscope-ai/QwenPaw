@@ -54,6 +54,7 @@ def resolve_launch(
         "executable_path": executable_path,
         "channel": config.channel,
         "args": list(config.args),
+        "ignore_default_args": list(config.ignore_default_args),
         "viewport": config.viewport,
         "proxy": config.proxy,
         "user_data_dir": config.user_data_dir,
