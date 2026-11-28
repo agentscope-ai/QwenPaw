@@ -695,7 +695,12 @@ class TaskTracker:
             tracker_ref = weakref.ref(self)
 
             async def _producer() -> None:
+                from ..modes.coding.code_mode import (
+                    reset_code_execution_context,
+                )
+
                 replay_receipt.set(None)
+                reset_code_execution_context()
                 start_time = datetime.now(timezone.utc)
                 successful = False
 

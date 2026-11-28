@@ -36,6 +36,17 @@ _execution_toolkit: ContextVar[Toolkit | None] = ContextVar(
     "code_execution_toolkit",
     default=None,
 )
+_execution_owner: ContextVar[CodeModeTool | None] = ContextVar(
+    "code_execution_owner",
+    default=None,
+)
+
+
+def reset_code_execution_context() -> None:
+    """Clear transient script tool state inherited by spawned tasks."""
+    _execution_toolkit.set(None)
+    _execution_owner.set(None)
+    current_script_tool_call.set(False)
 
 
 def _media_source_key(source) -> str:
@@ -149,8 +160,21 @@ class CodeModeToolkit(Toolkit):
         await self.catalog.add_tool(tool, group_name)
 
     async def call_tool(self, tool_call, state):
-        invocation = _execution_toolkit.get()
-        target = invocation if invocation is not None else self
+        owner = _execution_owner.get()
+        invocation = (
+            _execution_toolkit.get()
+            if owner is None or owner is self.code
+            else None
+        )
+        if (
+            invocation is not None
+            and await invocation.get_tool(tool_call.name) is not None
+        ):
+            target = invocation
+        elif tool_call.name == self.code.name:
+            target = self
+        else:
+            target = self.catalog
         if target is self:
             async for chunk in super().call_tool(tool_call, state):
                 yield chunk
@@ -249,6 +273,7 @@ class CodeModeTool(ToolBase):
         """Enter native acting middleware without publishing raw context."""
         invocation = Toolkit(tools=[tool])
         token = _execution_toolkit.set(invocation)
+        owner_token = _execution_owner.set(self)
         raw_token = current_script_tool_call.set(True)
         try:
             async with self.execution_slot(tool):
@@ -269,6 +294,7 @@ class CodeModeTool(ToolBase):
                 return response
         finally:
             current_script_tool_call.reset(raw_token)
+            _execution_owner.reset(owner_token)
             _execution_toolkit.reset(token)
 
     async def check_permissions(self, input_data=None, context=None):
