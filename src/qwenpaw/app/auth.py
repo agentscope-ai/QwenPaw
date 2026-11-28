@@ -878,7 +878,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             request.method == "OPTIONS"
             or path in _PUBLIC_PATHS
             or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
-            or not path.startswith("/api/")
+            # Auto-published cron actions are mounted outside /api/.
+            or not path.startswith(("/api/", "/crons/"))
         ):
             return True
 

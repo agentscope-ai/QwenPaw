@@ -10,10 +10,12 @@ argument parsing branches.
 from __future__ import annotations
 
 import inspect
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from qwenpaw.api_action import ApiActionSpec, ManagerBase, ManagerRegistry
@@ -22,6 +24,7 @@ from qwenpaw.app._api_action_routes import (
     _extract_path_params,
     _make_endpoint,
     collect_slash_specs_from_api_actions,
+    get_default_cron_manager,
     register_http_routes,
 )
 from qwenpaw.runtime.slash_command_registry import CommandSpec
@@ -101,6 +104,58 @@ class TestExtractPathParams:
 
 
 class TestMakeEndpoint:
+    @pytest.mark.parametrize("loaded", [False, True])
+    def test_cron_actions_resolve_default_workspace(self, loaded):
+        app = FastAPI()
+        recorder = _Recorder()
+        workspace = SimpleNamespace(cron_manager=recorder)
+        agents = {"default": workspace} if loaded else {}
+
+        async def load(agent_id):
+            return agents.setdefault(agent_id, workspace)
+
+        get_agent = AsyncMock(side_effect=load)
+        app.state.multi_agent_manager = SimpleNamespace(
+            agents=agents,
+            get_agent=get_agent,
+        )
+        jobs = "/crons/jobs"
+        for method, spec in [
+            ("GET", _spec(http_path=jobs)),
+            (
+                "POST",
+                _spec(http_path=jobs, name="with_body", request_model=_Body),
+            ),
+            (
+                "DELETE",
+                _spec(http_path=jobs + "/{job_id}", name="with_kwargs"),
+            ),
+        ]:
+            endpoint = _make_endpoint(spec, get_default_cron_manager, app)
+            app.add_api_route(spec.http_path, endpoint, methods=[method])
+        with TestClient(app) as client:
+            assert client.get("/crons/jobs").json() == "ok"
+            response = client.post("/crons/jobs", json={"label": "job"})
+            assert response.json() == "body-ok"
+            assert client.delete("/crons/jobs/task").json() == "kwargs-ok"
+        assert get_agent.await_args_list == [call("default")] * 3
+
+    @pytest.mark.parametrize("has_workspace", [False, True])
+    def test_uninitialized_cron_service_returns_503(self, has_workspace):
+        app = FastAPI()
+        if has_workspace:
+            app.state.multi_agent_manager = SimpleNamespace(
+                get_agent=AsyncMock(
+                    return_value=SimpleNamespace(cron_manager=None)
+                ),
+            )
+        app.add_api_route(
+            "/crons/jobs",
+            _make_endpoint(_spec(), get_default_cron_manager, app),
+        )
+        with TestClient(app) as client:
+            assert client.get("/crons/jobs").status_code == 503
+
     async def test_no_model_no_params_calls_method(self):
         recorder = _Recorder()
         app = FastAPI()
