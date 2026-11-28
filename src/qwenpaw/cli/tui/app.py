@@ -1209,7 +1209,7 @@ def _local_commands() -> list[SlashCommand]:
     return commands
 
 
-_HELP_TEXT = """Slash commands:
+_HELP_TEXT = f"""Slash commands:
 /help — show this help
 /resume — pick a recent session
 /resume list — browse all resumable sessions
@@ -1219,8 +1219,8 @@ _HELP_TEXT = """Slash commands:
 /inspect — toggle thought/tool inspection
 /model — show the current model
 /model list — list available models
-/model <provider>:<model> — switch model
-/model reset — reset to the global default model
+/model <provider>:<model> — switch this conversation's model
+/model reset — restore the default model and thinking
 /clear — clear the current session context
 /compact — compact current context
 /skills — list enabled skills"""

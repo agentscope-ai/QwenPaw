@@ -2,16 +2,17 @@
 # pylint:disable=too-many-return-statements
 """Handler for /model command.
 
-The /model command manages model configuration for the current agent.
+The /model command manages model configuration for the current conversation.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
+from ....config.config import ModelSlotConfig
 from ....exceptions import ProviderError
 from ....providers.model_selection import request_model_override
+from ....providers.provider_manager import ProviderManager
 from ....services.session_thinking import (
     get_session_chat,
     select_chat_model,
@@ -32,7 +33,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
     - Show help: /model -h, /model --help, /model help
     - List all models: /model list
     - Switch model: /model <provider_id>:<model_id>
-    - Reset to global default: /model reset
+    - Restore the inherited default: /model reset
     - Show model info: /model info <provider_id>:<model_id>
 
     Usage:
@@ -45,7 +46,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
     """
 
     command_name = "/model"
-    description = "Show or switch AI model"
+    description = f"Show or switch the current conversation's model"
 
     async def handle(self, context: ControlContext) -> str:
         """Handle /model command.
@@ -89,19 +90,20 @@ class ModelCommandHandler(BaseControlCommandHandler):
         """
         return (
             "**Model Management Commands**\n\n"
-            "Manage and switch AI models for the current agent.\n\n"
+            f"Manage the model for this conversation.\n\n"
             "**Available Commands:**\n\n"
             "`/model` - Show current active model\n\n"
             "`/model list` - List all available models\n\n"
-            "`/model <provider>:<model>` - Switch to specified model\n\n"
-            "`/model reset` - Reset to global default model\n\n"
+            f"`/model <provider>:<model>` - Switch this conversation's "
+            f"model\n\n"
+            f"`/model reset` - Restore the default model and thinking\n\n"
             "`/model info <provider>:<model>` - Show model information\n\n"
             "`/model help` or `/model -h` - Show this help message\n\n"
             "**Examples:**\n\n"
             "`/model` - Show current model\n\n"
             "`/model list` - List all models\n\n"
-            "`/model openai:gpt-4o` - Switch to GPT-4o\n\n"
-            "`/model reset` - Reset to global default\n\n"
+            f"`/model openai:gpt-4o` - Use GPT-4o in this conversation\n\n"
+            f"`/model reset` - Inherit the default model again\n\n"
             "`/model info openai:gpt-4o` - Show GPT-4o information\n\n\n"
             "**Capability Indicators:**\n\n"
             "🖼️ - Supports image input\n\n"
@@ -123,29 +125,24 @@ class ModelCommandHandler(BaseControlCommandHandler):
         selected, source = await self._conversation_model(context)
         if selected:
             return selected, source
+        return await self._default_model(context)
+
+    @staticmethod
+    async def _default_model(
+        context: ControlContext,
+    ) -> tuple[ModelSlotConfig | None, str]:
+        """Return the model inherited by a conversation without an override."""
         active = context.workspace.config.active_model
-        if active and active.provider_id:
-            return active, "agent-specific"
-        from ....providers.provider_manager import ProviderManager
+        if active and active.provider_id and active.model:
+            return active, f"agent-specific"
 
         active = await run_sync_io(
             ProviderManager.get_instance().get_active_model,
         )
-        return active, "global default"
-
-    async def _override_notice(self, context: ControlContext) -> str:
-        """Explain why an agent-default update cannot replace an override."""
-        selected, source = await self._conversation_model(context)
-        if selected is None:
-            return ""
-        return (
-            f"\n\nThis conversation keeps its {source}: "
-            f"`{selected.provider_id}:{selected.model}`. "
-            "The agent default applies to conversations that inherit it."
-        )
+        return active, f"global default"
 
     async def _show_current_model(self, context: ControlContext) -> str:
-        """Show current active model for this agent.
+        """Show the current model for this conversation.
 
         Args:
             context: Control command context
@@ -177,8 +174,6 @@ class ModelCommandHandler(BaseControlCommandHandler):
         Returns:
             Formatted list of all providers and models
         """
-        from ....providers.provider_manager import ProviderManager
-
         manager = ProviderManager.get_instance()
         active_model, _source = await self._current_model(context)
 
@@ -316,37 +311,22 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 f"Use `/model list` to see available models."
             )
 
-        # Update agent config
-        from ....config.config import update_agent_config_async
-        from ....config.config import ModelSlotConfig as ModelSlot
-
-        workspace = context.workspace
-        agent_config = workspace.config
-
-        new_slot = ModelSlot(
+        selected = ModelSlotConfig(
             provider_id=provider_id,
             model=model_id,
         )
-        agent_config.active_model = new_slot
-
-        def apply_active_model(persisted: Any) -> None:
-            persisted.active_model = new_slot
-
-        # Save to agent.json off the event loop (chat hot path)
         try:
-            await update_agent_config_async(
-                agent_config.id,
-                apply_active_model,
-            )
-        except Exception as e:
-            logger.exception(f"Failed to save agent config: {e}")
+            await self._save_session_model(context, selected)
+        except Exception:
+            logger.exception(f"Failed to switch the conversation model")
             return (
                 f"**Switch Failed**\n\n"
-                f"Failed to save configuration: {str(e)}"
+                f"Could not save the model for this conversation."
             )
 
         logger.info(
-            f"/model switch: agent={agent_config.id} "
+            f"/model switch: agent={sanitize_log_value(context.agent_id)} "
+            f"session={sanitize_log_value(context.session_id)} "
             f"provider={sanitize_log_value(provider_id)} "
             f"model={sanitize_log_value(model_id)}",
         )
@@ -355,66 +335,71 @@ class ModelCommandHandler(BaseControlCommandHandler):
             f"**Model Switched**\n\n"
             f"Provider: `{provider_id}`\n"
             f"Model: `{model_id}`\n\n"
-            f"The new agent default will be used for subsequent messages "
-            f"that inherit it."
-            f"{await self._override_notice(context)}"
+            f"Saved as the model for this conversation."
         )
 
     async def _reset_model(self, context: ControlContext) -> str:
-        """Reset to global default model.
-
-        Args:
-            context: Control command context
-
-        Returns:
-            Success message
-        """
-        from ....config.config import update_agent_config_async
-        from ....providers.provider_manager import ProviderManager
-
-        workspace = context.workspace
-        agent_config = workspace.config
-
-        # Get global active model
-        manager = ProviderManager.get_instance()
-        global_model = await run_sync_io(manager.get_active_model)
-
-        if global_model is None or not global_model.provider_id:
-            return (
-                "**Reset Failed**\n\n"
-                "No global default model is configured.\n\n"
-                "Please configure a model in the web console first."
-            )
-
-        # Clear agent-specific model (use None to indicate using global)
-        agent_config.active_model = None
-
-        def apply_reset(persisted: Any) -> None:
-            persisted.active_model = None
-
-        # Save to agent.json off the event loop (chat hot path)
+        """Restore the inherited model and thinking for this conversation."""
         try:
-            await update_agent_config_async(agent_config.id, apply_reset)
-        except Exception as e:
-            logger.exception(f"Failed to save agent config: {e}")
+            updated = await self._save_session_model(context, None)
+        except Exception:
+            logger.exception(f"Failed to reset the conversation model")
             return (
                 f"**Reset Failed**\n\n"
-                f"Failed to save configuration: {str(e)}"
+                f"Could not reset the model for this conversation."
             )
 
-        logger.info(
-            f"/model reset: agent={agent_config.id} "
-            f"using global model={global_model.provider_id}:"
-            f"{global_model.model}",
+        summary = (
+            f"**Model Reset**\n\n"
+            f"This conversation now inherits the default model and thinking."
+            if updated
+            else f"This conversation already inherits the default model."
+        )
+        model, source = await self._default_model(context)
+        if not (model and model.provider_id and model.model):
+            return f"{summary}\n\nNo default model is configured."
+        return (
+            f"{summary}\n\nCurrent model ({source}): "
+            f"`{model.provider_id}:{model.model}`"
         )
 
-        return (
-            f"**Model Reset**\n\n"
-            f"Agent now uses global default model:\n"
-            f"Provider: `{global_model.provider_id}`\n"
-            f"Model: `{global_model.model}`"
-            f"{await self._override_notice(context)}"
+    @staticmethod
+    async def _save_session_model(
+        context: ControlContext,
+        model: ModelSlotConfig | None,
+    ) -> bool:
+        """Write to the request's chat, creating it only for a selection."""
+        manager = getattr(context.workspace, f"chat_manager", None)
+        if manager is None or not (context.session_id and context.user_id):
+            raise ValueError(f"Missing current conversation identity")
+
+        payload = context.payload
+        if isinstance(payload, dict):
+            channel = payload.get(f"channel") or payload.get(f"channel_id")
+        else:
+            channel = getattr(payload, f"channel", None)
+        channel = channel or f"console"
+        chat_id = await manager.get_chat_id_by_session(
+            context.session_id,
+            channel,
+            context.user_id,
         )
+        if chat_id is None:
+            if model is None:
+                return False
+            chat = await manager.get_or_create_chat(
+                context.session_id,
+                context.user_id,
+                channel,
+            )
+            chat_id = chat.id
+        updated = await manager.set_session_model(
+            chat_id,
+            model.model_dump() if model is not None else None,
+        )
+        if updated is None:
+            raise LookupError(f"Current conversation was removed")
+        return True
 
     async def _show_model_info(  # pylint: disable=unused-argument
         self,
@@ -443,8 +428,6 @@ class ModelCommandHandler(BaseControlCommandHandler):
         model_id = parts[1].strip()
 
         # Get provider and model
-        from ....providers.provider_manager import ProviderManager
-
         manager = ProviderManager.get_instance()
         provider = await run_sync_io(manager.get_provider, provider_id)
 
@@ -525,8 +508,6 @@ class ModelCommandHandler(BaseControlCommandHandler):
         Returns:
             Tuple of (is_valid, error_message)
         """
-        from ....providers.provider_manager import ProviderManager
-
         manager = ProviderManager.get_instance()
 
         # Validate provider

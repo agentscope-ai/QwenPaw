@@ -15,8 +15,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from qwenpaw.app.chats.manager import ChatManager
+from qwenpaw.app.chats.repo import JsonChatRepository
+from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+from qwenpaw.providers.provider_manager import ProviderManager
+from qwenpaw.providers.thinking import ThinkingPreference
 from qwenpaw.runtime.commands.control.base import ControlContext
 from qwenpaw.runtime.commands.control.model_handler import ModelCommandHandler
+from qwenpaw.services.session_thinking import apply_session_thinking
 
 
 def _context(active_model=None, raw_args=""):
@@ -291,57 +297,220 @@ class TestListModels:
 
 
 # ---------------------------------------------------------------------------
-# _reset_model
+# Session model writes
 # ---------------------------------------------------------------------------
 
 
-class TestResetModel:
-    async def test_no_global_model_fails(self, handler):
-        manager = SimpleNamespace(get_active_model=lambda: None)
-        with patch(
-            "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
-            return_value=manager,
-        ):
-            result = await handler._reset_model(_context())
-        assert "Reset Failed" in result
-
-    async def test_reset_clears_agent_model(self, handler):
-        global_model = SimpleNamespace(provider_id="openai", model="gpt")
-        manager = SimpleNamespace(get_active_model=lambda: global_model)
-        ctx = _context(
-            active_model=SimpleNamespace(provider_id="x", model="y"),
+class TestSessionModelWrites:
+    @pytest.fixture
+    def context(self, tmp_path, monkeypatch):
+        ctx = _context()
+        ctx.session_id = f"feishu:conversation"
+        ctx.payload = {f"channel": f"feishu", f"user_id": ctx.user_id}
+        ctx.workspace.config = AgentProfileConfig(
+            id=f"default",
+            name=f"Agent",
+            active_model=ModelSlotConfig(
+                provider_id=f"demo",
+                model=f"agent-default",
+            ),
         )
-        applied = {}
+        ctx.workspace.chat_manager = ChatManager(
+            repo=JsonChatRepository(tmp_path / f"chats.json"),
+        )
+        monkeypatch.setattr(
+            f"qwenpaw.config.config.update_agent_config_async",
+            AsyncMock(side_effect=AssertionError(f"Unexpected agent write")),
+        )
+        return ctx
 
-        async def fake_update(agent_id, mutator):
-            persisted = SimpleNamespace(
-                active_model=SimpleNamespace(provider_id="x", model="y"),
+    @pytest.mark.parametrize("existing", [False, True])
+    async def test_switch_updates_current_session(
+        self,
+        handler,
+        context,
+        existing,
+    ):
+        manager = context.workspace.chat_manager
+        other = await manager.get_or_create_chat(
+            context.session_id,
+            f"another-user",
+            f"feishu",
+        )
+        old_model = {f"provider_id": f"offline", f"model": f"unreachable"}
+        if existing:
+            chat = await manager.get_or_create_chat(
+                context.session_id,
+                context.user_id,
+                f"feishu",
             )
-            mutator(persisted)
-            applied["active_model"] = persisted.active_model
-            return persisted
+            await manager.set_session_model(chat.id, old_model)
 
-        with (
-            patch(
-                "qwenpaw.providers.provider_manager"
-                ".ProviderManager.get_instance",
-                return_value=manager,
-            ),
-            patch(
-                "qwenpaw.config.config.update_agent_config_async",
-                fake_update,
-            ),
+        with patch.object(
+            handler,
+            f"_validate_model",
+            AsyncMock(return_value=(True, f"")),
         ):
-            await handler._reset_model(ctx)
-        assert ctx.workspace.config.active_model is None
-        assert applied["active_model"] is None
+            context.args[f"_raw_args"] = f"demo:replacement"
+            result = await handler.handle(context)
+
+        assert f"Model Switched" in result
+        assert f"this conversation" in result.lower()
+        found = await manager.get_or_create_chat(
+            context.session_id,
+            context.user_id,
+            f"feishu",
+        )
+        if existing:
+            assert found.id == chat.id
+        assert found.meta[f"runtime_context"][f"model"] == {
+            f"provider_id": f"demo",
+            f"model": f"replacement",
+        }
+        assert (await manager.get_chat(other.id)).meta == {}
+        default = context.workspace.config
+        assert default.active_model.model == f"agent-default"
+        next_turn = await apply_session_thinking(context, default)
+        assert next_turn.active_model.model == f"replacement"
+        context.args[f"_raw_args"] = f""
+        assert f"Model: `replacement`" in await handler.handle(context)
+
+    @pytest.mark.parametrize(
+        "default_source",
+        [f"agent-specific", f"global default", None],
+    )
+    async def test_reset_clears_only_session_model_and_thinking(
+        self,
+        handler,
+        context,
+        default_source,
+    ):
+        manager = context.workspace.chat_manager
+        chat = await manager.get_or_create_chat(
+            context.session_id,
+            context.user_id,
+            f"feishu",
+        )
+        await manager.set_session_model(
+            chat.id,
+            {f"provider_id": f"demo", f"model": f"pinned"},
+        )
+        await manager.set_session_thinking(
+            chat.id,
+            ThinkingPreference(level=f"high"),
+            f"demo:pinned",
+        )
+        config = context.workspace.config
+        if default_source != f"agent-specific":
+            config.active_model = None
+        global_model = (
+            ModelSlotConfig(provider_id=f"demo", model=f"global-model")
+            if default_source == f"global default"
+            else None
+        )
+        providers = SimpleNamespace(get_active_model=lambda: global_model)
+        with patch.object(
+            ProviderManager,
+            f"get_instance",
+            return_value=providers,
+        ):
+            context.args[f"_raw_args"] = f"reset"
+            result = await handler.handle(context)
+
+        assert f"Model Reset" in result
+        if default_source is None:
+            assert f"No default model is configured" in result
+        else:
+            assert default_source in result
+        stored = await manager.get_chat(chat.id)
+        assert stored.meta[f"runtime_context"] == {}
+        if default_source == f"agent-specific":
+            assert config.active_model.model == f"agent-default"
+
+    @pytest.mark.parametrize(
+        ("command", "message"),
+        [
+            (f"", f"agent-default"),
+            (f"reset", f"already inherits"),
+            (f"demo:missing", f"Switch Failed"),
+        ],
+    )
+    async def test_lookup_reset_and_invalid_switch_do_not_create_chat(
+        self,
+        handler,
+        context,
+        command,
+        message,
+    ):
+        with patch.object(
+            ProviderManager,
+            f"get_instance",
+            return_value=SimpleNamespace(get_provider=lambda _: None),
+        ):
+            context.args[f"_raw_args"] = command
+            result = await handler.handle(context)
+        assert message in result
+        assert await context.workspace.chat_manager.list_chats() == []
+
+    @pytest.mark.parametrize("command", [f"reset", f"demo:replacement"])
+    async def test_missing_user_does_not_target_another_chat(
+        self,
+        handler,
+        context,
+        command,
+    ):
+        manager = context.workspace.chat_manager
+        other = await manager.get_or_create_chat(
+            context.session_id,
+            context.user_id,
+            f"feishu",
+        )
+        selected = {f"provider_id": f"demo", f"model": f"pinned"}
+        await manager.set_session_model(other.id, selected)
+        context.user_id = f""
+        context.payload[f"user_id"] = f""
+        with patch.object(
+            handler,
+            f"_validate_model",
+            AsyncMock(return_value=(True, f"")),
+        ):
+            context.args[f"_raw_args"] = command
+            result = await handler.handle(context)
+        assert f"Failed" in result
+        stored = await manager.get_chat(other.id)
+        assert stored.meta[f"runtime_context"][f"model"] == selected
+
+    async def test_failed_write_preserves_the_previous_model(
+        self,
+        handler,
+        context,
+    ):
+        manager = context.workspace.chat_manager
+        chat = await manager.get_or_create_chat(
+            context.session_id,
+            context.user_id,
+            f"feishu",
+        )
+        selected = {f"provider_id": f"demo", f"model": f"pinned"}
+        await manager.set_session_model(chat.id, selected)
+        context.args[f"_raw_args"] = f"demo:replacement"
+        with (
+            patch.object(
+                handler,
+                f"_validate_model",
+                AsyncMock(return_value=(True, f"")),
+            ),
+            patch.object(manager._repo, f"save", side_effect=OSError),
+        ):
+            result = await handler.handle(context)
+        assert f"Switch Failed" in result
+        stored = await manager.get_chat(chat.id)
+        assert stored.meta[f"runtime_context"][f"model"] == selected
 
 
 class TestConversationOverrides:
     @pytest.fixture
     def context(self):
-        from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
-
         ctx = _context()
         ctx.workspace.config = AgentProfileConfig(
             id="default",
@@ -402,51 +571,3 @@ class TestConversationOverrides:
         assert "request override" in result
         assert "`explicit`" in result
         assert "`selected`" not in result
-
-    @pytest.mark.parametrize("reset", [False, True])
-    async def test_default_updates_preserve_and_explain_session_override(
-        self,
-        handler,
-        context,
-        reset,
-    ):
-        from qwenpaw.config.config import ModelSlotConfig
-
-        persisted = context.workspace.config.model_copy(deep=True)
-
-        async def update(_agent_id, mutator):
-            mutator(persisted)
-
-        manager = SimpleNamespace(
-            get_active_model=lambda: ModelSlotConfig(
-                provider_id="global",
-                model="global",
-            ),
-        )
-        with (
-            patch.object(
-                handler,
-                "_validate_model",
-                AsyncMock(return_value=(True, "")),
-            ),
-            patch("qwenpaw.config.config.update_agent_config_async", update),
-            patch(
-                "qwenpaw.providers.provider_manager"
-                ".ProviderManager.get_instance",
-                return_value=manager,
-            ),
-        ):
-            result = (
-                await handler._reset_model(context)
-                if reset
-                else await handler._switch_model(context, "openai:new-default")
-            )
-        assert "keeps its session override" in result
-        assert "openai:selected" in result
-        assert persisted.active_model == (
-            None
-            if reset
-            else ModelSlotConfig(provider_id="openai", model="new-default")
-        )
-        current = await handler._show_current_model(context)
-        assert "Model: `selected`" in current
