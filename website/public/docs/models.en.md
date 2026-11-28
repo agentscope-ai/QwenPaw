@@ -44,6 +44,14 @@ Under **Models → Default models → Decision model**, check that Piccolo is se
 - **Tool review**. Choose **Decision Model Mode** in the agent's security settings and enable tool review in the conversation.
 - **Context compaction**. Turn on automatic context compaction in the agent's context settings, then select **Enable decision model compaction**.
 
+### Self-hosted System One decision models
+
+1. In **Settings → Models**, open **Decision Service (TypeSafe)** and set its **Base URL** and **API key** to those of your System One-compatible service.
+2. In its model manager, add your model ID as a **Decision** model and run that model's connection test.
+3. Under **Models → Default models → Decision model**, select the newly added model.
+
+This uses the existing TypeSafe provider slot: the configured endpoint replaces the hosted endpoint rather than adding a second one. The provider requires a non-empty API key and does not support Chat Completions in the decision slot.
+
 ## Ollama Configuration
 
 Before using Ollama, you need to install the latest version of [Ollama](https://ollama.com/download) on your machine, download at least one model, and set the Context Length to at least 32k on the settings page.
@@ -200,16 +208,6 @@ After adding a provider, go to its **Settings** page to configure the API access
 After configuring a custom provider, go to its **Models** page and click **Add Model**. When adding, you need to provide the **Model ID** (the identifier used by the API) and **Model Name** (for display in the UI). After adding, you can also use **Test Connection** to verify if the model is working properly.
 
 > For example, if you deploy vLLM at `http://localhost:8000` and have a model at `/path/to/Qwen3.5`, you can add a custom provider, set the API compatibility mode to OpenAI `chat.completions`, set the Base URL to `http://localhost:8000/v1`, then add a model under this provider with Model ID `/path/to/Qwen3.5` and Model Name `Qwen3.5`. After testing the connection, if everything is configured correctly, you can use this vLLM model in QwenPaw.
-
-### Use your own decision model
-
-1. In **Settings → Models**, add a custom provider with the base URL of your service (for example, `http://localhost:8000/v1`) and its API key if required.
-2. Open the provider's model manager, add the model ID exposed by the service, and set **Model type** to **Decision**. Choose **System One** for a native `/v1/systemone` service, or **OpenAI Chat Completions** for a `/v1/chat/completions` service that supports JSON object responses. You can also edit the protocol of an existing decision model.
-3. Test the model connection, then choose it under **Default models → Decision model** or in an individual agent's model settings. Tool review and context compaction use their existing, separate enable switches.
-
-The connection test asks the four tool approval questions about a sample operation. Both the test and a live tool review send one model request with a 7-second timeout. A timeout fails the connection test and sends a live tool review to the user for confirmation.
-
-Chat Completions models supply their own probability estimates as JSON. In smart tool approval mode, a Chat Completions model can request confirmation for an allowed operation. If a local rule already calls for confirmation, QwenPaw asks you directly. A System One model can review risk flags that the local policy marks as eligible for automatic approval. An incomplete or invalid tool assessment requires user confirmation.
 
 ## Selecting a Model
 

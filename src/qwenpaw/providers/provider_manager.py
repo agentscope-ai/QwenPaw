@@ -536,12 +536,20 @@ class ProviderManager(
     @staticmethod
     def _reset_model_availability(provider: ProviderInfo) -> None:
         """Invalidate probe results after connection settings change."""
-        for model in (
-            *provider.models,
-            *provider.extra_models,
-            *provider.discovered_models,
-        ):
-            model.reset_availability()
+        for model in provider.models + provider.extra_models:
+            model.availability_status = "unverified"
+            model.availability_message = None
+            model.availability_http_status = None
+            model.availability_retryable = True
+            model.availability_checked_at = None
+            model.availability_verification = "unverified"
+        for model in provider.discovered_models:
+            model.availability_status = "unverified"
+            model.availability_message = None
+            model.availability_http_status = None
+            model.availability_retryable = True
+            model.availability_checked_at = None
+            model.availability_verification = "unverified"
 
     def _resolve_custom_provider_id(self, provider_id: str) -> str:
         """Resolve provider ID conflicts for a custom provider."""
@@ -604,14 +612,6 @@ class ProviderManager(
             for source, payload in zip(source_models, payload_models):
                 if "max_input_length" in source.model_fields_set:
                     payload["max_input_length_configured"] = True
-                if source.model_type == "decision":
-                    payload["config_overrides"] = sorted(
-                        set(source.config_overrides)
-                        | (
-                            source.model_fields_set
-                            & {"model_type", "decision_protocol"}
-                        ),
-                    )
         provider_payload["id"] = self._resolve_custom_provider_id(
             requested_id,
         )

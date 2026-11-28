@@ -49,15 +49,10 @@ function createModel(overrides: Partial<ModelInfo> = {}): ModelInfo {
   };
 }
 
-function renderEditor(
-  model: ModelInfo,
-  thinkingParamStyle?: "budget",
-  isCustomProvider = false,
-) {
+function renderEditor(model: ModelInfo, thinkingParamStyle?: "budget") {
   return renderWithProviders(
     <ModelConfigEditor
       providerId="openai"
-      isCustomProvider={isCustomProvider}
       model={model}
       onSaved={vi.fn()}
       onProviderUpdated={vi.fn()}
@@ -70,29 +65,6 @@ function renderEditor(
 describe("ModelConfigEditor output limits", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it("saves the protocol of an existing custom decision model", async () => {
-    vi.mocked(api.configureModel).mockResolvedValue(provider);
-    const user = userEvent.setup();
-    renderEditor(createModel({ model_type: "decision" }), undefined, true);
-    await user.click(
-      screen.getByRole("combobox", { name: /decision.?protocol/i }),
-    );
-    await user.click(
-      screen.getByText("OpenAI Chat Completions (/v1/chat/completions)"),
-    );
-    await user.click(screen.getByRole("button", { name: /Save/i }));
-    await waitFor(() =>
-      expect(api.configureModel).toHaveBeenCalledWith(
-        "openai",
-        "test-model",
-        expect.objectContaining({ decision_protocol: "chat_completions" }),
-      ),
-    );
-    expect(vi.mocked(api.configureModel).mock.calls[0][2]).not.toHaveProperty(
-      "generate_kwargs",
-    );
   });
 
   it("does not turn an unknown capability into a request limit", async () => {

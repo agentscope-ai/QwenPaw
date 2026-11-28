@@ -26,7 +26,6 @@ import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { ModelIdentityFields } from "./ModelIdentityFields";
 import { ModelInfoPreview } from "./ModelInfoPreview";
 import { ModelConfigEditor } from "./ModelConfigEditor";
-import { decisionProtocolOptions } from "./decisionProtocols";
 import { BillingTag, CapabilityTags } from "./ModelCapabilityTags";
 import { ModelPoolFilters } from "./ModelPoolFilters";
 import { emptyPoolFilters } from "./modelPool";
@@ -66,7 +65,10 @@ export function RemoteModelManageModal({
   const [templateId, setTemplateId] = useState<string>();
   const [form] = Form.useForm();
   const enteredModelId = Form.useWatch("id", form);
-  const enteredModelType = Form.useWatch("model_type", form) ?? "chat";
+  const watchedModelType = Form.useWatch("model_type", form);
+  const enteredModelType = current.is_custom
+    ? "chat"
+    : watchedModelType ?? "chat";
   const seen = useRef(new Set(provider.seen_model_ids ?? []));
   const [seenIds, setSeenIds] = useState(seen.current);
   const hoverTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -262,10 +264,7 @@ export function RemoteModelManageModal({
       await api.addModel(provider.id, {
         id,
         name: values.name?.trim() || id,
-        model_type: values.model_type ?? "chat",
-        ...(current.is_custom && values.model_type === "decision"
-          ? { decision_protocol: values.decision_protocol }
-          : {}),
+        model_type: current.is_custom ? "chat" : values.model_type ?? "chat",
         template_id: templateId,
       });
       await onSaved();
@@ -633,7 +632,6 @@ export function RemoteModelManageModal({
             <ModelConfigEditor
               providerId={current.id}
               model={configuredModel}
-              isCustomProvider={current.is_custom}
               onSaved={onSaved}
               onProviderUpdated={(updated) => {
                 setCurrent(updated);
@@ -671,8 +669,8 @@ export function RemoteModelManageModal({
           form={form}
           layout="vertical"
           initialValues={{
-            model_type: current.chat_model ? "chat" : "decision",
-            decision_protocol: "systemone",
+            model_type:
+              current.is_custom || current.chat_model ? "chat" : "decision",
           }}
         >
           <ModelIdentityFields
@@ -684,30 +682,24 @@ export function RemoteModelManageModal({
               const model = rows.find((row) => row.id === id);
               if (model)
                 form.setFieldsValue({
-                  model_type: model.model_type ?? "chat",
-                  decision_protocol: model.decision_protocol ?? "systemone",
+                  model_type: current.is_custom
+                    ? "chat"
+                    : model.model_type ?? "chat",
                 });
             }}
           />
-          <Form.Item name="model_type" label={t("models.modelType")}>
-            <Select
-              options={[
-                { value: "chat", label: t("models.modelTypeChat") },
-                { value: "decision", label: t("models.modelTypeDecision") },
-              ]}
-            />
-          </Form.Item>
+          {!current.is_custom && (
+            <Form.Item name="model_type" label={t("models.modelType")}>
+              <Select
+                options={[
+                  { value: "chat", label: t("models.modelTypeChat") },
+                  { value: "decision", label: t("models.modelTypeDecision") },
+                ]}
+              />
+            </Form.Item>
+          )}
           {enteredModelType === "decision" ? (
-            current.is_custom ? (
-              <Form.Item
-                name="decision_protocol"
-                label={t("models.decisionProtocol")}
-              >
-                <Select options={decisionProtocolOptions} />
-              </Form.Item>
-            ) : (
-              <p>{t("models.decisionModelHint")}</p>
-            )
+            <p>{t("models.decisionModelHint")}</p>
           ) : (
             <ModelInfoPreview
               providerId={current.id}

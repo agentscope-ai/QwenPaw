@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, List, Mapping
 
 from agentscope.classifier import (
-    BinaryAnswer,
     BinaryQuestion,
     ClassifierQuestion,
     ClassifierResponse,
@@ -29,63 +28,33 @@ class TypeSafeEvaluationError(RuntimeError):
         self.status_code = status_code
 
 
-def validate_decision_provider(
-    provider_id: str,
-    provider: Provider | None,
-) -> Provider:
-    """校验并返回可用于决策模型的提供商。"""
+def validate_decision_provider(provider_id: str, provider: Provider | None):
+    """Check whether the host can use this provider for decision models."""
     from .local_decision_model import LocalDecisionProviderMixin
 
-    if provider is not None and provider.is_custom:
-        from .custom_decision_model import decision_base_url
-
-        if not provider.enabled:
-            raise TypeSafeEvaluationError(
-                "Decision model provider is unavailable",
-            )
-        decision_base_url(provider.base_url)
-        return provider
     if provider_id not in {"typesafe", "qwenpaw-local"}:
         raise TypeSafeEvaluationError("Decision model provider is unsupported")
-    matches_builtin = (
-        isinstance(provider, TypeSafeProvider)
+    expected = (
+        TypeSafeProvider
         if provider_id == "typesafe"
-        else isinstance(provider, LocalDecisionProviderMixin)
+        else LocalDecisionProviderMixin
     )
-    if provider is None or not matches_builtin or not provider.enabled:
+    if not isinstance(provider, expected) or not provider.enabled:
         raise TypeSafeEvaluationError("Decision model provider is unavailable")
-    return provider
 
 
 def resolve_decision_model(slot=None, *, default_model: str | None = None):
-    """按智能体或全局配置解析决策模型及其服务。"""
+    """Resolve an agent/global native or local decision model."""
     from .provider_manager import ProviderManager
 
     manager = ProviderManager.get_instance()
     slot = slot or manager.default_models.get("decision")
-    model_id = slot.model if slot is not None else default_model
-    if model_id is None:
+    if slot is None and default_model is None:
         raise TypeSafeEvaluationError("Configure a decision model")
     provider_id = slot.provider_id if slot is not None else "typesafe"
-    provider = validate_decision_provider(
-        provider_id,
-        manager.get_provider(provider_id),
-    )
-    if provider.is_custom:
-        from ..exceptions import AppBaseException
-        from .custom_decision_model import CustomDecisionProvider
-
-        try:
-            model_info = provider.validate_model_selection(
-                model_id,
-                "decision",
-            )
-        except AppBaseException as exc:
-            raise TypeSafeEvaluationError(
-                "Decision model is not configured",
-            ) from exc
-        provider = CustomDecisionProvider.for_model(provider, model_info)
-    return provider, model_id
+    provider = manager.get_provider(provider_id)
+    validate_decision_provider(provider_id, provider)
+    return provider, slot.model if slot is not None else default_model
 
 
 class TypeSafeProvider(Provider):
@@ -216,7 +185,7 @@ class TypeSafeProvider(Provider):
         timeout: float = 5,
     ) -> ModelConnectionResult:
         try:
-            result = await self.evaluate(
+            await self.evaluate(
                 state="Hello",
                 questions={
                     "greeting": BinaryQuestion(
@@ -226,14 +195,6 @@ class TypeSafeProvider(Provider):
                 model=model_id,
                 timeout=timeout,
             )
-            answer = result.content.get("greeting")
-            if (
-                not isinstance(answer, BinaryAnswer)
-                or not 0 <= answer.probability <= 1
-            ):
-                raise TypeSafeEvaluationError(
-                    "Invalid decision model probe answer",
-                )
         except TypeSafeEvaluationError as exc:
             return ModelConnectionResult(
                 success=False,

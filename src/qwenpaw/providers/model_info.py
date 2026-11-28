@@ -13,8 +13,6 @@ from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .model_ranking import RankingEvidence
 from .thinking import ThinkingControl
 
-DecisionProtocol = Literal["systemone", "chat_completions"]
-
 
 def release_date(value: Any) -> str | None:
     """Normalize documented release dates and API creation timestamps."""
@@ -38,7 +36,6 @@ class ModelInfo(BaseModel):
     id: str = Field(..., description="Model identifier used in API calls")
     name: str = Field(..., description="Human-readable model name")
     model_type: ModelType = "chat"
-    decision_protocol: DecisionProtocol = "systemone"
     released_at: str | None = Field(
         default=None,
         description=f"Documented model release or creation date.",
@@ -182,15 +179,6 @@ class ModelInfo(BaseModel):
         "back in subsequent turns. When False the formatter omits "
         "reasoning_content from assistant wire messages.",
     )
-
-    def reset_availability(self) -> None:
-        """连接配置变更后，清除旧接口的探测结果。"""
-        self.availability_status = "unverified"
-        self.availability_message = None
-        self.availability_http_status = None
-        self.availability_retryable = True
-        self.availability_checked_at = None
-        self.availability_verification = "unverified"
 
     @model_validator(mode="before")
     @classmethod

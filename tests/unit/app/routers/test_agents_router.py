@@ -54,8 +54,6 @@ from qwenpaw.config.config import (
     ToolsConfig,
     BuiltinToolConfig,
 )
-from qwenpaw.providers import ModelInfo
-from qwenpaw.providers.openai_provider import OpenAIProvider
 
 
 def _ref(agent_id: str, *, enabled: bool = True) -> AgentProfileRef:
@@ -470,50 +468,6 @@ def test_update_agent_returns_merged_config(client, fake_config):
     assert len(calls) == 1
     assert calls[0][0] == "bot"
     reload.assert_called_once()
-
-
-def test_agent_decision_model_validates_custom_port_before_saving(client):
-    model = ModelInfo(id="decision", name="Decision", model_type="decision")
-    provider = OpenAIProvider(
-        id="custom-service",
-        name="Custom service",
-        is_custom=True,
-        base_url="http://localhost:8000v1",
-        models=[model],
-    )
-    manager = MagicMock()
-    manager.get_provider.return_value = provider
-    client.app.state.provider_manager = manager
-    existing = AgentProfileConfig(
-        id="bot",
-        name="Bot",
-        workspace_dir="/tmp/ws/bot",
-        decision_model=ModelSlotConfig(
-            provider_id="typesafe",
-            model="previous",
-        ),
-    )
-    saved = []
-    slot = {"provider_id": provider.id, "model": model.id}
-    with (
-        patch(
-            "qwenpaw.app.routers.agents.mutate_agent_config",
-            side_effect=_agent_transaction(existing, saved),
-        ),
-        patch("qwenpaw.app.routers.agents.schedule_agent_reload") as reload,
-    ):
-        route = "/api/agents/bot/model-settings"
-        rejected = client.patch(route, json={"decision_model": slot})
-        assert rejected.status_code == 400
-        assert "base URL" in rejected.json()["detail"]
-        assert not saved
-        reload.assert_not_called()
-
-        provider.base_url = "http://localhost:8000/v1"
-        accepted = client.patch(route, json={"decision_model": slot})
-        assert accepted.status_code == 200
-        assert accepted.json()["decision_model"] == slot
-        assert len(saved) == 1
 
 
 def test_patch_agent_model_settings_preserves_active_model(

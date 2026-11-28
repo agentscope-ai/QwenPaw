@@ -40,7 +40,7 @@ export function ToolExecutionLevelCard({
             (provider) =>
               provider.enabled &&
               ((provider.id === "typesafe" && Boolean(provider.api_key)) ||
-                ((provider.id === "qwenpaw-local" || provider.is_custom) &&
+                (provider.id === "qwenpaw-local" &&
                   Boolean(provider.base_url) &&
                   [...provider.models, ...provider.extra_models].some(
                     (model) => model.model_type === "decision",
