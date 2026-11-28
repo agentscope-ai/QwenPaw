@@ -245,8 +245,8 @@ def _install_certifi_env() -> None:
 
 def _install_desktop_runtime() -> None:
     os.environ.setdefault(DESKTOP_APP_ENV, "1")
-    # Must run before importing the FastAPI app: it applies CORS middleware
-    # from qwenpaw.constant.CORS_ORIGINS at import time.
+    # Must run before importing the FastAPI app. Its CORS middleware reads
+    # QWENPAW_CORS_ORIGINS from the environment at import time.
     _ensure_qwenpaw_app_not_loaded()
     ensure_desktop_cors_origins()
     _sync_loaded_qwenpaw_constant_cors_origins()
