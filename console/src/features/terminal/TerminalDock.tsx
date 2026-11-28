@@ -51,7 +51,7 @@ export default function TerminalDock({
     else panelRef.current?.collapse();
   }, [open, panelRef]);
   return (
-    <Group orientation="vertical" className={styles.layout}>
+    <Group orientation="vertical" className={styles.layout} disabled={!open}>
       <Panel id="conversation" minSize="30%" className={styles.chat}>
         {children}
       </Panel>
