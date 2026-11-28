@@ -825,16 +825,22 @@
   }
 
   [class*="bubble-start"] .x-markdown pre,
-  [class*="bubble-start"] .x-markdown table,
-  [class*="bubble-assistant"] .x-markdown pre,
-  [class*="bubble-assistant"] .x-markdown table {
+  [class*="bubble-assistant"] .x-markdown pre {
     max-width: 100%;
     overflow-x: auto;
+    white-space: pre;
   }
 
-  [class*="bubble-start"] .x-markdown pre,
-  [class*="bubble-assistant"] .x-markdown pre {
-    white-space: pre;
+  /* Fix #8845: a table box is not a scroll container, so `overflow-x` on the
+   * table itself does not create a scrollbar. Make it block-level and cap it
+   * to the bubble width so wide Markdown tables scroll instead of painting
+   * past the message list. */
+  [class*="bubble-start"] .x-markdown table,
+  [class*="bubble-assistant"] .x-markdown table {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow-x: auto;
   }
 }
 /* End #6852 */
