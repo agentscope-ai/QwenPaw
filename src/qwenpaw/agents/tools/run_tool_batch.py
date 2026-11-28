@@ -583,16 +583,148 @@ def _lookup_arg(path: str, args: dict[str, Any]) -> Any:
 # --- Single-step execution ------------------------------------------------
 
 
+async def _gate_tool_call(  # pylint: disable=too-many-return-statements
+    toolkit: Any,
+    tool_name: str,
+    arguments: dict[str, Any],
+    agent_state: Any,
+) -> ToolChunk | None:
+    """Run a batch step through the same permission path as a top-level call.
+
+    ``Toolkit.call_tool`` does NOT invoke permission checking — that lives on
+    the agent side in ``Agent._execute_tool_call``.  Batch inner calls bypass
+    the agent loop, so without this gate they would skip the governance
+    pipeline (policy rules / tool-guard / approval / sandbox fallback)
+    entirely, and ``PolicyGuardedTool`` / ``GuardedFunctionTool`` never get
+    to set the per-call sandbox mode.
+
+    Two things matter for parity with a normal tool call:
+
+    1. **The tool hook alone is not the decision.**  Top-level calls go
+       through ``PermissionEngine.check_permission``, which evaluates deny
+       rules → ask rules → read-only fast path → ``tool.check_permissions``
+       → allow rules → fallback ASK, and only continues past the hook when
+       it returns ALLOW/DENY (or a bypass-immune safety ASK).  A bare
+       ``PASSTHROUGH`` from the hook still ends in ``ASK`` at the top level.
+       Invoking the hook directly and treating PASSTHROUGH as "execute"
+       therefore made the batch path strictly wider than a normal call.
+    2. **The hook's second argument is a** ``PermissionContext``, not the
+       ``AgentState``.  Hooks that ignore it happened to work; mode-aware
+       hooks did not.
+
+    A decision other than ALLOW yields a DENIED ``ToolChunk`` and the tool
+    body never runs.  ASK / PASSTHROUGH become DENIED here because a batch
+    has no way to surface the confirmation prompt the top level would raise
+    — silently upgrading them to "execute" is exactly the gap this gate
+    exists to close.
+
+    Args:
+        toolkit: Current toolkit, used to resolve the tool object.
+        tool_name: Tool the batch step wants to invoke.
+        arguments: Resolved arguments for this step.
+        agent_state: Current agent state, used to resolve the permission
+            context (the hook receives ``agent_state.permission_context``).
+
+    Returns:
+        A ``ToolChunk`` describing why the step must not run, or ``None``
+        when the step may proceed.
+
+    ``get_tool`` is probed with ``getattr`` so toolkits that predate the
+    method keep working unchanged — the gate is purely additive.
+    """
+    from agentscope.permission import PermissionBehavior, PermissionEngine
+
+    get_tool = getattr(toolkit, "get_tool", None)
+    if not callable(get_tool):
+        # Toolkits that predate ``get_tool`` cannot be gated here; keep the
+        # historical behaviour rather than breaking them.
+        return None
+
+    try:
+        tool = await get_tool(tool_name)
+    except Exception as exc:  # noqa: BLE001
+        return _json_tool_response(
+            {"ok": False, "error": f"{type(exc).__name__}: {exc}"},
+        )
+    if tool is None:
+        return _json_tool_response(
+            {
+                "ok": False,
+                "error": f"Tool '{tool_name}' is not available in this "
+                "toolkit / active tool group.",
+            },
+        )
+
+    context = getattr(agent_state, "permission_context", None)
+    try:
+        if context is not None:
+            # Full engine path: deny rules, ask rules, read-only fast path,
+            # tool hook, allow rules, fallback ASK — same as a top-level
+            # call.
+            decision = await PermissionEngine(context).check_permission(
+                tool,
+                arguments,
+            )
+        else:
+            # Older agent state without a permission context: fall back to
+            # the tool hook, passing the context (None) in the documented
+            # position.
+            check_permissions = getattr(tool, "check_permissions", None)
+            if not callable(check_permissions):
+                return None
+            decision = await check_permissions(arguments, context)
+    except Exception as exc:  # noqa: BLE001
+        # CancelledError derives from BaseException, so it is not caught
+        # here and keeps propagating to the caller.
+        logger.exception(
+            "run_tool_batch: permission check failed for '%s'",
+            tool_name,
+        )
+        return _json_tool_response(
+            {"ok": False, "error": f"Permission check error: {exc}"},
+        )
+
+    behavior = getattr(decision, "behavior", None)
+    if behavior == PermissionBehavior.ALLOW:
+        return None
+
+    reason = getattr(decision, "message", "") or "denied by policy"
+    if behavior in (
+        PermissionBehavior.ASK,
+        PermissionBehavior.PASSTHROUGH,
+    ):
+        # The top level turns these into a user confirmation prompt.  A
+        # batch cannot prompt, so the step must not run.
+        error = (
+            f"Tool '{tool_name}' requires user approval and cannot run "
+            f"inside a batch: {reason}"
+        )
+    else:
+        error = f"Tool '{tool_name}' is blocked: {reason}"
+
+    denied = _json_tool_response(
+        {
+            "ok": False,
+            "error": error,
+            "denied": True,
+            "tool_name": tool_name,
+            "behavior": getattr(behavior, "value", str(behavior)),
+        },
+    )
+    denied.state = ToolResultState.DENIED
+    return denied
+
+
 async def _call_tool(
     tool_name: str,
     arguments: dict[str, Any],
 ) -> ToolChunk:
     """Call a registered tool function by name via the current Toolkit.
 
-    Uses ``Toolkit.call_tool`` so that permission checking (including
-    ``PolicyGuardedTool.check_permissions``), tool-group activation
-    guards, and state injection all apply — the same pipeline as a
-    normal agent tool call.
+    The step's governance hook runs first (see :func:`_gate_tool_call`) so
+    that a batch inner call is subject to the same policy, tool-guard,
+    approval and sandbox pipeline as a normal agent tool call.  Execution is
+    then delegated to ``Toolkit.call_tool``.
     """
     from agentscope.message import ToolCallBlock
 
@@ -616,6 +748,15 @@ async def _call_tool(
         name=tool_name,
         input=json.dumps(arguments, ensure_ascii=False),
     )
+
+    denied = await _gate_tool_call(
+        toolkit,
+        tool_name,
+        arguments,
+        agent_state,
+    )
+    if denied is not None:
+        return denied
 
     tool_stream = None
     try:
@@ -884,7 +1025,9 @@ async def _run_steps(  # pylint: disable=too-many-branches,too-many-statements
             continue
 
         response = await _call_tool(tool_name, arguments)
-        if getattr(response, "state", None) == ToolResultState.INTERRUPTED:
+        resp_state = getattr(response, "state", None)
+        # INTERRUPTED means the user cancelled — terminal, not recorded.
+        if resp_state == ToolResultState.INTERRUPTED:
             break
         result = _response_payload(response)
 
@@ -912,6 +1055,12 @@ async def _run_steps(  # pylint: disable=too-many-branches,too-many-statements
         results.append(
             {"step": index, "tool_name": tool_name, **result},
         )
+
+        # A policy denial is terminal for the whole batch, regardless of
+        # ``stop_on_error`` — but it is recorded above so the model sees
+        # why the remaining steps were abandoned and does not retry.
+        if resp_state == ToolResultState.DENIED:
+            break
 
         if not result.get("ok", True) and step_stop:
             break

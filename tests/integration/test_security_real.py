@@ -18,10 +18,13 @@ test_approval.py) to verify:
 from __future__ import annotations
 
 import json
+import shutil
+import tempfile
 import threading
 import time
 import urllib.parse
 from http.server import HTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -313,6 +316,160 @@ def test_tool_guard_blocks_dangerous_shell_via_agent_run(
             )
         except Exception:
             pass
+        srv.force_tool_call = False
+        unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_tool_guard_blocks_shell_inside_batch(
+    app_server,
+    mock_llm,
+) -> None:
+    """Test purpose:
+    - Verify the governance layer ALSO intercepts a shell command issued
+      as a ``run_tool_batch`` inner action rather than as a top-level
+      tool call, and that the tool body never runs.
+
+    ``run_tool_batch._call_tool`` reaches the tool through
+    ``Toolkit.call_tool``, which does not run permission checking — that
+    lives on the agent side in ``Agent._execute_tool_call``.  A batch
+    therefore used to execute its inner tools with no governance at all.
+
+    Safety and specificity:
+    - The target is a **throwaway directory created by this test**, so a
+      regression deletes a temp dir instead of the host.
+    - The directory name carries a UUID, so the denial cannot be
+      matched against an earlier run on the shared ``app_server``.
+    - The decisive assertion is on the filesystem (sentinel still
+      there), not on the log: even if the log line is ambiguous, the
+      sentinel proves whether the tool body ran.
+
+    Test flow:
+    1. Create ``/tmp/qwenpaw-batch-gate-<uuid>/sentinel.txt``.
+    2. Drive MockLLM to emit a single ``run_tool_batch`` tool_call whose
+       only action is ``execute_shell_command`` with
+       ``rm -rf <that directory>``.
+    3. Trigger an agent-type cron run with ``runtime.tool_safety=True``.
+    4. Assert the sentinel still exists and the log carries a deny for
+       **this** directory name.
+    """
+    srv, mock_url = mock_llm
+    unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
+    register_mock_provider(app_server, mock_url)
+    clean_inbox(app_server.working_dir)
+
+    # Unique throwaway target: nothing outside this test can be harmed,
+    # and the name cannot collide with another run's log line.
+    target_dir = Path(tempfile.mkdtemp(prefix="qwenpaw-batch-gate-"))
+    sentinel = target_dir / "sentinel.txt"
+    sentinel.write_text("batch gate sentinel", encoding="utf-8")
+    target_name = target_dir.name
+
+    srv.force_tool_call = True
+    srv.tool_call_name = "run_tool_batch"
+    srv.tool_call_arguments = json.dumps(
+        {
+            "actions": [
+                {
+                    "tool_name": "execute_shell_command",
+                    "arguments": {"command": f"rm -rf {target_dir}"},
+                },
+            ],
+            "stop_on_error": True,
+        },
+    )
+
+    spec = {
+        "name": "tool_guard_blocks_batch",
+        "enabled": True,
+        "schedule": {
+            "type": "cron",
+            "cron": _NEVER_FIRE_SCHEDULE,
+            "timezone": "UTC",
+        },
+        "task_type": "agent",
+        "request": {
+            "input": [
+                {
+                    "role": "user",
+                    "type": "message",
+                    "content": [
+                        {"type": "text", "text": "delete everything"},
+                    ],
+                },
+            ],
+        },
+        "dispatch": {
+            "type": "channel",
+            "channel": "console",
+            "target": {
+                "user_id": "tg-batch",
+                "session_id": "console:tg-batch-sess",
+            },
+            "mode": "stream",
+        },
+        "runtime": {
+            "tool_safety": True,
+        },
+        "save_result_to_inbox": False,
+    }
+    job_resp = app_server.api_request(
+        "POST",
+        "/api/cron/jobs",
+        json=spec,
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert job_resp.status_code == 200, app_server.logs_tail()
+    job_id = job_resp.json()["id"]
+
+    try:
+        run_resp = app_server.api_request(
+            "POST",
+            f"/api/cron/jobs/{job_id}/run",
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert run_resp.status_code == 200, app_server.logs_tail()
+
+        deadline = time.time() + 30.0
+        related = ""
+        while time.time() < deadline:
+            logs = app_server.logs_tail(40000)
+            # Bind the record to *this* invocation: the throwaway
+            # directory name carries a UUID, so a line left behind by an
+            # earlier test (or an earlier run) cannot satisfy this.  The
+            # governance layer may report the block as a deny or as an
+            # approval requirement (environments without a sandbox
+            # escalate to ASK), so match the invocation, not the wording.
+            related = "\n".join(
+                ln for ln in logs.splitlines() if target_name in ln
+            )
+            if related:
+                break
+            time.sleep(1.0)
+
+        # The decisive check: if the gate works, the tool body never ran
+        # and the sentinel is still on disk.  A regression deletes a temp
+        # directory this test created — nothing else.
+        assert sentinel.exists(), (
+            "run_tool_batch executed a governed shell command: the "
+            f"sentinel {sentinel} was removed. Log tail:\n"
+            f"{app_server.logs_tail()[-3000:]}"
+        )
+        assert related, (
+            "governance never saw this batch invocation "
+            f"({target_name}):\n{app_server.logs_tail()[-3000:]}"
+        )
+    finally:
+        try:
+            app_server.api_request(
+                "DELETE",
+                f"/api/cron/jobs/{job_id}",
+                timeout=_HTTP_TIMEOUT,
+            )
+        except Exception:
+            pass
+        shutil.rmtree(target_dir, ignore_errors=True)
         srv.force_tool_call = False
         unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
 
