@@ -44,6 +44,14 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 - **工具审查**：在智能体的安全设置中选择 **决策模型模式**，并在对话中开启工具审查。
 - **上下文压缩**：在智能体的上下文设置中开启自动上下文压缩，再打开 **启用决策模型压缩**。
 
+### 使用自建 System One 决策模型
+
+1. 在 **设置 → 模型** 打开 **Decision Service (TypeSafe)**，填写 System One 兼容服务的 **Base URL** 和 **API Key**。
+2. 在该提供商的模型管理中添加模型 ID，类型选择 **决策模型**，并测试该模型的连接。
+3. 在 **模型 → 默认模型 → 决策模型** 选择刚添加的模型。
+
+该配置复用现有 TypeSafe 提供商，填写自建地址会替换托管端点，不会新增第二个端点。提供商要求 API Key 非空，决策模型不支持 Chat Completions 协议。
+
 ## Ollama 配置
 
 在使用 Ollama 之前，您需要先在机器上安装最新版 [Ollama](https://ollama.com/download)，至少下载一个模型，并且在设置页面中将 Context Length 设置为至少 32k。

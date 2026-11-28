@@ -486,6 +486,36 @@ describe("model pool switches", () => {
     );
     expect(screen.getByText("Chosen model")).toBeInTheDocument();
   });
+  it.each([
+    { id: "custom-provider", is_custom: true, expectedType: "chat" },
+    { id: "typesafe", is_custom: false, expectedType: "decision" },
+  ])("adds a model to $id as $expectedType", async (testProvider) => {
+    const { id, is_custom, expectedType } = testProvider;
+    await render({ id, is_custom, chat_model: "" });
+    fireEvent.click(screen.getByText("models.addModel"));
+    const dialog = screen.getByRole("heading", { name: "models.addModel" })
+      .parentElement!;
+    const form = within(dialog);
+    if (is_custom) {
+      expect(form.queryByText("models.modelType")).not.toBeInTheDocument();
+    } else {
+      expect(form.getByText("models.modelTypeDecision")).toBeVisible();
+    }
+    fireEvent.change(
+      form.getByRole("combobox", { name: "models.modelIdLabel" }),
+      {
+        target: { value: "my-model" },
+      },
+    );
+    fireEvent.click(form.getByRole("button", { name: "confirm" }));
+    await waitFor(() =>
+      expect(api.addModel).toHaveBeenCalledWith(
+        id,
+        expect.objectContaining({ id: "my-model", model_type: expectedType }),
+      ),
+    );
+  });
+
   it("offers manual addition for OpenRouter", async () => {
     await render();
     fireEvent.click(screen.getByText("models.addModel"));

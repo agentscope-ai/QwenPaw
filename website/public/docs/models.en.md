@@ -44,6 +44,14 @@ Under **Models → Default models → Decision model**, check that Piccolo is se
 - **Tool review**. Choose **Decision Model Mode** in the agent's security settings and enable tool review in the conversation.
 - **Context compaction**. Turn on automatic context compaction in the agent's context settings, then select **Enable decision model compaction**.
 
+### Self-hosted System One decision models
+
+1. In **Settings → Models**, open **Decision Service (TypeSafe)** and set its **Base URL** and **API key** to those of your System One-compatible service.
+2. In its model manager, add your model ID as a **Decision** model and run that model's connection test.
+3. Under **Models → Default models → Decision model**, select the newly added model.
+
+This uses the existing TypeSafe provider slot: the configured endpoint replaces the hosted endpoint rather than adding a second one. The provider requires a non-empty API key and does not support Chat Completions in the decision slot.
+
 ## Ollama Configuration
 
 Before using Ollama, you need to install the latest version of [Ollama](https://ollama.com/download) on your machine, download at least one model, and set the Context Length to at least 32k on the settings page.
