@@ -38,7 +38,7 @@ CloudPaw runs entirely in your own environment, keeping your data secure and und
 | **Python** | 3.10 ~ 3.13 |
 | **Alibaba Cloud account** | Access Key required for cloud operations |
 
-> For QwenPaw installation, see [QwenPaw Quickstart](https://qwenpaw.agentscope.io/docs/quickstart). If your QwenPaw version is below v1.1.7, upgrade first: `pip install --upgrade qwenpaw>=1.1.7`.
+> For QwenPaw installation, see [QwenPaw Quickstart](https://qwenpaw.agentscope.io/docs/quickstart). If your QwenPaw version is below v1.1.7, upgrade first: `pip install --upgrade "qwenpaw>=1.1.7"`.
 
 ### 1. Install CloudPaw Plugin
 

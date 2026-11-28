@@ -38,7 +38,7 @@ CloudPaw 完全部署在您自己的环境中，数据安全可控。
 | **Python** | 3.10 ~ 3.13 |
 | **阿里云账号** | 需要 Access Key（用于操作云资源） |
 
-> QwenPaw 的安装方式请参阅 [QwenPaw 快速开始文档](https://qwenpaw.agentscope.io/docs/quickstart)。如果已有 QwenPaw 但版本低于 v1.1.7，请先升级：`pip install --upgrade qwenpaw>=1.1.7`。
+> QwenPaw 的安装方式请参阅 [QwenPaw 快速开始文档](https://qwenpaw.agentscope.io/docs/quickstart)。如果已有 QwenPaw 但版本低于 v1.1.7，请先升级：`pip install --upgrade "qwenpaw>=1.1.7"`。
 
 ### 1. 安装 CloudPaw 插件
 
