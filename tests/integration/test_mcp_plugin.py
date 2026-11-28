@@ -239,6 +239,51 @@ async def test_mcp_connect_discover_call_and_reconnect(tmp_path, transport):
                 await host.close_driver("echo")
                 await host.open_driver(source)
                 await echo(host, text="reconnected")
+            if transport == "streamable_http":
+                # A call the peer rejects at the HTTP layer reaches its caller
+                # with the server's reason; the session stays usable.
+                base = endpoint["url"].removesuffix("/mcp")
+                control = base + "/control"
+                async with httpx.AsyncClient() as peer:
+                    before = len((await peer.get(base + "/sessions")).json())
+                    for body, reason in (
+                        ({"detail": "text is too long"}, "text is too long"),
+                        (
+                            {
+                                "jsonrpc": "2.0",
+                                "id": None,
+                                "error": {
+                                    "code": -32602,
+                                    "message": "Invalid params: text",
+                                },
+                            },
+                            "Invalid params: text",
+                        ),
+                    ):
+                        await peer.post(
+                            control,
+                            json={
+                                "reject": {
+                                    "tool": "echo",
+                                    "status": 400,
+                                    "body": body,
+                                },
+                            },
+                        )
+                        with pytest.raises(SDKError) as rejected:
+                            await host.call_driver(
+                                "echo",
+                                "echo",
+                                {"text": "rejected"},
+                            )
+                        message = str(rejected.value)
+                        assert "HTTP 400" in message, message
+                        assert reason in message, message
+                    await peer.post(control, json={"reject": None})
+                    await echo(host, text="after rejected call")
+                    # A torn-down session would have been replaced by a new one.
+                    sessions = await peer.get(base + "/sessions")
+                    assert len(sessions.json()) == before
             await host.close_driver("echo")
             if transport == "streamable_http":
                 await assert_sessions_terminated(endpoint)
