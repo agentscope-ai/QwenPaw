@@ -388,21 +388,14 @@ async def _application_lifespan(  # pylint: disable=too-many-statements,too-many
             from ..api_action import ManagerRegistry
             from ._api_action_routes import (
                 collect_slash_specs_from_api_actions,
+                get_default_cron_manager,
                 register_http_routes,
             )
             from .crons.manager import CronManager
 
             manager_registry = ManagerRegistry()
 
-            def _get_default_cron_mgr(app_inst: Any) -> Any:
-                mam = getattr(app_inst.state, "multi_agent_manager", None)
-                if mam is None:
-                    return None
-                # pylint: disable-next=protected-access
-                ws = mam._workspaces.get("default")
-                return getattr(ws, "cron_manager", None) if ws else None
-
-            manager_registry.register(CronManager, _get_default_cron_mgr)
+            manager_registry.register(CronManager, get_default_cron_manager)
             app.state.manager_registry = manager_registry
 
             n_routes = register_http_routes(app, manager_registry)

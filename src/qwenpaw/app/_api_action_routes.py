@@ -33,6 +33,24 @@ def _extract_path_params(http_path: str | None) -> list[str]:
     return re.findall(r"\{(\w+)\}", http_path)
 
 
+async def get_default_cron_manager(app: "FastAPI") -> Any:
+    """Resolve the default workspace, waiting for startup if necessary."""
+    from fastapi import HTTPException
+
+    manager = getattr(app.state, "multi_agent_manager", None)
+    if manager is None:
+        raise HTTPException(503, "Workspace manager is not ready")
+    workspace = await manager.get_agent("default")
+    if workspace.cron_manager is None:
+        raise HTTPException(503, "Cron manager is not ready")
+    return workspace.cron_manager
+
+
+async def _resolve_manager(getter: Any, context: Any) -> Any:
+    manager = getter(context)
+    return await manager if inspect.isawaitable(manager) else manager
+
+
 # ======================================================================
 # HTTP route auto-registration
 # ======================================================================
@@ -55,7 +73,7 @@ def _make_endpoint(
     if request_model is None and not path_params:
 
         async def endpoint() -> Any:
-            mgr = instance_getter(app)
+            mgr = await _resolve_manager(instance_getter, app)
             return await getattr(mgr, spec.name)()
 
         return endpoint
@@ -63,7 +81,7 @@ def _make_endpoint(
     if request_model is None:
 
         async def endpoint_path(**kwargs: Any) -> Any:
-            mgr = instance_getter(app)
+            mgr = await _resolve_manager(instance_getter, app)
             return await getattr(mgr, spec.name)(**kwargs)
 
         endpoint_path.__signature__ = inspect.Signature(
@@ -81,7 +99,7 @@ def _make_endpoint(
     if not path_params:
 
         async def endpoint_body(body: Any) -> Any:
-            mgr = instance_getter(app)
+            mgr = await _resolve_manager(instance_getter, app)
             return await getattr(mgr, spec.name)(body)
 
         endpoint_body.__signature__ = inspect.Signature(
@@ -96,7 +114,7 @@ def _make_endpoint(
         return endpoint_body
 
     async def endpoint_full(body: Any, **kwargs: Any) -> Any:
-        mgr = instance_getter(app)
+        mgr = await _resolve_manager(instance_getter, app)
         return await getattr(mgr, spec.name)(body, **kwargs)
 
     params = [
@@ -191,7 +209,7 @@ def collect_slash_specs_from_api_actions(
                 from agentscope.message._block import TextBlock
 
                 app_state = getattr(ctx, "app_services", None)
-                mgr = _get(app_state)
+                mgr = await _resolve_manager(_get, app_state)
                 method = getattr(mgr, _spec.name)
                 stripped = args.strip()
                 if stripped and _spec.request_model is not None:

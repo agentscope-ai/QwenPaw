@@ -230,6 +230,19 @@ class TestResolveClientIp:
 class TestShouldSkipAuthDefenseInDepth:
     """Verify loopback whitelist requires direct peer also be loopback."""
 
+    @pytest.mark.parametrize("path", ["/crons/jobs", "/crons/jobs/task"])
+    @patch("qwenpaw.app.auth._get_config_cached")
+    @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
+    @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
+    def test_cron_actions_require_auth(self, _a, _b, mock_cfg, path):
+        from qwenpaw.app.auth import AuthMiddleware
+
+        mock_cfg.return_value = _make_config_return()
+        req = _make_request("192.0.2.1")
+        req.url.path = path
+        req.method = "GET"
+        assert not AuthMiddleware._should_skip_auth(req)
+
     @patch("qwenpaw.app.auth._get_config_cached")
     @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
     @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
