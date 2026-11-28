@@ -3710,6 +3710,7 @@ export default function ChatPage() {
     [message, t],
   );
 
+  const preparingSubmissions = useRef(new WeakSet<AbortSignal>());
   const customFetch = useCallback(
     async (
       data: {
@@ -3730,6 +3731,8 @@ export default function ChatPage() {
         >
       >,
     ): Promise<Response> => {
+      const { signal } = data;
+      signal?.throwIfAborted();
       if (!data.input?.length) {
         throw new Error(
           "Chat submission has no input; wait for session history to load",
@@ -3773,11 +3776,16 @@ export default function ChatPage() {
       }
 
       if (usesQwenPawBackend) {
+        if (signal) preparingSubmissions.current.add(signal);
         try {
-          const activeModels = await loadSessionModel(entrySnapshot.agentId, {
+          const modelRequest = loadSessionModel(entrySnapshot.agentId, {
             sessionId: fallbackLocalChatId || "new",
             chatId: resolveBackendChatId(fallbackLocalChatId || undefined),
           });
+          const activeModels = await (signal
+            ? awaitInChatScope(modelRequest, signal)
+            : modelRequest);
+          signal?.throwIfAborted();
           if (
             !activeModels?.active_llm?.provider_id ||
             !activeModels?.active_llm?.model
@@ -3786,8 +3794,11 @@ export default function ChatPage() {
             return buildModelError();
           }
         } catch {
+          signal?.throwIfAborted();
           setShowModelPrompt(true);
           return buildModelError();
+        } finally {
+          if (signal) preparingSubmissions.current.delete(signal);
         }
       }
 
@@ -5616,9 +5627,19 @@ export default function ChatPage() {
         onFileCardClick,
         async cancel(
           data: IAgentScopeRuntimeWebUITransportContext & {
+            signal?: AbortSignal;
             abort?: () => void;
           },
         ) {
+          // The chat POST has not been sent for this request.
+          if (
+            data.signal &&
+            data.abort &&
+            preparingSubmissions.current.has(data.signal)
+          ) {
+            data.abort();
+            return;
+          }
           const snapshot = resolveChatRequestSnapshot(
             data,
             {},

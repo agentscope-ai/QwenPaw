@@ -1580,6 +1580,56 @@ describe("ChatPage coverage", () => {
     }
   });
 
+  it("cancels a preparing chat locally and never submits it", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const model = { active_llm: { provider_id: "provider", model: "model" } };
+    let finishModel!: (result: typeof model) => void;
+    mockGetActiveModels.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishModel = resolve;
+        }),
+    );
+    const controller = new AbortController();
+    const submit = capturedOptions.api.fetch;
+    const cancel = capturedOptions.api.cancel;
+    const input = [{ role: "user", content: "first message" }];
+    const request = submit({ input, signal: controller.signal });
+    const rejected = expect(request).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(finishModel).toBeDefined();
+
+    await cancel({
+      session_id: "test-session",
+      signal: controller.signal,
+      abort: () => controller.abort(),
+    });
+    expect(controller.signal.aborted).toBe(true);
+    await rejected;
+    expect(mockStopChat).not.toHaveBeenCalled();
+
+    finishModel(model);
+    const next = new AbortController();
+    await submit({
+      input: [{ role: "user", content: "next message" }],
+      signal: next.signal,
+    });
+    const chatPosts = vi
+      .mocked(fetch)
+      .mock.calls.filter(
+        ([url, options]) =>
+          String(url).endsWith("/console/chat") && options?.method === "POST",
+      );
+    expect(chatPosts).toHaveLength(1);
+    expect(chatPosts[0][1]?.signal).toBe(next.signal);
+    expect(chatPosts[0][1]?.body).toContain("next message");
+  });
+
   // ── cancel callback → calls stopChat ───────────────────────────────────
   it("cancel callback invokes stopChat", async () => {
     const { chatApi } = await import("@/api/modules/chat");
