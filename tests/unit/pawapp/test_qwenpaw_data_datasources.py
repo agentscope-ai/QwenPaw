@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 """Datasource proxy interception and host-model helpers in the backend."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -29,10 +30,6 @@ def _load_backend():
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    # Endpoint helpers under test call set_context_env_vars() for real;
-    # stub it so a developer's live ~/.qwenpaw/.env cannot leak into
-    # os.environ and pollute unrelated tests that run afterwards.
-    module.set_context_env_vars = lambda: None
     return module
 
 
