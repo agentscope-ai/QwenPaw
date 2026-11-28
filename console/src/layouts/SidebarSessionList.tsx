@@ -140,9 +140,11 @@ type GroupHeaderRow = Extract<FlatRow, { kind: "groupHeader" }>;
 function GroupHeaderContent({
   row,
   data,
+  className,
 }: {
   row: GroupHeaderRow;
   data: VirtualRowData;
+  className?: string;
 }) {
   const movableGroups = data.groups.filter(
     (group) =>
@@ -155,6 +157,7 @@ function GroupHeaderContent({
   );
   return (
     <SessionGroupHeader
+      className={className}
       group={row.group}
       count={row.count}
       collapsed={row.collapsed}
@@ -186,7 +189,13 @@ const VirtualRow = React.memo(function VirtualRow({
         groupId={row.group.id}
         style={style}
       >
-        <GroupHeaderContent row={row} data={data} />
+        {(highlightClassName) => (
+          <GroupHeaderContent
+            row={row}
+            data={data}
+            className={highlightClassName}
+          />
+        )}
       </SessionDropZone>
     );
   }
@@ -550,7 +559,7 @@ export default function SidebarSessionList({
             (session) => tierOfSession(session) === tier,
           );
           if (sessions.length === 0) return null;
-          const collapsed = isSessionDragging || collapsedDateGroups.has(tier);
+          const collapsed = collapsedDateGroups.has(tier);
           return {
             header: {
               kind: "dateHeader" as const,
@@ -584,7 +593,7 @@ export default function SidebarSessionList({
     // Source mode lists every group, empty ones included: an empty
     // group is still a drop target and a place to move conversations.
     return groups.map(({ group, sessions }) => {
-      const collapsed = isSessionDragging || collapsedGroups.has(group.id);
+      const collapsed = collapsedGroups.has(group.id);
       return {
         header: {
           kind: "groupHeader" as const,
@@ -607,7 +616,6 @@ export default function SidebarSessionList({
     filteredSessions,
     groupMode,
     groups,
-    isSessionDragging,
     searchQuery,
     sortedSessions,
     t,
@@ -735,10 +743,6 @@ export default function SidebarSessionList({
   const [visibleStartIndex, setVisibleStartIndex] = useState(0);
   const observerRef = useRef<ResizeObserver | null>(null);
   const listRef = useRef<VariableSizeList>(null);
-
-  useEffect(() => {
-    if (isSessionDragging) listRef.current?.scrollTo(0);
-  }, [isSessionDragging]);
 
   /** Reset virtual list cache when flatRows change */
   useEffect(() => {
@@ -1010,6 +1014,7 @@ export default function SidebarSessionList({
                 </div>
               )}
               <VariableSizeList
+                className={styles.virtualList}
                 ref={listRef}
                 height={listHeight}
                 width="100%"

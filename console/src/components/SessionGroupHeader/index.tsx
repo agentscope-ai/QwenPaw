@@ -18,6 +18,7 @@ import type { ChatGroup } from "../../api/types/chat";
 import styles from "./SessionGroupHeader.module.less";
 
 interface SessionGroupHeaderProps {
+  className?: string;
   group: ChatGroup;
   count: number;
   collapsed: boolean;
@@ -32,6 +33,7 @@ interface SessionGroupHeaderProps {
 }
 
 export default function SessionGroupHeader({
+  className = "",
   group,
   count,
   collapsed,
@@ -123,7 +125,7 @@ export default function SessionGroupHeader({
     <div
       className={`${styles.header} ${isFixedSource ? styles.source : ""} ${
         group.pinned ? styles.pinned : ""
-      } ${!isFixedSource && !editing ? styles.managed : ""}`}
+      } ${!isFixedSource && !editing ? styles.managed : ""} ${className}`}
       role="button"
       tabIndex={0}
       title={
