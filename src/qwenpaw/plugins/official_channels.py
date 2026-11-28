@@ -31,6 +31,7 @@ __all__ = [
     "provision_bundled_channels",
     "bundled_channel_source",
     "bundled_channel_description",
+    "bundled_channel_versions",
     "prepare_channel_upgrade",
 ]
 
@@ -97,6 +98,14 @@ def _bundled_index(root):
     return index
 
 
+def bundled_channel_versions() -> dict[str, str]:
+    """Read release versions without extracting or preparing any plugin."""
+    return {
+        row["plugin_id"]: row["version"]
+        for row in _bundled_index(_resource_root())["plugins"]
+    }
+
+
 def _bundled_archive(root, row):
     with root.joinpath(row["filename"]).open("rb") as stream:
         payload = stream.read(64 * 1024 * 1024 + 1)
@@ -139,11 +148,14 @@ def _extracted_channel_source(plugin_id, row, payload, *, retain=None):
         if not compatible:
             raise ValueError(reason)
         description = describe_channel(source, manifest)
+        dependency_source = (
+            description.requirements_path or source / "plugin.json"
+        )
         if (
             description.descriptor.channel_key != official["channel_key"]
             or _digest(description.descriptor_path.read_bytes())
             != row["descriptor_sha256"]
-            or _digest(description.requirements_path.read_bytes())
+            or _digest(dependency_source.read_bytes())
             != row["requirements_sha256"]
         ):
             raise ValueError("Official source digest mismatch")

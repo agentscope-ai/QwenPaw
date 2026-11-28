@@ -31,6 +31,8 @@ from qwenpaw.schemas import (
 
 from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
+from ...replay_persistence import ReplayEvent
+from ...chats.transcript_recorder import TRANSCRIPT_TURN_ID_CONTEXT_KEY
 from ...notification_store import publish as publish_notification
 from ....constant import DEFAULT_MEDIA_DIR
 from ....token_usage.model_wrapper import TokenRecordingModelWrapper
@@ -52,7 +54,6 @@ from ..base import (
 )
 from ..utils import file_url_to_local_path
 
-
 logger = logging.getLogger(__name__)
 
 # ANSI colour helpers (degrade gracefully if not a tty)
@@ -67,6 +68,35 @@ _RESET = "\033[0m" if _USE_COLOR else ""
 
 def _ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
+
+
+def _replay_event(event: Any, data: str, request: Any) -> str:
+    wire = f"data: {data}\n\n"
+    if getattr(event, "object", None) == "response" and (
+        getattr(request, "request_context", None) or {}
+    ).get(
+        TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+    ):
+        # Envelope already emitted each Message; output stays on the wire.
+        compact = event.model_dump_json(exclude={"output"})
+        return ReplayEvent(wire, f"data: {compact}\n\n")
+    return wire
+
+
+def _started_by_agent(request: Any) -> bool:
+    """True for a turn another agent started, not the user.
+
+    spawn_subagent marks its requests with ``_spawn_subagent``, and both
+    spawn_subagent and chat_with_agent / submit_to_agent name the calling
+    agent in ``root_agent_id`` (agents/tools/agent_management.py).
+    """
+    request_context = getattr(request, "request_context", None)
+    if not isinstance(request_context, dict):
+        return False
+    return bool(
+        request_context.get("_spawn_subagent")
+        or request_context.get("root_agent_id"),
+    )
 
 
 class ConsoleChannel(BaseChannel):
@@ -423,11 +453,10 @@ class ConsoleChannel(BaseChannel):
                     )
                     if touched_chat is not None:
                         notification_session_id = touched_chat.id
-            except Exception:  # pylint: disable=broad-except
+            except Exception as exc:  # pylint: disable=broad-except
                 logger.debug(
-                    "failed to touch chat updated_at for session=%s",
-                    session_id[:30],
-                    exc_info=True,
+                    f"Console could not touch chat updated_at "
+                    f"({type(exc).__name__})",
                 )
 
         try:
@@ -437,6 +466,7 @@ class ConsoleChannel(BaseChannel):
             event_count = 0
             last_usage = None
             headline_stream_states: dict[str, Any] = {}
+            completed_response: Any | None = None
 
             async for event in self._process(request):
                 usage = TokenRecordingModelWrapper.peek_usage_for_session(
@@ -444,19 +474,25 @@ class ConsoleChannel(BaseChannel):
                 )
                 if usage is not None and usage is not last_usage:
                     last_usage = usage
-                    tokens = usage.get(f"last_prompt_tokens", 0)
+                    tokens = usage.get(f"context_tokens")
                     limit = usage.get(f"context_size", 0)
                     payload = {
                         f"type": f"turn_usage",
                         f"session_id": session_id,
                         f"usage": usage,
-                        f"context_usage": {
-                            f"estimated_tokens": tokens,
-                            f"max_input_length": limit,
-                            f"context_usage_ratio": (
-                                min(tokens / limit * 100, 100) if limit else 0
-                            ),
-                        },
+                        f"context_usage": (
+                            {
+                                f"estimated_tokens": tokens,
+                                f"max_input_length": limit,
+                                f"context_usage_ratio": (
+                                    min(tokens / limit * 100, 100)
+                                    if limit
+                                    else 0
+                                ),
+                            }
+                            if tokens is not None
+                            else None
+                        ),
                     }
                     yield f"data: {_json.dumps(payload)}\n\n"
                 event_count += 1
@@ -499,11 +535,14 @@ class ConsoleChannel(BaseChannel):
                     ):
                         yield f"data: {pending_data}\n\n"
 
-                data = self._serialize_event_for_sse(
-                    event,
-                    headline_stream_states,
-                )
-                yield f"data: {data}\n\n"
+                if obj == "response" and status == RunStatus.Completed:
+                    completed_response = event
+                else:
+                    data = self._serialize_event_for_sse(
+                        event,
+                        headline_stream_states,
+                    )
+                    yield _replay_event(event, data, request)
 
                 if obj == "message" and status == RunStatus.Completed:
                     parts = self._message_to_content_parts(event)
@@ -518,16 +557,28 @@ class ConsoleChannel(BaseChannel):
                 yield f"data: {pending_data}\n\n"
 
             err_msg = self._get_response_error_message(last_response)
+            usage_sse: list[str] = []
             if err_msg:
                 self._clear_session_turn_usage(session_id)
                 self._print_error(err_msg)
             else:
-                for sse in await self._commit_turn_usage(
+                usage_sse = await self._commit_turn_usage(
                     request,
                     session_id,
                     emit_sse=True,
-                ):
-                    yield sse
+                )
+
+            # Emit usage before the terminal response. Some consumers stop
+            # reading as soon as ``response.completed`` arrives.
+            for sse in usage_sse:
+                yield sse
+
+            if completed_response is not None:
+                data = self._serialize_event_for_sse(
+                    completed_response,
+                    headline_stream_states,
+                )
+                yield _replay_event(completed_response, data, request)
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",
@@ -543,11 +594,14 @@ class ConsoleChannel(BaseChannel):
                     request.session_id or f"{self.channel}:{to_handle}",
                 )
 
+            # "Reply completion" is about the user's own turns: a subagent
+            # or another agent's call finishing is not a reply to the user
             if (
                 not err_msg
                 and last_response is not None
                 and last_response.status == RunStatus.Completed
                 and session_id
+                and not _started_by_agent(request)
             ):
                 publish_notification(
                     category=f"conversation",
@@ -600,11 +654,10 @@ class ConsoleChannel(BaseChannel):
         finally:
             try:
                 await self._on_response_cycle_end(session_id)
-            except Exception:  # pylint: disable=broad-except
+            except Exception as exc:  # pylint: disable=broad-except
                 logger.warning(
-                    "console response-cycle cleanup failed for session=%s",
-                    session_id[:30],
-                    exc_info=True,
+                    f"Console response-cycle cleanup failed "
+                    f"({type(exc).__name__})",
                 )
 
     async def _on_response_cycle_end(self, session_id: str) -> None:

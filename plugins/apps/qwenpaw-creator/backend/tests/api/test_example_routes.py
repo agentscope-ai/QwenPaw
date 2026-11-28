@@ -196,3 +196,57 @@ def test_hosted_archive_integrity_failures_are_503(
     assert response.status_code == 503
     assert expected_message in response.json()["message"]
     assert not (api_runtime_root / "project-000000000002").exists()
+
+
+def test_extract_failure_reason_is_carried_into_the_user_message(
+    app,
+    api_runtime_root,
+    tmp_path,
+    monkeypatch,
+    api_request,
+):
+    """#8547 follow-up: the 503 must not hide why extraction failed.
+
+    Before the fix the underlying ``archive path is not supported on
+    Windows`` text (or any other ``BadRequestError`` reason) stayed in
+    the log while the UI only saw a bare ``STORAGE_INTEGRITY_ERROR``.
+    Chaining the reason into the outer message makes the failure self-
+    diagnosing for users filing new issues.
+    """
+    archive = _zip_bytes(f"project-000000000002/{_EXAMPLE_ID}.zip")
+    examples_dir = tmp_path / "single-example"
+    _stage_manifest(
+        examples_dir,
+        [
+            {
+                "id": _EXAMPLE_ID,
+                "title": "失败示例",
+                "description": "解压失败保留原因",
+                "projectId": "project-000000000002",
+                "archiveUrl": _ARCHIVE_URL,
+            },
+        ],
+    )
+    monkeypatch.setattr(example_routes, "examples_root", lambda: examples_dir)
+    monkeypatch.setattr(
+        example_routes,
+        "download_remote_file",
+        _fake_downloader({_ARCHIVE_URL: archive}),
+    )
+
+    def boom(_archive_path, _destination):
+        raise example_routes.BadRequestError(
+            "archive path is not supported on Windows: "
+            "'project-000000000002/source:foo/'; "
+            "import on Linux or macOS to preserve its media references",
+        )
+
+    monkeypatch.setattr(example_routes, "_extract_example_archive", boom)
+
+    response = api_request(app, "POST", f"/examples/{_EXAMPLE_ID}/open")
+
+    assert response.status_code == 503
+    message = response.json()["message"]
+    assert "无法解包" in message
+    assert "archive path is not supported on Windows" in message
+    assert not (api_runtime_root / "project-000000000002").exists()

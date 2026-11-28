@@ -14,8 +14,11 @@ from typing import TYPE_CHECKING
 
 from ..utils.io_utils import run_sync_io
 
-from .policy import is_qwenpaw_state_path
-from .policy import session_file_path, session_key
+from .policy import (
+    is_qwenpaw_state_path,
+    session_key,
+    session_snapshot_path,
+)
 from .models import (
     CheckpointEntry,
     CheckpointError,
@@ -37,6 +40,7 @@ class _PreparedRestore:
     conversation_blob: bytes
     touched: frozenset[str]
     current_tree: str | None = None
+    legacy_conversation: bool = False
 
 
 def _changed_paths(
@@ -70,9 +74,16 @@ def _changed_paths(
 class WorkspaceMutationGuard:
     """Pause cooperative workspace writers for one restore transaction."""
 
-    def __init__(self, workspace, *, timeout: float) -> None:
+    def __init__(
+        self,
+        workspace,
+        *,
+        timeout: float,
+        waiting_tasks: set[asyncio.Task] | None = None,
+    ) -> None:
         self.workspace = workspace
         self.timeout = timeout
+        self.waiting_tasks = waiting_tasks
 
     async def quiesce(self) -> list[Callable[[], None]]:
         """Pause cron and wait until tracked workspace tasks are idle."""
@@ -174,12 +185,31 @@ class WorkspaceMutationGuard:
                     "could not be inspected.",
                 ) from exc
 
-    @staticmethod
     async def _wait_for_other_tasks(
+        self,
         task_tracker,
         restore_task: asyncio.Task | None,
     ) -> None:
-        while await task_tracker.has_active_tasks_excluding(restore_task):
+        while True:
+            if self.waiting_tasks is not None and hasattr(
+                task_tracker,
+                "snapshot_active_tasks",
+            ):
+                active = await task_tracker.snapshot_active_tasks()
+                # Gate waiters cannot mutate state until this restore exits.
+                # Waiting for them here would make both sides wait forever.
+                busy = any(
+                    not task.done()
+                    and task is not restore_task
+                    and task not in self.waiting_tasks
+                    for task in active.values()
+                )
+            else:
+                busy = await task_tracker.has_active_tasks_excluding(
+                    restore_task,
+                )
+            if not busy:
+                return
             await asyncio.sleep(0.5)
 
     @staticmethod
@@ -298,9 +328,28 @@ class RestoreService:
         include_files: bool = False,
         selected_files: tuple[str, ...] | None = None,
         dry_run: bool = False,
+        expected_preview: RestoreResult | None = None,
     ) -> RestoreResult:
         """Run one validated restore transaction."""
         service = self.service
+        identity = dict(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        await service.ensure_session_migrated(**identity)
+        store, owned = service._transcript_store()
+        try:
+            binding = store.read_provider_state(**identity)["binding"]
+        finally:
+            if owned:
+                store.close()
+        if binding:
+            raise CheckpointError(
+                "Native provider context cannot be rolled back by a local "
+                "checkpoint. Fork the required turn using the provider's "
+                "native fork operation instead.",
+            )
         conv_rel = self._conversation_rel(
             session_id=session_id,
             user_id=user_id,
@@ -348,6 +397,29 @@ class RestoreService:
                             prepared.plan,
                             dry_run=True,
                         )
+
+                    if expected_preview is not None:
+                        current = self._result_from_plan(
+                            prepared.plan,
+                            dry_run=True,
+                        )
+                        # Target labels can change while approval is pending;
+                        # compare the immutable commit and exact affected paths.
+                        if any(
+                            getattr(current, field)
+                            != getattr(expected_preview, field)
+                            for field in (
+                                "commit",
+                                "restored_paths",
+                                "deleted_paths",
+                                "file_paths",
+                                "include_memory",
+                                "include_files",
+                            )
+                        ):
+                            raise CheckpointError(
+                                "Restore impact changed; preview and confirm again.",
+                            )
 
                     if include_files:
                         description = f"Before file restore to {target}"
@@ -409,9 +481,20 @@ class RestoreService:
                     prepared.current_tree if include_files else None
                 ),
             )
-            self.repository.restore_internal_paths(
-                {conversation_path: prepared.conversation_blob},
-            )
+            if prepared.legacy_conversation:
+                self.service.restore_legacy_session_state(
+                    prepared.conversation_blob,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
+            else:
+                self.service.restore_session_database(
+                    prepared.conversation_blob,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
             if include_files:
                 self.repository.restore_tree_paths(
                     prepared.entry.commit,
@@ -431,6 +514,9 @@ class RestoreService:
                     original=exc,
                     pre_commit=pre_snapshot.commit,
                     conversation_path=conversation_path,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
                     file_paths=set(prepared.touched),
                     include_memory=(
                         memory is not None and memory.mutation_started
@@ -447,6 +533,9 @@ class RestoreService:
         original: BaseException,
         pre_commit: str,
         conversation_path: str,
+        session_id: str,
+        user_id: str,
+        channel: str,
         file_paths: set[str],
         include_memory: bool,
         session_key_str: str,
@@ -458,8 +547,11 @@ class RestoreService:
                 pre_commit,
                 conversation_path,
             )
-            self.repository.restore_internal_paths(
-                {conversation_path: conversation},
+            self.service.restore_session_database(
+                conversation,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
             )
             self.repository.restore_tree_paths(pre_commit, file_paths)
             if include_memory and memory is not None:
@@ -503,6 +595,19 @@ class RestoreService:
             channel,
         )
         previous_head = self.service.session_head(session_key_str)
+        legacy_conversation = False
+        if not self.repository.tree_has_blob(
+            entry.commit,
+            conversation_path,
+        ):
+            legacy_path = self._legacy_conversation_rel(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            if self.repository.tree_has_blob(entry.commit, legacy_path):
+                conversation_path = legacy_path
+                legacy_conversation = True
         touched: set[str] = set()
         current_tree: str | None = None
         if include_files:
@@ -534,6 +639,7 @@ class RestoreService:
             conversation_blob=conversation,
             touched=frozenset(touched),
             current_tree=current_tree,
+            legacy_conversation=legacy_conversation,
         )
 
     def _build_plan(
@@ -652,19 +758,33 @@ class RestoreService:
         user_id: str,
         channel: str,
     ) -> str:
-        conv_path = session_file_path(
-            self.service.workspace_dir,
-            session_id=session_id,
-            user_id=user_id,
+        return session_snapshot_path(
             channel=channel,
+            user_id=user_id,
+            session_id=session_id,
         )
-        return conv_path.relative_to(self.service.workspace_dir).as_posix()
+
+    @staticmethod
+    def _legacy_conversation_rel(
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> str:
+        """Return the session path used by checkpoints before DB snapshots."""
+        from ..app.chats.session import sanitize_filename, session_filename
+
+        parts = ["sessions"]
+        if channel:
+            parts.append(sanitize_filename(channel))
+        parts.append(session_filename(session_id, user_id))
+        return PurePosixPath(*parts).as_posix()
 
     @staticmethod
     def _is_file_restore_candidate(rel: str, *, conv_rel: str) -> bool:
         if not rel or rel == conv_rel:
             return False
-        if rel.startswith("sessions/"):
+        if rel.startswith(("sessions/", ".qwenpaw-checkpoint/")):
             return False
         if rel == "MEMORY.md" or rel.startswith("memory/"):
             return False
@@ -679,6 +799,7 @@ class RestoreService:
         return WorkspaceMutationGuard(
             workspace=self.service.workspace,
             timeout=self.service.memory_quiesce_timeout,
+            waiting_tasks=self.service._query_waiters,
         )
 
 

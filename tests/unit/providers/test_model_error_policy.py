@@ -57,6 +57,152 @@ def test_permanent_http_errors_do_not_fallback(status: int) -> None:
     assert decision.fallback_eligible is False
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "quota exceeded",
+        "quota_exceeded",
+        "insufficient quota",
+        "insufficient_quota",
+    ],
+)
+def test_client_quota_errors_fallback_without_retry(message: str) -> None:
+    decision = classify_model_error(HttpError(400, message))
+
+    assert asdict(decision) == {
+        "kind": "quota_exceeded",
+        "status_code": 400,
+        "retryable": False,
+        "fallback_eligible": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "rate limit exceeded",
+        "rate_limit_exceeded",
+        "too many requests",
+        "too_many_requests",
+    ],
+)
+def test_client_rate_limit_messages_allow_retry_and_fallback(
+    message: str,
+) -> None:
+    decision = classify_model_error(HttpError(400, message))
+
+    assert asdict(decision) == {
+        "kind": "rate_limited",
+        "status_code": 400,
+        "retryable": True,
+        "fallback_eligible": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Invalid request: quota must be a positive integer",
+        "Invalid parameter: rate limit is not supported",
+    ],
+)
+def test_unrelated_client_messages_remain_bad_request(message: str) -> None:
+    decision = classify_model_error(HttpError(400, message))
+
+    assert asdict(decision) == {
+        "kind": "bad_request",
+        "status_code": 400,
+        "retryable": False,
+        "fallback_eligible": False,
+    }
+
+
+def test_structured_quota_code_fallbacks_without_retry() -> None:
+    request = httpx.Request("POST", "https://example.invalid")
+    response = httpx.Response(400, request=request)
+    error = openai.BadRequestError(
+        "Error code: 400",
+        response=response,
+        body={
+            "error": {
+                "code": "insufficient_quota",
+                "type": "invalid_request_error",
+            },
+        },
+    )
+
+    decision = classify_model_error(error)
+
+    assert asdict(decision) == {
+        "kind": "quota_exceeded",
+        "status_code": 400,
+        "retryable": False,
+        "fallback_eligible": True,
+    }
+
+
+def test_top_level_structured_quota_code_fallbacks_without_retry() -> None:
+    request = httpx.Request("POST", "https://example.invalid")
+    response = httpx.Response(400, request=request)
+    error = openai.BadRequestError(
+        "Error code: 400",
+        response=response,
+        body={"code": "insufficient_quota"},
+    )
+
+    decision = classify_model_error(error)
+
+    assert asdict(decision) == {
+        "kind": "quota_exceeded",
+        "status_code": 400,
+        "retryable": False,
+        "fallback_eligible": True,
+    }
+
+
+async def test_openai_string_quota_error_fallbacks_without_retry() -> None:
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={"error": "quota_exceeded"},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(_handler)
+    async with httpx.AsyncClient(
+        transport=transport,
+        trust_env=False,
+    ) as http_client:
+        client = openai.AsyncOpenAI(
+            api_key="dummy",
+            base_url="https://example.invalid/v1",
+            http_client=http_client,
+            max_retries=0,
+        )
+        with pytest.raises(openai.BadRequestError) as exc_info:
+            await client.chat.completions.create(
+                model="primary",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+
+    decision = classify_model_error(exc_info.value)
+
+    assert asdict(decision) == {
+        "kind": "quota_exceeded",
+        "status_code": 400,
+        "retryable": False,
+        "fallback_eligible": True,
+    }
+
+
+def test_http_429_quota_remains_retryable() -> None:
+    decision = classify_model_error(HttpError(429, "quota exceeded"))
+
+    assert decision.kind == "rate_limited"
+    assert decision.retryable is True
+    assert decision.fallback_eligible is True
+
+
 def test_model_not_found_allows_fallback_without_retry() -> None:
     decision = classify_model_error(HttpError(404))
 
@@ -99,6 +245,61 @@ def test_streaming_status_is_transient() -> None:
     assert decision.status_code == 503
     assert decision.kind == "transient"
     assert decision.retryable is True
+
+
+def test_gateway_reported_status_is_transient() -> None:
+    """A gateway that reports the status only in the text still retries."""
+    decision = classify_model_error(
+        Exception("status_code=502, 请联系管理员处理！ (request id: abc123)"),
+    )
+
+    assert decision.status_code == 502
+    assert decision.kind == "transient"
+    assert decision.retryable is True
+    assert decision.fallback_eligible is True
+
+
+def test_gateway_reported_status_on_sdk_error_is_transient() -> None:
+    """The OpenAI SDK raises a bare APIError without status_code."""
+    error = openai.APIError(
+        "status_code=503, upstream is overloaded (request id: abc123)",
+        request=None,
+        body=None,
+    )
+
+    decision = classify_model_error(error)
+
+    assert decision.status_code == 503
+    assert decision.kind == "transient"
+    assert decision.retryable is True
+    assert decision.fallback_eligible is True
+
+
+def test_gateway_reported_client_error_is_not_retryable() -> None:
+    decision = classify_model_error(Exception("status_code=400, bad request"))
+
+    assert decision.status_code == 400
+    assert decision.kind == "bad_request"
+    assert decision.retryable is False
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "status_code=200, ok",
+        "expected status_code=200 but the gateway hung",
+        "status_code=99999, out of range",
+        "status code 502, missing the equals sign",
+        "request id 502 without a status_code prefix",
+        "the upstream returned 502 after retrying",
+    ],
+)
+def test_unrelated_numbers_are_not_read_as_gateway_status(message):
+    decision = classify_model_error(Exception(message))
+
+    assert decision.status_code is None
+    assert decision.kind == "unknown"
+    assert decision.retryable is False
 
 
 def test_remote_protocol_error_is_transient() -> None:

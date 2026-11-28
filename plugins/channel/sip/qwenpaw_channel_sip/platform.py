@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 import uuid
 
 from .backend import SIPPlatformError
 from .runtime import cancel_tasks
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -80,7 +84,12 @@ class SIPPlatform:
         self._accepting = True
         try:
             await self.backend.start()
-        except BaseException:
+            logger.info(f"SIP backend started ({type(self.backend).__name__})")
+        except BaseException as exc:
+            if isinstance(exc, Exception):
+                logger.error(
+                    f"SIP backend start failed ({type(exc).__name__})",
+                )
             self._accepting = False
             self.backend.quiesce()
             raise
@@ -118,6 +127,7 @@ class SIPPlatform:
     def target(self, call_id):
         call = self._calls.get(call_id)
         if call is None:
+            logger.debug(f"SIP outbound call is unavailable")
             raise SIPPlatformError("OUTBOUND_TARGET_UNKNOWN")
         return self.begin_turn(call)
 
@@ -141,6 +151,7 @@ class SIPPlatform:
             or call_id in self._calls
             or (limit > 0 and len(self._calls) >= limit)
         ):
+            logger.debug(f"SIP incoming call declined by local admission")
             await self.backend.hangup(call_id)
             return
         from .stt_tts import create_stt_engine
@@ -163,7 +174,11 @@ class SIPPlatform:
             call.stt.on_error = lambda reason: self._fatal(call, reason)
             try:
                 await call.stt.start()
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    f"SIP speech recognition start failed "
+                    f"({type(exc).__name__})",
+                )
                 try:
                     await self.play(call.route(), "语音服务暂时不可用，请稍后再试。")
                 finally:
@@ -172,6 +187,7 @@ class SIPPlatform:
             if call.closing or not self._accepting:
                 return
             call.reader = asyncio.create_task(self._audio_reader(call))
+            logger.info(f"SIP incoming call ready")
             if self._config.welcome_greeting:
                 try:
                     await self.play(
@@ -183,6 +199,10 @@ class SIPPlatform:
                         "CALL_INTERRUPTED",
                         "CALL_CLOSED",
                     }:
+                        logger.warning(
+                            f"SIP welcome playback failed: "
+                            f"reason={exc.reason_code}",
+                        )
                         await self._diagnostic("SIP_WELCOME_FAILED")
             if self._calls.get(call_id) is call and not call.closing:
                 self._reset_timeout(call)
@@ -203,6 +223,7 @@ class SIPPlatform:
         ):
             return
         route = self.begin_turn(call)
+        logger.debug(f"SIP transcript received: chars={len(text)}")
         try:
             await self._on_transcript(call, route, text)
         except SIPPlatformError as exc:
@@ -211,6 +232,7 @@ class SIPPlatform:
             await self._fatal(call, "SIP_TRANSCRIPT_DELIVERY_FAILED")
 
     async def _fatal(self, call, reason):
+        logger.warning(f"SIP call failed: reason={reason}")
         try:
             await self._end_call(call, hangup=True)
         finally:
@@ -220,9 +242,11 @@ class SIPPlatform:
         from .helpers import _pcm_48k16bit_to_16k16bit, _pcm_8k8bit_to_16k16bit
 
         errors = 0
+        frames = 0
         while not call.closing:
             frame = await call.audio_in.get()
             if frame is None:
+                logger.debug(f"SIP audio ended: fed_frames={frames}")
                 await self._end_call(call, hangup=True)
                 return
             try:
@@ -232,12 +256,23 @@ class SIPPlatform:
                     else _pcm_8k8bit_to_16k16bit(frame)
                 )
                 await call.stt.feed_audio(pcm)
+                if frames == 0:
+                    logger.debug(
+                        f"SIP first speech frame: input_bytes={len(frame)} "
+                        f"pcm_bytes={len(pcm)}",
+                    )
+                frames += 1
                 errors = 0
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
                 errors += 1
+                logger.debug(
+                    f"SIP audio feed failed: consecutive={errors} "
+                    f"error={type(exc).__name__}",
+                )
                 if errors >= 20:
+                    logger.warning(f"SIP audio feed exhausted retries")
                     await self._fatal(call, "SIP_AUDIO_FEED_FAILED")
                     return
 
@@ -270,6 +305,7 @@ class SIPPlatform:
 
     async def _timeout(self, call):
         await asyncio.sleep(self._config.call_timeout)
+        logger.info(f"SIP call reached idle timeout")
         await self._end_call(call, hangup=True)
 
     async def play(self, route, text):
@@ -281,6 +317,7 @@ class SIPPlatform:
         text = _clean_for_tts(text)
         if not text:
             return
+        logger.debug(f"SIP playback requested: chars={len(text)}")
         wrote = False
 
         async def speak():
@@ -349,6 +386,7 @@ class SIPPlatform:
                 pass
             if asyncio.current_task().cancelling():
                 raise
+            logger.debug(f"SIP playback interrupted")
             raise SIPPlatformError(
                 "CALL_INTERRUPTED",
                 side_effect_possible=wrote,
@@ -359,6 +397,9 @@ class SIPPlatform:
                 side_effect_possible=wrote or exc.side_effect_possible,
             ) from exc
         except Exception as exc:
+            logger.warning(
+                f"SIP TTS or playback failed ({type(exc).__name__})",
+            )
             raise SIPPlatformError(
                 "SIP_TTS_PLAYBACK_FAILED",
                 side_effect_possible=wrote,
@@ -389,6 +430,7 @@ class SIPPlatform:
         call.cleanup_error = None
         try:
             await self._cleanup_call(call, hangup=hangup)
+            logger.info(f"SIP call closed")
         except BaseException as exc:
             call.cleanup_error = exc
             raise
@@ -420,6 +462,10 @@ class SIPPlatform:
             try:
                 await call.stt.stop()
             except Exception as exc:
+                logger.warning(
+                    f"SIP speech recognition stop failed "
+                    f"({type(exc).__name__})",
+                )
                 failures.append(exc)
             else:
                 for name in ("_dispatch_task", "_error_task"):
@@ -458,6 +504,9 @@ class SIPPlatform:
             try:
                 await self.backend.stop()
             except Exception as exc:
+                logger.warning(
+                    f"SIP backend stop failed ({type(exc).__name__})",
+                )
                 failures.append(exc)
             else:
                 self.backend = None
@@ -465,11 +514,19 @@ class SIPPlatform:
             try:
                 await self._registrar.stop()
             except Exception as exc:
+                logger.warning(
+                    f"SIP registrar stop failed ({type(exc).__name__})",
+                )
                 failures.append(exc)
             else:
                 self._registrar = None
         if failures or self._calls:
+            logger.error(
+                f"SIP shutdown incomplete: "
+                f"errors={len(failures)} active_calls={len(self._calls)}",
+            )
             raise RuntimeError("SIP_PLATFORM_STOP_INCOMPLETE") from (
                 failures[0] if failures else None
             )
         self._tasks.clear()
+        logger.info(f"SIP channel stopped")

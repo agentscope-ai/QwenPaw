@@ -11,15 +11,26 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict
 
+from ..constant import (
+    TOOL_RESULT_SNAPSHOT_GROWTH,
+    TOOL_RESULT_SNAPSHOT_MIN_BYTES,
+)
 from .message_convert import _media_type_to_block_type
+from .. import schemas
+from ..providers.completion_reason import COMPLETION_METADATA_KEY
 
 logger = logging.getLogger(__name__)
+
+# Set on an assistant event when request media was left out. Channels read it
+# from the completed message, so the envelope has to carry it that far.
+QWENPAW_MEDIA_OMITTED_KEY = "qwenpaw_media_omitted"
 
 
 def _gen_msg_id() -> str:
@@ -75,6 +86,9 @@ def _propagate_event_metadata(
                 yield output.output
                 continue
 
+            event_metadata = getattr(event, "metadata", None)
+            if isinstance(event_metadata, dict):
+                envelope._absorb_turn_metadata(event_metadata)
             yield _with_event_metadata(output, event)
 
     return wrapped
@@ -123,6 +137,8 @@ class Envelope:
         self._tool_calls: Dict[str, Dict[str, Any]] = {}
         self._data_blocks: Dict[str, Dict[str, Any]] = {}
 
+        self.input_anchor: str | None = None
+        self.steer_scope = ""
         self._seq_counter = 0
 
         self._error_text: str | None = None
@@ -138,7 +154,33 @@ class Envelope:
         self._seq_counter += 1
         return self._seq_counter
 
+    def _absorb_turn_metadata(self, metadata: Dict[str, Any]) -> None:
+        """Carry per-turn notices onto the completed message.
+
+        Streamed deltas reach Console consumers with this metadata, but a
+        channel reads the notice from the ``Completed`` message that
+        :meth:`_finalize_response` builds. That message is assembled from
+        accumulated text and starts without any of it, so a notice that only
+        rode the deltas never arrived off Console.
+        """
+        notice = metadata.get(QWENPAW_MEDIA_OMITTED_KEY)
+        if not isinstance(notice, dict):
+            return
+        count = notice.get("count")
+        if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+            return
+        if self._completed_message.metadata is None:
+            self._completed_message.metadata = {}
+        self._completed_message.metadata[QWENPAW_MEDIA_OMITTED_KEY] = notice
+
     def _tag_seq(self, obj: Any) -> Any:
+        if isinstance(obj, schemas.Message) and self.input_anchor:
+            metadata = dict(obj.metadata or {})
+            if self.steer_scope:
+                metadata["steer_scope"] = self.steer_scope
+            if obj.role != schemas.Role.USER:
+                metadata.setdefault("after_user_message_id", self.input_anchor)
+            obj.metadata = metadata
         obj.sequence_number = self._next_seq()
         return obj
 
@@ -185,6 +227,45 @@ class Envelope:
         self._completed_message.object = "message"
         self._message_started = False
         self._text_blocks = {}
+
+    async def close_input_segment(self) -> AsyncGenerator[Any, None]:
+        """Seal text before applying an input at a completed agent step."""
+        if self._should_finalize_text_message():
+            async for item in self._finalize_text_message():
+                yield item
+
+    def prepare_steer(self, receipt: dict) -> schemas.Message:
+        """Reserve the normal stream identity before durable application."""
+        return self._tag_seq(
+            schemas.Message(
+                id=receipt["user_message_id"],
+                object="message",
+                name="user",
+                role=schemas.Role.USER,
+                type=schemas.MessageType.MESSAGE,
+                content=receipt["content"],
+                status=schemas.RunStatus.Completed,
+                metadata={
+                    "input_kind": "steer",
+                    "client_message_id": receipt["client_message_id"],
+                    "append_seq": receipt["append_seq"],
+                },
+            ),
+        )
+
+    def bind_turn(self, turn_id: str, anchor: str, scope: str) -> None:
+        self.input_anchor = anchor
+        self.steer_scope = scope
+        self._response.metadata = {
+            "turn_id": turn_id,
+            "steer_scope": scope,
+            "initial_user_message_id": anchor,
+        }
+
+    def append_steer(self, message: schemas.Message) -> None:
+        """Publish a committed input without opening a second response."""
+        self._response.output.append(message)
+        self.input_anchor = message.id
 
     # ------------------------------------------------------------------
     # Event translation
@@ -414,6 +495,8 @@ class Envelope:
                 "message": plugin_call_message,
                 "output_text_fragments": [],
                 "output_data_blocks": {},
+                "accumulated_bytes": 0,
+                "last_emitted_bytes": 0,
             }
 
         elif evt_type == EventType.TOOL_CALL_DELTA.value:
@@ -469,6 +552,8 @@ class Envelope:
                     "argument_fragments": [],
                     "output_text_fragments": [],
                     "output_data_blocks": {},
+                    "accumulated_bytes": 0,
+                    "last_emitted_bytes": 0,
                 }
                 self._tool_calls[call_id] = state
 
@@ -501,13 +586,23 @@ class Envelope:
             state["output_message"] = out_message
             state["output_text_fragments"] = []
             state["output_data_blocks"] = {}
+            state["accumulated_bytes"] = 0
+            state["last_emitted_bytes"] = 0
+            state["output_order"] = []
 
         elif evt_type == EventType.TOOL_RESULT_TEXT_DELTA.value:
             call_id = event.tool_call_id
             state = self._tool_calls.get(call_id)
             if state is None:
                 return
-            state["output_text_fragments"].append(event.delta or "")
+            delta = event.delta or ""
+            state["output_text_fragments"].append(delta)
+            order = state["output_order"]
+            if not order or order[-1]["type"] != "text":
+                order.append({"type": "text", "fragments": []})
+            order[-1]["fragments"].append(delta)
+            if not self._should_emit_tool_snapshot(state, len(delta)):
+                return
 
             delta_content = self._build_tool_result_content(
                 call_id,
@@ -532,6 +627,7 @@ class Envelope:
             url = getattr(event, "url", None)
             b64 = getattr(event, "data", None)
 
+            new_data_block = block_id not in blocks_dict
             if block_id in blocks_dict:
                 existing = blocks_dict[block_id]
                 if b64:
@@ -556,6 +652,14 @@ class Envelope:
                     "type": block_type,
                     "source": source,
                 }
+                state["output_order"].append(blocks_dict[block_id])
+
+            if not self._should_emit_tool_snapshot(
+                state,
+                len(b64 or "") + len(url or ""),
+                force=new_data_block,
+            ):
+                return
 
             delta_content = self._build_tool_result_content(
                 call_id,
@@ -600,6 +704,7 @@ class Envelope:
             yield self._tag_seq(final_content.completed())
             self._response.output.append(out_message)
             state.pop("output_text_fragments", None)
+            state.pop("output_order", None)
             yield self._tag_seq(out_message.completed())
 
         # === DATA BLOCK ===
@@ -667,8 +772,25 @@ class Envelope:
             self._completed_message.content.append(content_block)
             yield self._tag_seq(content_block)
 
-        # === MODEL_CALL_END ===
-        elif evt_type == EventType.MODEL_CALL_END.value:
+        # === MODEL_CALL_END / REPLY_END ===
+        elif evt_type in {
+            EventType.MODEL_CALL_END.value,
+            EventType.REPLY_END.value,
+        }:
+            event_metadata = getattr(event, f"metadata", None) or {}
+            if (
+                evt_type == EventType.MODEL_CALL_END.value
+                or COMPLETION_METADATA_KEY in event_metadata
+            ):
+                completion = event_metadata.get(COMPLETION_METADATA_KEY)
+                metadata = dict(self._response.metadata or {})
+                if isinstance(completion, dict):
+                    metadata[COMPLETION_METADATA_KEY] = dict(completion)
+                else:
+                    metadata.pop(COMPLETION_METADATA_KEY, None)
+                self._response.metadata = metadata or None
+            if evt_type == EventType.REPLY_END.value:
+                return
             input_tokens = getattr(event, "input_tokens", 0)
             output_tokens = getattr(event, "output_tokens", 0)
             usage = {
@@ -727,6 +849,46 @@ class Envelope:
             )
 
     # ------------------------------------------------------------------
+    # Tool result snapshot emission gate
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _should_emit_tool_snapshot(
+        state: Dict[str, Any],
+        added_bytes: int,
+        *,
+        force: bool = False,
+    ) -> bool:
+        """Return whether a full tool result snapshot should be emitted.
+
+        A snapshot re-serializes the whole accumulated output, so one per
+        delta makes the bytes retained for reconnect replay quadratic in
+        the delta count.  Emitting on a geometric byte interval pins the
+        amplification near the growth factor instead, and the first delta
+        always emits so output shows up as soon as there is any.
+
+        Only emission is gated: callers accumulate first, because the
+        cancel-save path and ``TOOL_RESULT_END`` read accumulated state.
+        """
+        accumulated = state.get("accumulated_bytes", 0) + added_bytes
+        state["accumulated_bytes"] = accumulated
+        last_emitted = state.get("last_emitted_bytes", 0)
+        now = time.monotonic()
+        if last_emitted and not force:
+            threshold = max(
+                TOOL_RESULT_SNAPSHOT_MIN_BYTES,
+                last_emitted * TOOL_RESULT_SNAPSHOT_GROWTH,
+            )
+            if (
+                accumulated < threshold
+                and now - state.get("last_emitted_at", now) < 1.0
+            ):
+                return False
+        state["last_emitted_bytes"] = accumulated
+        state["last_emitted_at"] = now
+        return True
+
+    # ------------------------------------------------------------------
     # Tool result content builder
     # ------------------------------------------------------------------
 
@@ -744,11 +906,14 @@ class Envelope:
         text_acc = "".join(state.get("output_text_fragments", []))
 
         if blocks_dict:
-            output_blocks: list[dict[str, Any]] = list(
-                blocks_dict.values(),
-            )
-            if text_acc:
-                output_blocks.append({"type": "text", "text": text_acc})
+            output_blocks = [
+                (
+                    {"type": "text", "text": "".join(block["fragments"])}
+                    if block["type"] == "text"
+                    else block
+                )
+                for block in state["output_order"]
+            ]
             tool_output: Any = json.dumps(
                 output_blocks,
                 ensure_ascii=False,
@@ -774,6 +939,28 @@ class Envelope:
     # ------------------------------------------------------------------
     # Heartbeat
     # ------------------------------------------------------------------
+
+    async def flush_tool_snapshots(self) -> AsyncGenerator[Any, None]:
+        """Publish dirty tool output even when no further delta arrives."""
+        now = time.monotonic()
+        for call_id, state in self._tool_calls.items():
+            if (
+                "output_text_fragments" not in state
+                or state.get("accumulated_bytes", 0)
+                == state.get("last_emitted_bytes", 0)
+                or now - state.get("last_emitted_at", now) < 1.0
+            ):
+                continue
+            content = self._build_tool_result_content(
+                call_id,
+                state,
+                schemas.ContentType,
+                schemas.FunctionCallOutput,
+            )
+            content.msg_id = state["output_message"].id
+            state["last_emitted_bytes"] = state["accumulated_bytes"]
+            state["last_emitted_at"] = now
+            yield self._tag_seq(content.in_progress())
 
     async def heartbeat(self) -> AsyncGenerator[Any, None]:
         from ..schemas import Event
@@ -863,33 +1050,131 @@ class Envelope:
         async for obj in self._finalize_response():
             yield obj
 
+    def _terminal_message_status(self) -> Any:
+        from ..schemas import RunStatus
+
+        if self._cancelled:
+            return RunStatus.Cancelled
+        if self._error_text:
+            return RunStatus.Failed
+        return RunStatus.Completed
+
+    async def _finalize_open_reasoning(
+        self,
+    ) -> AsyncGenerator[Any, None]:
+        from ..schemas import ContentType, RunStatus, TextContent
+
+        status = self._terminal_message_status()
+        for state in self._reasoning_blocks.values():
+            message = state.get("envelope")
+            if message is None or message.status != RunStatus.InProgress:
+                continue
+            text = "".join(state.pop("text_fragments", []))
+            if text and not message.content:
+                content = TextContent(
+                    type=ContentType.TEXT,
+                    text=text,
+                    delta=False,
+                    index=0,
+                    msg_id=message.id,
+                    status=status,
+                )
+                message.content.append(content.model_copy(deep=True))
+                yield self._tag_seq(content)
+            if not message.content:
+                continue
+            message.status = status
+            self._response.output.append(message)
+            yield self._tag_seq(message)
+
+    async def _finalize_open_tools(self) -> AsyncGenerator[Any, None]:
+        from ..schemas import (
+            ContentType,
+            DataContent,
+            FunctionCall,
+            FunctionCallOutput,
+            RunStatus,
+        )
+
+        status = self._terminal_message_status()
+        for call_id, state in self._tool_calls.items():
+            call_message = state.get("message")
+            if (
+                call_message is not None
+                and call_message.status == RunStatus.InProgress
+            ):
+                arguments = "".join(state.pop("argument_fragments", []))
+                content = DataContent(
+                    type=ContentType.DATA,
+                    data=FunctionCall(
+                        call_id=call_id,
+                        name=state["name"],
+                        arguments=arguments,
+                    ).model_dump(),
+                    delta=False,
+                    index=0,
+                    msg_id=call_message.id,
+                    status=status,
+                )
+                call_message.content = [content.model_copy(deep=True)]
+                call_message.status = status
+                yield self._tag_seq(content)
+                self._response.output.append(call_message)
+                yield self._tag_seq(call_message)
+
+            output_message = state.get("output_message")
+            if (
+                output_message is None
+                or output_message.status != RunStatus.InProgress
+            ):
+                continue
+            content = self._build_tool_result_content(
+                call_id,
+                state,
+                ContentType,
+                FunctionCallOutput,
+                tool_state=status.value,
+            )
+            content.msg_id = output_message.id
+            content.status = status
+            output_message.content = [content.model_copy(deep=True)]
+            output_message.status = status
+            yield self._tag_seq(content)
+            self._response.output.append(output_message)
+            yield self._tag_seq(output_message)
+
     async def _finalize_response(self) -> AsyncGenerator[Any, None]:
         from ..schemas import ContentType, RunStatus, TextContent
 
         if self._finalized:
             return
 
+        async for obj in self._finalize_open_reasoning():
+            yield obj
+        async for obj in self._finalize_open_tools():
+            yield obj
+
         if self._message_started:
             # Back-fill any partially accumulated text blocks that were
             # not finalized (TEXT_BLOCK_END never fired, e.g. on cancel).
-            if not self._completed_message.content:
-                for state in self._text_blocks.values():
-                    text = "".join(state.get("text_fragments", []))
-                    if text:
-                        self._completed_message.content.append(
-                            TextContent(
-                                type=ContentType.TEXT,
-                                text=text,
-                                delta=False,
-                                index=state.get("index", 0),
-                            ),
-                        )
+            for state in self._text_blocks.values():
+                fragments = state.pop("text_fragments", None)
+                if fragments is None:
+                    continue
+                text = "".join(fragments)
+                if text:
+                    self._completed_message.content.append(
+                        TextContent(
+                            type=ContentType.TEXT,
+                            text=text,
+                            delta=False,
+                            index=state.get("index", 0),
+                        ),
+                    )
 
             if self._completed_message.content:
                 self._completed_message.status = (
-                    RunStatus.Cancelled
-                    if self._cancelled
-                    else RunStatus.Completed
+                    self._terminal_message_status()
                 )
                 self._response.output.append(self._completed_message)
                 yield self._tag_seq(self._completed_message)

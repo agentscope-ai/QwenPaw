@@ -4,6 +4,7 @@
 import asyncio
 import base64
 import json
+import logging
 import mimetypes
 from pathlib import Path
 import time
@@ -22,6 +23,8 @@ from .attachments import (
 )
 from .constants import DOWNLOAD_MAX_BYTES, FILE_TOO_LARGE, UPLOAD_MAX_BYTES
 from .state import AzureBotStateStore
+
+logger = logging.getLogger(__name__)
 
 
 class AzureBotDeliveryError(RuntimeError):
@@ -125,8 +128,16 @@ class AzureBotPlatform:
         if not self.config.get("app_id") or not self.config.get(
             "app_password",
         ):
+            logger.warning(f"Azure Bot app credentials are missing")
             raise ValueError("AZURE_CREDENTIALS_REQUIRED")
-        self.store.begin()
+        try:
+            self.store.begin()
+        except Exception as exc:
+            logger.warning(
+                f"Azure Bot reference state load failed "
+                f"({type(exc).__name__})",
+            )
+            raise
         self.session = aiohttp.ClientSession()
         self.validator = AzureBotTokenValidator(
             self.config["app_id"],
@@ -144,7 +155,10 @@ class AzureBotPlatform:
         self.site = site
         try:
             await site.start()
-        except OSError:
+        except OSError as exc:
+            logger.warning(
+                f"Azure Bot listener could not bind: errno={exc.errno}",
+            )
             await site.stop()
             self.site = None
             await self.on_endpoint("degraded", False)
@@ -158,6 +172,7 @@ class AzureBotPlatform:
         await self.on_endpoint("ready", False)
         self.accepting = self.connected = True
         await self.on_state("connected")
+        logger.info(f"Azure Bot listener started on port {self.port}")
 
     async def _watchdog(self):
         while not self._stopping:
@@ -181,14 +196,24 @@ class AzureBotPlatform:
                     await writer.wait_closed()
                 else:
                     await self._listen()
-            except (OSError, asyncio.TimeoutError):
+                    if self.site is not None:
+                        logger.info(f"Azure Bot watchdog restored listener")
+            except (OSError, asyncio.TimeoutError) as exc:
+                logger.warning(
+                    f"Azure Bot listener unhealthy ({type(exc).__name__}); "
+                    f"will retry binding",
+                )
                 self.accepting = self.connected = False
                 await self.on_endpoint("degraded", False)
                 await self.on_state("connecting")
                 if self.site is not None:
                     await self.site.stop()
                     self.site = None
-            except Exception:
+            except Exception as exc:
+                logger.error(
+                    f"Azure Bot endpoint recovery failed "
+                    f"({type(exc).__name__})",
+                )
                 self.accepting = self.connected = False
                 await self.on_state("failed")
                 await self.on_diagnostic("AZURE_ENDPOINT_UPDATE_FAILED")
@@ -215,6 +240,9 @@ class AzureBotPlatform:
                 if not task.cancelled():
                     task.result()
             if pending:
+                logger.warning(
+                    f"Azure Bot shutdown left {len(pending)} owned tasks",
+                )
                 raise RuntimeError("AZURE_TASKS_STILL_OWNED")
         if self.runner is not None:
             await self.runner.cleanup()
@@ -230,6 +258,7 @@ class AzureBotPlatform:
             self._attachment_resolver = None
         await self.on_endpoint("stopped", True)
         self.store.close()
+        logger.info(f"Azure Bot listener stopped")
 
     async def _handle_messages(self, request):
         task = asyncio.current_task()
@@ -241,6 +270,7 @@ class AzureBotPlatform:
                 request.headers.get("Authorization", ""),
             )
             if authentication is None:
+                logger.warning(f"Azure Bot activity authentication failed")
                 return web.Response(status=401)
             # Authentication above intentionally precedes any body read.
             try:
@@ -250,6 +280,7 @@ class AzureBotPlatform:
             except (ValueError, UnicodeError):
                 return web.Response(status=400)
             if not self.validator.validates_activity(authentication, activity):
+                logger.warning(f"Azure Bot activity authorization failed")
                 return web.Response(status=403)
             try:
                 _service_url(activity["serviceUrl"])
@@ -259,7 +290,9 @@ class AzureBotPlatform:
                 return web.Response(status=503)
             if activity.get("type") == "message":
                 accepted = await self._message(activity)
+                logger.debug(f"Azure Bot message event: accepted={accepted}")
                 return web.Response(status=200 if accepted else 503)
+            logger.debug(f"Azure Bot received non-message activity")
             # Conversation updates retain proactive references; invoke retains
             # the native acknowledgement without inventing an approval click.
             await self._remember(activity)
@@ -300,7 +333,13 @@ class AzureBotPlatform:
 
             # Cancellation must not release the serialization lock while the
             # filesystem thread still owns the write.
-            await self._owned(persist())
+            try:
+                await self._owned(persist())
+            except Exception as exc:
+                logger.warning(
+                    f"Azure Bot reference save failed ({type(exc).__name__})",
+                )
+                raise
         return route
 
     async def _message(self, activity):
@@ -398,6 +437,10 @@ class AzureBotPlatform:
                     timeout=aiohttp.ClientTimeout(total=30),
                 ) as response:
                     if response.status != 200:
+                        logger.warning(
+                            f"Azure Bot attachment download rejected: "
+                            f"HTTP {response.status}",
+                        )
                         raise ValueError("AZURE_ATTACHMENT_DOWNLOAD_FAILED")
                     if any(
                         encoding.strip().lower() != "identity"
@@ -434,7 +477,11 @@ class AzureBotPlatform:
                 asyncio.TimeoutError,
                 OSError,
                 ValueError,
-            ):
+            ) as exc:
+                logger.warning(
+                    f"Azure Bot attachment download failed "
+                    f"({type(exc).__name__})",
+                )
                 await self.on_diagnostic("AZURE_ATTACHMENT_DOWNLOAD_FAILED")
                 return None
         mime = attachment.get("contentType", "")
@@ -481,8 +528,29 @@ class AzureBotPlatform:
             try:
                 result = await self._thread(acquire)
             except Exception as exc:
+                logger.warning(
+                    f"Azure Bot OAuth request failed ({type(exc).__name__})",
+                )
                 raise AzureBotDeliveryError("AZURE_TOKEN_UNAVAILABLE") from exc
             if not isinstance(result, dict) or not result.get("access_token"):
+                codes = (
+                    result.get(f"error_codes")
+                    if isinstance(
+                        result,
+                        dict,
+                    )
+                    else None
+                )
+                code = (
+                    codes[0]
+                    if isinstance(codes, list)
+                    and codes
+                    and type(codes[0]) is int
+                    else None
+                )
+                logger.warning(
+                    f"Azure Bot OAuth rejected: code={code}",
+                )
                 raise AzureBotDeliveryError("AZURE_TOKEN_UNAVAILABLE")
             self._token = result["access_token"]
             self._token_expires = time.time() + int(
@@ -491,9 +559,13 @@ class AzureBotPlatform:
             return self._token
 
     def resolve_target(self, target, meta):
-        return self.store.resolve(target, meta)
+        try:
+            return self.store.resolve(target, meta)
+        except ValueError:
+            logger.warning(f"Azure Bot outbound conversation unavailable")
+            raise
 
-    async def _post(self, url, payload, token):
+    async def _post(self, url, payload, token, *, operation=f"send"):
         try:
             async with self.session.post(
                 url,
@@ -503,6 +575,10 @@ class AzureBotPlatform:
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as response:
                 if response.status not in (200, 201, 202):
+                    logger.warning(
+                        f"Azure Bot {operation} refused: "
+                        f"HTTP {response.status}",
+                    )
                     raise AzureBotDeliveryError(
                         "PLATFORM_SEND_REFUSED",
                         side_effect_possible=response.status >= 500,
@@ -512,6 +588,10 @@ class AzureBotPlatform:
         except AzureBotDeliveryError:
             raise
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
+            logger.warning(
+                f"Azure Bot {operation} result unknown "
+                f"({type(exc).__name__})",
+            )
             raise AzureBotDeliveryError(
                 "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=True,
@@ -544,8 +624,18 @@ class AzureBotPlatform:
             for root in (self.store.workspace, self.media_dir)
         ):
             raise AzureBotDeliveryError("MEDIA_PATH_OUTSIDE_WORKSPACE")
-        raw = await self._thread(path.read_bytes)
+        try:
+            raw = await self._thread(path.read_bytes)
+        except OSError as exc:
+            logger.warning(
+                f"Azure Bot local media read failed ({type(exc).__name__})",
+            )
+            raise
         if len(raw) > UPLOAD_MAX_BYTES:
+            logger.info(
+                f"Azure Bot media exceeds upload limit: bytes={len(raw)}, "
+                f"using text fallback",
+            )
             lang = self.config.get("language") or "zh"
             lang = "zh" if lang.startswith("zh") else lang
             return {
@@ -561,10 +651,12 @@ class AzureBotPlatform:
                 base + "/attachments",
                 {"type": mime, "name": path.name, "originalBase64": encoded},
                 token,
+                operation=f"upload",
             )
         except AzureBotDeliveryError as exc:
             if exc.side_effect_possible:
                 raise
+            logger.info(f"Azure Bot upload rejected, using inline media")
             # A definitive HTTP rejection has no upload effect to duplicate.
             return {
                 "contentType": mime,
@@ -663,6 +755,10 @@ class AzureBotPlatform:
                 if effect:
                     exc.side_effect_possible = True
                 raise
+            logger.warning(
+                f"Azure Bot media or send preparation failed "
+                f"({type(exc).__name__})",
+            )
             raise AzureBotDeliveryError(
                 "PLATFORM_PARTIAL_SEND" if effect else "MEDIA_PREPARE_FAILED",
                 side_effect_possible=effect,

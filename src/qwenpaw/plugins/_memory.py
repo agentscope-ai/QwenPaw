@@ -14,6 +14,7 @@ from .memory import MemoryContext
 from .resources import Registration
 from .storage import PluginConfig
 from .tools import ToolResult
+from ..utils.json_schema import schema_validator
 
 
 # Keep the ownership state machine in one scope.
@@ -33,9 +34,8 @@ def register(plugin, spec):
     class Adapter(BaseMemoryManager):
         def __init__(self, *, context):
             plugin._guard()
-            jsonschema.validate(
+            schema_validator(spec.config_schema).validate(
                 dict(context.backend_config),
-                spec.config_schema,
             )
             super().__init__(context=context)
             self._backend = None

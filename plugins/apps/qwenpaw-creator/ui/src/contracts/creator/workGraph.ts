@@ -24,6 +24,13 @@ export interface WorkGraphNode {
   manuallyHeld?: boolean;
   promptSyncRequired?: boolean;
   preparationState?: "waiting" | "running" | "failed" | null;
+  /**
+   * Why this artifact's automatic review was skipped instead of running —
+   * currently only environment faults (a missing ffmpeg/ffprobe). The
+   * backend drops the note once a newer version is selected or a review
+   * round is admitted, so its presence is always about the current output.
+   */
+  reviewSkip?: { reason: string; hint: string } | null;
 }
 
 export interface WorkGraphView {

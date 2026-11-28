@@ -73,6 +73,7 @@ def _message_turn_usage(msg: Any) -> dict[str, Any] | None:
 def add_session_cache_usage(
     turn: dict[str, Any] | None,
     messages: Any,
+    previous_usage: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Add token-weighted cache totals for the current durable session."""
     if turn is None:
@@ -80,8 +81,19 @@ def add_session_cache_usage(
     cache_read = 0
     cache_eligible = 0
     cache_observed = False
+    if previous_usage is not None:
+        cache_read = int(
+            previous_usage.get(f"session_cache_read_tokens", 0) or 0,
+        )
+        cache_eligible = int(
+            previous_usage.get(f"session_cache_eligible_input_tokens", 0) or 0,
+        )
+        cache_observed = bool(
+            previous_usage.get(f"session_cache_observed", False),
+        )
     current = find_turn_closing_assistant_in_context(messages)
-    for msg in reversed(messages or []):
+    history = () if previous_usage is not None else messages or []
+    for msg in reversed(history):
         if msg is current:
             continue
         usage = _message_turn_usage(msg)
@@ -185,21 +197,44 @@ async def resolve_turn_usage(
     session: Any,
     user_id: str,
     channel: str,
+    estimate_missing_usage: bool = True,
+    runtime_state: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, Any | None]:
     """Resolve turn/ctx from provider usage + full agent-state estimate."""
     turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
     if session is None:
         return turn, None, None
 
-    agent_state = await _load_agent_state(
-        session=session,
-        session_id=session_id,
-        user_id=user_id,
-        channel=channel,
+    agent_state = (
+        _agent_state_from_snapshot(runtime_state)
+        if runtime_state is not None
+        else await _load_agent_state(
+            session=session,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
     )
     if agent_state is None:
         return turn, None, None
 
+    turn, ctx = await _resolve_usage_from_state(
+        turn,
+        agent_state,
+        agent_id,
+        estimate_missing_usage=estimate_missing_usage,
+    )
+    turn = add_session_cache_usage(turn, getattr(agent_state, "context", None))
+    return turn, ctx, agent_state
+
+
+async def _resolve_usage_from_state(
+    turn: dict[str, Any] | None,
+    agent_state: Any,
+    agent_id: str,
+    *,
+    estimate_missing_usage: bool = True,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     context_size = int((turn or {}).get("context_size", 0) or 0)
     stats = await snapshot_context_usage_for_state(
         agent_state,
@@ -207,29 +242,18 @@ async def resolve_turn_usage(
         preferred_max_input_length=context_size,
     )
     if not stats:
-        return (
-            add_session_cache_usage(
-                turn,
-                getattr(agent_state, "context", None),
-            ),
-            None,
-            agent_state,
-        )
+        return turn, None
 
     ctx = {
         "estimated_tokens": stats["estimated_tokens"],
         "max_input_length": stats["max_input_length"],
         "context_usage_ratio": stats["context_usage_ratio"],
     }
-    if turn is None:
+    if turn is None and estimate_missing_usage:
         turn = _turn_from_stats(stats)
-    else:
+    elif turn is not None:
         turn = reconcile_turn_completion_from_stats(turn, stats)
-    turn = add_session_cache_usage(
-        turn,
-        getattr(agent_state, "context", None),
-    )
-    return turn, ctx, agent_state
+    return turn, ctx
 
 
 def find_turn_closing_assistant_in_context(messages: Any) -> Any | None:
@@ -264,6 +288,31 @@ def _write_turn_usage_meta(
     return True
 
 
+async def attach_turn_usage(
+    *,
+    session_id: str,
+    agent_id: str,
+    agent_state: Any,
+    archived_messages: list[Any],
+) -> None:
+    """Attach usage to the current turn before its state is saved."""
+    turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+    if agent_state is None:
+        return
+    try:
+        turn, ctx = await _resolve_usage_from_state(
+            turn,
+            agent_state,
+            agent_id,
+        )
+        messages = agent_state.context
+        msg = find_turn_closing_assistant_in_context(messages)
+        turn = add_session_cache_usage(turn, [*archived_messages, *messages])
+        _write_turn_usage_meta(msg, turn, ctx)
+    except Exception:
+        logger.warning("turn usage attachment skipped", exc_info=True)
+
+
 async def _load_agent_state(
     *,
     session: Any,
@@ -282,6 +331,11 @@ async def _load_agent_state(
     except Exception:
         logger.debug("get_session_state_dict skipped", exc_info=True)
         return None
+    return _agent_state_from_snapshot(state)
+
+
+def _agent_state_from_snapshot(state: dict[str, Any]) -> Any | None:
+    """Parse the agent component of a persisted or pending snapshot."""
     if not state:
         return None
     agent_raw = state.get("agent", {})
@@ -337,3 +391,51 @@ async def persist_turn_usage(
             "update_session_state for turn usage skipped",
             exc_info=True,
         )
+
+
+async def commit_turn_usage(
+    *,
+    session: Any,
+    agent_id: str,
+    session_id: str,
+    user_id: str,
+    channel: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Resolve and persist usage for a finished channel turn."""
+    if not session_id:
+        return None, None
+    try:
+        turn, ctx, agent_state = await resolve_turn_usage(
+            session_id=session_id,
+            agent_id=agent_id,
+            session=session,
+            user_id=user_id,
+            channel=channel,
+        )
+        if turn is None and ctx is None:
+            return None, None
+        if turn:
+            logger.info("Usage for session %s: %s", session_id, turn)
+        if session is not None:
+            try:
+                await persist_turn_usage(
+                    session=session,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    turn=turn,
+                    ctx=ctx,
+                    agent_state=agent_state,
+                )
+            except Exception:
+                logger.warning("turn usage persist skipped", exc_info=True)
+        return turn, ctx
+    except Exception:
+        logger.warning("turn usage commit skipped", exc_info=True)
+        return None, None
+
+
+def discard_turn_usage(session_id: str) -> None:
+    """Drop staged usage for a channel turn."""
+    if session_id:
+        TokenRecordingModelWrapper.pop_usage_for_session(session_id)

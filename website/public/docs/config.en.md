@@ -760,13 +760,14 @@ QwenPaw needs an LLM provider to work. You can set it up in three ways:
 
 - **`qwenpaw init`** — interactive wizard, the easiest way
 - **Console UI** — in Settings → Models page
-- **API** — `PUT /providers/{id}` and `PUT /providers/active_llm`
+- **API** — `PUT /api/models/{id}/config` and `PUT /api/models/active`
+
+The `qwenpaw-local` provider is registered by the optional `local-llamacpp` plugin; it is not a built-in provider. See [QwenPaw Local setup](./models#QwenPaw-Local-llamacpp-Configuration).
 
 **Built-in providers:**
 
 | Provider                           | ID                       | Default Base URL                                    | API Key Prefix |
 | ---------------------------------- | ------------------------ | --------------------------------------------------- | -------------- |
-| QwenPaw Local                      | `qwenpaw-local`          | _(local)_                                           | _(none)_       |
 | Ollama                             | `ollama`                 | `http://localhost:11434`                            | _(none)_       |
 | LM Studio                          | `lmstudio`               | `http://localhost:1234/v1`                          | _(none)_       |
 | OpenRouter                         | `openrouter`             | `https://openrouter.ai/api/v1`                      | `sk-or-v1-`    |

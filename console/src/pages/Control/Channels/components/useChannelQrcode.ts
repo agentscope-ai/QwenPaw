@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../../../api";
+import { ApiError } from "../../../../api/request";
 import type { ChannelAuthProvenance } from "../../../../api/modules/channel";
 import { useAgentStore } from "../../../../stores/agentStore";
 
@@ -9,6 +10,8 @@ export interface ChannelQrcodeCustody {
   /** Discard an authorization that has not been taken by a save job. */
   cancel: () => void;
 }
+
+type ChannelQrcodeError = "fetch" | "expired" | "fail" | "account-in-use";
 
 export interface ChannelQrcodeConfig {
   /** Channel name used in the API path, e.g. "wechat" or "wecom" */
@@ -33,7 +36,7 @@ export interface ChannelQrcodeConfig {
     custody: ChannelQrcodeCustody,
   ) => void;
   /** Called when QR code fetch fails, polling detects expiry, or backend reports failure */
-  onError: (type: "fetch" | "expired" | "fail") => void;
+  onError: (type: ChannelQrcodeError) => void;
 }
 
 export interface ChannelQrcodeState {
@@ -130,7 +133,7 @@ export function useChannelQrcode(
       generation.current === currentGeneration && flight.current === current;
     const scope = { agentId, signal: current.controller.signal };
     const capturedParams = params ? { ...params } : undefined;
-    const fail = (reason: "fetch" | "expired" | "fail") => {
+    const fail = (reason: ChannelQrcodeError) => {
       if (!active()) return;
       reset();
       onError(reason);
@@ -198,8 +201,17 @@ export function useChannelQrcode(
               fail(result.status);
               return;
             }
-          } catch {
+          } catch (error) {
             if (!active()) return;
+            if (
+              channel === "wechat" &&
+              error instanceof ApiError &&
+              error.status === 409 &&
+              error.message === "ACCOUNT_IN_USE"
+            ) {
+              fail("account-in-use");
+              return;
+            }
           }
           schedulePoll();
         }, pollInterval);

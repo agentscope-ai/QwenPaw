@@ -15,6 +15,10 @@ from ...market import (
     search_market,
 )
 from ...market.registry import market_registry
+from ...utils.request_cancellation import (
+    ClientDisconnected,
+    cancel_on_disconnect,
+)
 
 router = APIRouter(prefix="/market", tags=["market"])
 
@@ -111,13 +115,17 @@ async def market_search(
             detail=f"unknown providers: {sorted(unknown)}",
         )
 
-    results, errors, by_provider = await search_market(
-        query=body.query,
-        provider_pages=body.provider_pages,
-        limit=body.limit,
-        lang=body.lang,
-        category=body.category,
-    )
+    try:
+        async with cancel_on_disconnect(request):
+            results, errors, by_provider = await search_market(
+                query=body.query,
+                provider_pages=body.provider_pages,
+                limit=body.limit,
+                lang=body.lang,
+                category=body.category,
+            )
+    except ClientDisconnected as exc:
+        raise HTTPException(status_code=499) from exc
     return MarketSearchResponse(
         results=[_result_to_spec(r) for r in results],
         errors=[_error_to_spec(e) for e in errors],

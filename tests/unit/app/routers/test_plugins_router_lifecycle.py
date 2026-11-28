@@ -23,7 +23,7 @@ from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -117,7 +117,7 @@ def _loader_stub(
     *,
     record: Any = None,
     registry: Any = None,
-    load_result: Any = "LOADED",
+    load_result: Any = None,
 ) -> MagicMock:
     """A PluginLoader stand-in recording lifecycle and load calls."""
     loader = MagicMock(name="PluginLoader")
@@ -141,7 +141,7 @@ def _loader_stub(
             f"before={kwargs.get('before_force_unload') is not None}:"
             f"after={kwargs.get('after_force_unload') is not None}",
         )
-        return load_result
+        return load_result if load_result is not None else _record()
 
     loader.load_plugin_from_path = AsyncMock(side_effect=_load)
     loader.retains_preparation_source.return_value = False
@@ -177,7 +177,7 @@ class TestZipExtractionHelpers:
         assert not (tmp_path.parent / "escape.txt").exists()
 
     def test_extract_bytes_without_manifest_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="No plugin.json"):
+        with pytest.raises(ValueError, match="no plugin.json found"):
             _extract_plugin_zip_bytes(_zip_bytes({"a.txt": "A"}), tmp_path)
 
     def test_extract_downloaded_removes_the_zip(self, tmp_path):
@@ -616,7 +616,7 @@ class TestInstallPluginSource:
                 force=True,
                 reload_agents=False,
             )
-        assert result == "LOADED"
+        assert result.manifest.id == "plug"
         kwargs = loader.load_plugin_from_path.call_args.kwargs
         assert kwargs["source_path"] == tmp_path
         assert kwargs["force"] is True
@@ -655,7 +655,7 @@ class TestInstallPluginSource:
             seen_at_load["manifest"] = (source / "plugin.json").read_text(
                 encoding="utf-8",
             )
-            return "LOADED"
+            return _record("p")
 
         loader.load_plugin_from_path = AsyncMock(side_effect=_capture_load)
         with (
@@ -672,10 +672,11 @@ class TestInstallPluginSource:
                 side_effect=_mkdtemp,
             ),
         ):
-            await install_plugin_source(
+            result = await install_plugin_source(
                 "https://example.test/p.zip",
                 app=_app(loader),
             )
+        assert result.manifest.id == "p"
         assert urls == ["https://example.test/p.zip"]
         # the ZIP was extracted into the temp dir and that dir handed to
         # the loader as the install source
@@ -851,6 +852,31 @@ class TestUninstallPluginSource:
 # ---------------------------------------------------------------------------
 # install / uninstall / upload routes
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("background", [False, True])
+def test_dependency_upgrade_apply_response(monkeypatch, background):
+    operation = {"id": "operation", "status": "needs_confirmation"}
+    completed = {**operation, "status": "succeeded"}
+    manager = SimpleNamespace(
+        status=Mock(return_value=operation),
+        apply=AsyncMock(return_value=completed),
+    )
+    monkeypatch.setattr(
+        plugins_module,
+        "_upgrade_manager",
+        lambda request: manager,
+    )
+
+    with _client() as client:
+        response = client.post(
+            "/api/plugins/dependency-upgrades/operation/apply",
+            params={"background": str(background).lower()},
+        )
+    assert response.status_code == (202 if background else 200)
+    assert response.json() == (operation if background else completed)
+    options = {"wait_for_readers": True} if background else {}
+    manager.apply.assert_awaited_once_with("operation", **options)
 
 
 class TestInstallPluginRoute:

@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import logging
 import time
 from urllib.parse import urlsplit
 
@@ -10,6 +11,8 @@ import aiohttp
 import jwt
 
 from .constants import ISSUER, OPENID_URL
+
+logger = logging.getLogger(__name__)
 
 
 class AzureBotTokenValidator:
@@ -33,6 +36,12 @@ class AzureBotTokenValidator:
             allow_redirects=False,
             timeout=aiohttp.ClientTimeout(total=10),
         ) as response:
+            if response.status >= 400:
+                resource = f"OpenID metadata" if url == OPENID_URL else f"JWKS"
+                logger.warning(
+                    f"Azure Bot {resource} request failed: "
+                    f"HTTP {response.status}",
+                )
             response.raise_for_status()
             return await response.json()
 
@@ -59,6 +68,7 @@ class AzureBotTokenValidator:
                 if not isinstance(keys, list):
                     raise ValueError("AUTH_KEYS_INVALID")
                 self._keys, self._fetched_at = keys, now
+                logger.debug(f"Azure Bot JWKS refreshed: keys={len(keys)}")
                 match = next((k for k in keys if k.get("kid") == kid), None)
             if match is None:
                 raise ValueError("AUTH_KEY_UNKNOWN")
@@ -67,6 +77,7 @@ class AzureBotTokenValidator:
     async def authenticate(self, header):
         """Verify signature and claims before the request body is read."""
         if not self.app_id or not header.startswith("Bearer "):
+            logger.debug(f"Azure Bot missing app ID or bearer header")
             return None
         try:
             token = header[7:]
@@ -77,6 +88,7 @@ class AzureBotTokenValidator:
                 or not isinstance(kid, str)
                 or not kid
             ):
+                logger.debug(f"Azure Bot unsupported JWT algorithm or key ID")
                 return None
             key = await self._key(kid)
             claims = jwt.decode(
@@ -95,6 +107,7 @@ class AzureBotTokenValidator:
                 claims["iss"] not in self._VALID_ISSUERS
                 or claims["aud"] != self.app_id
             ):
+                logger.debug(f"Azure Bot JWT issuer or audience rejected")
                 return None
             return claims, tuple(key.get("endorsements") or ())
         except (
@@ -104,8 +117,17 @@ class AzureBotTokenValidator:
             TypeError,
             aiohttp.ClientError,
             asyncio.TimeoutError,
-        ):
+        ) as exc:
+            logger.debug(
+                f"Azure Bot JWT verification failed ({type(exc).__name__})",
+            )
             return None
+        except Exception as exc:
+            logger.error(
+                f"Azure Bot unexpected JWT validation error "
+                f"({type(exc).__name__})",
+            )
+            raise
 
     @staticmethod
     def validates_activity(authentication, activity):

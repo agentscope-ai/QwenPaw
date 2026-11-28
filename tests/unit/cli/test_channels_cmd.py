@@ -7,10 +7,32 @@ from pathlib import Path
 import sys
 from unittest.mock import patch
 
+import click
+from click.testing import CliRunner
 import pytest
 
 from qwenpaw.cli import channels_cmd
+from qwenpaw.config.config import WeChatConfig
 from qwenpaw.plugins.registry import PluginRegistry
+
+
+@pytest.mark.parametrize("path", ["", "custom-token"])
+def test_wechat_configurator_keeps_the_token_file_input(path, monkeypatch):
+    config = WeChatConfig(enabled=True, bot_token_file=path)
+    monkeypatch.setattr(channels_cmd, f"prompt_confirm", lambda *a, **kw: True)
+
+    @click.command()
+    def configure():
+        channels_cmd.configure_wechat(config)
+
+    result = CliRunner().invoke(configure, input=f"\n" * 12)
+    assert result.exit_code == 0, result.output
+    assert config.bot_token_file == path
+    assert f"in this agent's workspace" in result.output
+    assert (
+        f"~/.qwenpaw/workspaces/default/wechat/wechat_bot_token"
+        in result.output
+    )
 
 
 @pytest.fixture()
@@ -136,14 +158,14 @@ def test_plugin_channel_without_custom_configurator_uses_fallback(
 
 
 def test_interactive_config_loads_plugins_before_building_menu():
-    """The interactive flow loads plugins before reading configurators."""
+    """Build the menu from a single catalog read after plugin registration."""
     calls = []
 
     def load_plugins():
         calls.append("load")
 
-    def get_configurators():
-        calls.append("configurators")
+    def read_catalog():
+        calls.append("catalog")
         return {}
 
     with (
@@ -154,12 +176,12 @@ def test_interactive_config_loads_plugins_before_building_menu():
         ),
         patch.object(
             channels_cmd,
-            "get_channel_configurators",
-            side_effect=get_configurators,
+            "get_configurable_channel_catalog",
+            side_effect=read_catalog,
         ),
         patch.object(channels_cmd, "get_channel_registry", return_value={}),
         patch.object(channels_cmd, "prompt_select", return_value="exit"),
     ):
         channels_cmd.configure_channels_interactive(channels_cmd.Config())
 
-    assert calls == ["load", "configurators"]
+    assert calls == ["load", "catalog"]

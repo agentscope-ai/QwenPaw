@@ -10,13 +10,20 @@ injects all dependencies into the agent constructor.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from functools import partial
 from typing import Any, Iterable
 
+from .steer import current_steer, SteerMiddleware
+
+from .._session_request import is_ephemeral_request
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
-from ..providers.model_selection import request_model_override
+from ..providers.model_selection import (
+    request_model_override,
+    resolve_model_slot_override,
+)
 from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
@@ -354,7 +361,13 @@ class AgentBuilder:
         from ..providers.provider_manager import ProviderManager
 
         agent_id = getattr(ctx, "agent_id", None) or "default"
-        agent_config = await run_sync_io(load_agent_config, agent_id)
+        agent_config = getattr(ctx, "agent_config", None)
+        if agent_config is None:
+            agent_config = await run_sync_io(load_agent_config, agent_id)
+        else:
+            # Callers may supply an invocation snapshot, such as a local task's
+            # model and iteration settings. Never mutate the caller's copy.
+            agent_config = agent_config.model_copy(deep=True)
         request_context = self._build_request_context(ctx)
         agent_config = self._apply_request_project(
             agent_config,
@@ -367,7 +380,13 @@ class AgentBuilder:
         ctx.agent_config = agent_config
 
         # Validate model availability.
-        active = agent_config.active_model
+        model_slot_override = request_model_override(
+            getattr(ctx, "request", None),
+        )
+        active = (
+            resolve_model_slot_override(model_slot_override)
+            or agent_config.active_model
+        )
         if not (active and active.provider_id and active.model):
             active = await run_sync_io(
                 ProviderManager.get_instance().get_active_model,
@@ -460,7 +479,6 @@ class AgentBuilder:
 
         # Model + formatter (built before the toolkit so the scroll context
         # strategy, which needs the model for token counting, can wire in).
-        model_slot_override = request_model_override(ctx.request)
         model, _formatter = await run_sync_io(
             self.build_model,
             agent_config,
@@ -578,8 +596,8 @@ class AgentBuilder:
             code_tool.check_permission = (
                 agent._check_permission  # pylint: disable=protected-access
             )
-            code_tool.acting = (
-                agent._acting  # pylint: disable=protected-access
+            code_tool.acting = (  # pylint: disable=protected-access
+                agent._acting
             )
 
         # Load session state if SessionLoadHook populated it.
@@ -623,6 +641,9 @@ class AgentBuilder:
         prompt_ctx = SimpleNamespace(
             workspace_dir=workspace_dir,
             agent_id=getattr(ctx, "agent_id", None),
+            session_id=getattr(ctx, "session_id", ""),
+            request=getattr(ctx, "request", None),
+            input_msgs=getattr(ctx, "input_msgs", ()),
             extras={
                 "language": agent_config.language,
                 "heartbeat_enabled": heartbeat_enabled,
@@ -761,7 +782,12 @@ class AgentBuilder:
             getattr(request, "request_context", None) if request else None
         )
         if isinstance(_payload_ctx, dict):
-            rc.update(_payload_ctx)
+            # A request's extra options must not change the execution identity.
+            rc.update(
+                (key, value)
+                for key, value in _payload_ctx.items()
+                if key not in {"agent_id", "session_id", "user_id", "channel"}
+            )
         mode_state = getattr(ctx, "mode_state", {}) or {}
         mission_state = mode_state.get("mission", {})
         if isinstance(mission_state, dict) and mission_state.get("active"):
@@ -1002,8 +1028,8 @@ class AgentBuilder:
     ) -> tuple[list[Any], list[str]]:
         """Build request-time Driver tools and prompt hints.
 
-        MCP is exposed through Driver capabilities only, so a server cannot
-        be exposed twice through separate runtime paths.
+        The workspace facade returns an empty catalog without constructing
+        a runtime when no registered source is active.
         """
         workspace = getattr(ctx, "workspace", None)
         driver_manager = (
@@ -1095,6 +1121,21 @@ class AgentBuilder:
             else ""
         )
         session_id = getattr(ctx, "session_id", None) or "local"
+        request = getattr(ctx, "request", None)
+        user_id = (
+            getattr(request, "user_id", None) if request is not None else None
+        ) or session_id
+        channel = (
+            getattr(request, "channel", None) if request is not None else None
+        ) or ""
+        raw_generation = (getattr(ctx, "session_state", None) or {}).get(
+            "_context_generation",
+            0,
+        )
+        try:
+            context_generation = max(int(raw_generation), 0)
+        except (TypeError, ValueError):
+            context_generation = 0
         agent_id = (
             getattr(agent_config, "id", None)
             or getattr(ctx, "agent_id", None)
@@ -1103,19 +1144,33 @@ class AgentBuilder:
 
         from ..agents.context import build_scroll_components
 
-        # history.db is shared across sessions in this workspace; rows are
-        # keyed by session_id (the conversation) and agent_id (which agent
-        # wrote them).
-        return await run_sync_io(
-            build_scroll_components,
-            agent_config=agent_config,
-            workspace_dir=workspace_dir,
-            model=model,
-            session_id=session_id,
-            agent_id=agent_id,
-            offloader=offloader,
-            history_store=getattr(workspace, "history_store", None),
-        )
+        # Recall is projected inside the exact conversation database. The
+        # full identity prevents group-channel session collisions.
+        components = None
+
+        def build():
+            nonlocal components
+            components = build_scroll_components(
+                agent_config=agent_config,
+                workspace_dir=workspace_dir,
+                model=model,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                context_generation=context_generation,
+                ephemeral=is_ephemeral_request(request),
+                agent_id=agent_id,
+                offloader=offloader,
+            )
+            return components
+
+        try:
+            return await run_sync_io(build)
+        except asyncio.CancelledError:
+            # run_sync_io waits for construction before raising cancellation.
+            if components is not None:
+                await run_sync_io(components.context_manager.close)
+            raise
 
     @staticmethod
     def _scroll_recall_runnable(agent_config: Any, governor: Any) -> bool:
@@ -1351,7 +1406,12 @@ class AgentBuilder:
         5. Mode-contributed middlewares — e.g. AdvisorMiddleware from
            Advisor Mode (innermost)
         """
-        mws: list[Any] = []
+        control = current_steer.get()
+        mws: list[Any] = (
+            [SteerMiddleware(control)]
+            if control and control.owns_request(ctx.request)
+            else []
+        )
 
         pruning_middleware = None
         try:

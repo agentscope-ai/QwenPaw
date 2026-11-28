@@ -11,22 +11,31 @@ from agentscope.message import Msg
 import pytest
 
 from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
+from qwenpaw.exceptions import LegacyMigrationError
 from qwenpaw.hooks.session.session_hook import SessionLoadHook, SessionSaveHook
-from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+from qwenpaw._session_signals import SESSION_SAVE_SUCCEEDED_KEY
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
 
 class _FakeSession:
-    def __init__(self, *, save_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        load_error: Exception | None = None,
+        save_error: Exception | None = None,
+    ) -> None:
         self.loaded = False
         self.saved = False
         self.load_payload = {}
         self.saved_payload = {}
+        self.load_error = load_error
         self.save_error = save_error
 
     async def load_session_state(self, *args, **kwargs) -> None:
         del args
+        if self.load_error is not None:
+            raise self.load_error
         self.loaded = True
         kwargs["agent"].load_state_dict(self.load_payload)
 
@@ -123,10 +132,27 @@ async def test_failed_session_save_does_not_mark_turn_as_persisted():
     session = _FakeSession(save_error=RuntimeError("save failed"))
     ctx = _ctx(session, ephemeral=False)
 
-    await SessionSaveHook().run(ctx)
+    with pytest.raises(RuntimeError, match="save failed"):
+        await SessionSaveHook().run(ctx)
 
     assert session.saved is False
     assert ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] is False
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        LegacyMigrationError("legacy-session"),
+        OSError("database unavailable"),
+        KeyError("invalid state"),
+    ],
+)
+async def test_session_load_failure_stops_agent_lifecycle(error):
+    session = _FakeSession(load_error=error)
+    ctx = _ctx(session, ephemeral=False)
+
+    with pytest.raises(type(error)):
+        await SessionLoadHook().run(ctx)
 
 
 async def test_console_image_check_keeps_event_loop_responsive(monkeypatch):
@@ -160,3 +186,49 @@ async def test_console_image_check_keeps_event_loop_responsive(monkeypatch):
         release.set()
         await task
     assert completed
+
+
+async def test_scheduled_usage_is_in_the_initial_session_save(monkeypatch):
+    from agentscope.message import Msg
+
+    from qwenpaw.token_usage import turn_usage
+    from qwenpaw.token_usage.model_wrapper import isolated_turn_usage
+
+    session = _FakeSession()
+    ctx = _ctx(session, ephemeral=False)
+    ctx.workspace.agent_id = "default"
+    message = Msg(
+        name="assistant",
+        content=[{"type": "text", "text": "done"}],
+        role="assistant",
+    )
+    ctx.agent.state = SimpleNamespace(context=[message])
+    ctx.agent.state_dict = lambda: {
+        "state": {"context": [message.model_dump(mode="json")]},
+    }
+    usage = {"total_tokens": 12}
+    monkeypatch.setattr(
+        turn_usage.TokenRecordingModelWrapper,
+        "pop_usage_for_session",
+        lambda session_id: usage,
+    )
+
+    async def no_context_estimate(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        turn_usage,
+        "snapshot_context_usage_for_state",
+        no_context_estimate,
+    )
+
+    with isolated_turn_usage():
+        await SessionSaveHook().run(ctx)
+
+    saved = session.saved_payload["state"]["context"][0]
+    assert (
+        saved["metadata"][turn_usage.TURN_USAGE_META_KEY]["usage"][
+            "total_tokens"
+        ]
+        == 12
+    )

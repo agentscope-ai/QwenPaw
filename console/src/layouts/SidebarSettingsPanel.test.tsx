@@ -44,7 +44,7 @@ describe("SidebarSettingsPanel", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: "sidebar.changeAvatar" }),
+      screen.getByRole("button", { name: "platformAccess.account" }),
     ).toHaveFocus();
   });
 

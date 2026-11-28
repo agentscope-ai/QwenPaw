@@ -261,6 +261,10 @@ class ProviderError(AgentRuntimeErrorException):
         super().__init__("PROVIDER_ERROR", message, details)
 
 
+class ModelAdditionError(ProviderError):
+    """The provider rejected a requested model addition."""
+
+
 class ModelFormatterError(AgentRuntimeErrorException):
     """Exception raised when there's an error with model message formatting."""
 
@@ -320,6 +324,16 @@ class AgentStateError(AgentRuntimeErrorException):
         # Add session_id to details for better debugging
         details["session_id"] = session_id
         super().__init__("AGENT_STATE_ERROR", message, details)
+
+
+class LegacyMigrationError(AgentStateError):
+    """Legacy session data could not be migrated before agent execution."""
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(
+            session_id=session_id,
+            message=f"Failed to migrate legacy session {session_id}",
+        )
 
 
 class SkillsError(AgentRuntimeErrorException):

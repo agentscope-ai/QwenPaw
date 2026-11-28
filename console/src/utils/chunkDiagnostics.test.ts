@@ -143,21 +143,43 @@ describe("original chunk diagnostics", () => {
   });
 
   it("persists the latest diagnostic including the pre-refresh attempt", () => {
-    const report = captureChunkDiagnostic(new Error("Loading chunk failed"));
+    const grant = "fixture.console-grant";
+    const resource = `${location.origin}/console-frames/${grant}/assets/page.js`;
+    const error = new Error(
+      `Failed to fetch dynamically imported module: ${resource}`,
+    );
+    importFailures.set(error, { attempts: 1, modulePath: resource });
+    const report = captureChunkDiagnostic(error);
     report.automaticReloadAttempted = true;
     saveChunkDiagnostic(report);
-    expect(readChunkDiagnostic()).toEqual(report);
+    expect(readChunkDiagnostic()).toMatchObject({
+      attempts: 1,
+      automaticReloadAttempted: true,
+      resourceUrl: resource.replace(grant, "[redacted]"),
+    });
+    expect(sessionStorage.getItem("qwenpaw:chunk-diagnostic")).not.toContain(
+      grant,
+    );
+    expect(
+      sessionStorage.getItem("qwenpaw:chunk-diagnostic-before-reload"),
+    ).not.toContain(grant);
   });
 
   it("retains legacy pre-refresh reports when saving later failures", () => {
     const previous = captureChunkDiagnostic(new Error("Initial failure"));
     previous.automaticReloadAttempted = true;
+    const legacyGrant = "fixture-legacy-grant";
+    const path = `${location.origin}/console-frames/${legacyGrant}/assets/old.js`;
     sessionStorage.setItem(
       "qwenpaw:chunk-diagnostic",
-      JSON.stringify(previous),
+      JSON.stringify({ ...previous, resourceUrl: path }),
     );
+    previous.resourceUrl = path.replace(legacyGrant, "[redacted]");
     expect(readBeforeAutomaticReloadDiagnostic(previous.page)).toEqual(
       previous,
+    );
+    expect(sessionStorage.getItem("qwenpaw:chunk-diagnostic")).not.toContain(
+      legacyGrant,
     );
     const current = captureChunkDiagnostic(new Error("Failure after refresh"));
     saveChunkDiagnostic(current);
@@ -243,7 +265,7 @@ describe("bounded resource rechecks", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(completed).toBe(false);
-    finish(new TextEncoder().encode(content).buffer);
+    finish(new TextEncoder().encode(content).buffer as ArrayBuffer);
     expect(await check).toMatchObject({
       outcome: "available",
       status: 200,

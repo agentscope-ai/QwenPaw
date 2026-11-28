@@ -1,0 +1,235 @@
+# -*- coding: utf-8 -*-
+"""Protected persistence for a self-hosted Relay node identity."""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import math
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Mapping
+from uuid import uuid4
+
+from cryptography.fernet import InvalidToken
+
+from ..security.secret_store import decrypt, encrypt, is_encrypted
+from ..utils.io_utils import read_json, run_sync_io, write_json_atomic
+from .identity import RelayKeyPair
+from .platform_client import PlatformSession, RegisteredNode
+
+
+class RelayNodeStateError(ValueError):
+    """The saved binding could not be read or decrypted."""
+
+
+@dataclass(frozen=True, slots=True)
+class RelayNodeState:
+    """All local state needed to resume or operate one Relay binding."""
+
+    platform_url: str
+    qwenpaw_id: str
+    name: str
+    private_key: bytes = field(repr=False)
+    registered_node: RegisteredNode | None = None
+    account_id: str | None = None
+    account_name: str | None = None
+    session: PlatformSession | None = None
+    runtime_id: str | None = None
+
+    @property
+    def key_pair(self) -> RelayKeyPair:
+        """Restore the Node signing key without exposing it over an API."""
+        return RelayKeyPair.from_private_bytes(self.private_key)
+
+
+class RelayNodeStore:
+    """Atomically store one encrypted Relay node identity."""
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        protect: Callable[[str], str] = encrypt,
+        unprotect: Callable[[str], str] = decrypt,
+    ) -> None:
+        self.path = path
+        self._protect = protect
+        self._unprotect = unprotect
+        self.mutation_lock = asyncio.Lock()
+
+    def load(self) -> RelayNodeState | None:
+        """Read the current state, returning None when it does not exist."""
+        try:
+            payload = read_json(self.path)
+            return self._decode(payload)
+        except FileNotFoundError:
+            return None
+        except (
+            OSError,
+            InvalidToken,
+            ValueError,
+            KeyError,
+            TypeError,
+            OverflowError,
+            RecursionError,
+        ) as exc:
+            raise RelayNodeStateError(
+                "Cannot read the local Platform binding. Disconnect it and "
+                "connect again.",
+            ) from exc
+
+    def _decode(self, payload: Any) -> RelayNodeState:
+        if not isinstance(payload, Mapping):
+            raise ValueError("Relay node state must be a JSON object")
+        registered = payload.get("registered_node")
+        session = payload.get("session")
+        if any(
+            item is not None and not isinstance(item, Mapping)
+            for item in (registered, session)
+        ):
+            raise ValueError("Invalid Relay node credentials")
+        private_key = base64.b64decode(
+            self._read_secret(payload, "private_key"),
+            altchars=b"-_",
+            validate=True,
+        )
+        if len(private_key) != 32:
+            raise ValueError("Invalid Ed25519 private key")
+        return RelayNodeState(
+            platform_url=_string(payload, "platform_url"),
+            qwenpaw_id=_string(payload, "qwenpaw_id"),
+            name=_string(payload, "name"),
+            private_key=private_key,
+            account_id=_optional_string(payload, "account_id"),
+            account_name=_optional_string(payload, "account_name"),
+            runtime_id=_optional_string(payload, "runtime_id"),
+            session=(
+                PlatformSession(
+                    user_id=_string(session, "user_id"),
+                    display_name=_string(session, "display_name"),
+                    access_token=self._read_secret(session, "access_token"),
+                    refresh_token=self._read_secret(session, "refresh_token"),
+                    expires_at=_expiry(session),
+                )
+                if isinstance(session, Mapping)
+                else None
+            ),
+            registered_node=(
+                RegisteredNode(
+                    node_id=_string(registered, "node_id"),
+                    credential=self._read_secret(registered, "credential"),
+                    dpop_nonce=_string(registered, "dpop_nonce"),
+                    credential_generation=_integer(
+                        registered,
+                        "credential_generation",
+                    ),
+                )
+                if isinstance(registered, Mapping)
+                else None
+            ),
+        )
+
+    def _read_secret(self, payload: Mapping[str, Any], name: str) -> str:
+        value = _string(payload, name)
+        plaintext = self._unprotect(value)
+        if plaintext == value and is_encrypted(value):
+            raise ValueError("Cannot decrypt the Relay node credential")
+        return plaintext
+
+    def quarantine(self) -> None:
+        """Move an unreadable binding aside during an explicit disconnect."""
+        suffix = self.path.suffix + "." + uuid4().hex + ".corrupt"
+        backup = self.path.with_suffix(suffix)
+        self.path.replace(backup)
+
+    async def save_async(self, state: RelayNodeState) -> None:
+        """Finish writing before the caller releases the mutation lock."""
+        await run_sync_io(self.save, state)
+
+    def save(self, state: RelayNodeState) -> None:
+        """Encrypt credentials and atomically replace the state file."""
+        registered = None
+        session = None
+        if state.session is not None:
+            session = asdict(state.session)
+            session["access_token"] = self._protect(state.session.access_token)
+            session["refresh_token"] = self._protect(
+                state.session.refresh_token,
+            )
+        if state.registered_node is not None:
+            registered = asdict(state.registered_node)
+            registered["credential"] = self._protect(
+                state.registered_node.credential,
+            )
+        write_json_atomic(
+            self.path,
+            {
+                "version": 1,
+                "platform_url": state.platform_url,
+                "qwenpaw_id": state.qwenpaw_id,
+                "name": state.name,
+                "private_key": self._protect(
+                    base64.urlsafe_b64encode(state.private_key).decode(
+                        "ascii",
+                    ),
+                ),
+                "registered_node": registered,
+                "account_id": state.account_id,
+                "account_name": state.account_name,
+                "session": session,
+                "runtime_id": state.runtime_id,
+            },
+            indent=2,
+            sort_keys=True,
+            new_file_mode=0o600,
+        )
+
+    @staticmethod
+    def create(
+        *,
+        platform_url: str,
+        qwenpaw_id: str,
+        name: str,
+    ) -> RelayNodeState:
+        """Create a new encrypted signing identity in memory."""
+        key_pair = RelayKeyPair.generate()
+        return RelayNodeState(
+            platform_url=platform_url,
+            qwenpaw_id=qwenpaw_id,
+            name=name,
+            private_key=key_pair.private_bytes(),
+        )
+
+
+def _string(payload: Mapping[str, Any], name: str) -> str:
+    value = payload.get(name)
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"Relay node state is missing {name}")
+    return value
+
+
+def _optional_string(payload: Mapping[str, Any], name: str) -> str | None:
+    value = payload.get(name)
+    if value is not None and not isinstance(value, str):
+        raise ValueError(f"Invalid Relay node state field {name}")
+    return value
+
+
+def _expiry(payload: Mapping[str, Any]) -> float:
+    value = payload.get("expires_at")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    ):
+        raise ValueError("Invalid Relay session expiry")
+    return float(value)
+
+
+def _integer(payload: Mapping[str, Any], name: str) -> int:
+    value = payload.get(name)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"Invalid Relay node state field {name}")
+    return value

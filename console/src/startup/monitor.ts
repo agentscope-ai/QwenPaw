@@ -1,6 +1,8 @@
+import { reloadConsole } from "../features/platform-web/hostBridge";
 import {
   captureChunkDiagnostic,
   failedResourceUrl,
+  formatChunkDiagnostic,
   readBeforeAutomaticReloadDiagnostic,
   recheckChunkResource,
   saveChunkDiagnostic,
@@ -26,6 +28,7 @@ export interface StartupMessages {
     timeout: string;
   };
   reload: string;
+  reloadFailed: string;
   details: string;
   copy: string;
   copied: string;
@@ -70,11 +73,10 @@ export function installStartupMonitor(
   const readinessController = new AbortController();
   const placeholder = () => document.querySelector("#root .qwenpaw-boot");
   const diagnosticText = () =>
-    JSON.stringify(
-      { current: diagnostic, beforeAutomaticReload: previous },
-      null,
-      2,
-    );
+    formatChunkDiagnostic({
+      current: diagnostic,
+      beforeAutomaticReload: previous,
+    });
 
   function element<K extends keyof HTMLElementTagNameMap>(tag: K, text = "") {
     const node = document.createElement(tag);
@@ -105,13 +107,22 @@ export function installStartupMonitor(
     const reload = element("button", messages.reload);
     copy.type = reload.type = "button";
     reload.className = "qwenpaw-boot__reload";
-    reload.addEventListener("click", () => {
-      stop();
-      window.location.reload();
-    });
     const feedback = element("p");
     feedback.setAttribute("role", "status");
     feedback.hidden = true;
+    reload.addEventListener("click", async () => {
+      reload.disabled = true;
+      feedback.hidden = true;
+      try {
+        await reloadConsole();
+        stop();
+      } catch {
+        feedback.textContent = messages.reloadFailed;
+        feedback.hidden = false;
+      } finally {
+        reload.disabled = false;
+      }
+    });
     copy.addEventListener("click", () => {
       void copyText(diagnosticText())
         .then(() => {

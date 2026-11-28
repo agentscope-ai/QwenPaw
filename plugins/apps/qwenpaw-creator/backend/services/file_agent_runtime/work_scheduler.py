@@ -909,7 +909,7 @@ class WorkGraphScheduler:
                 continue
             if not await asyncio.to_thread(self.enabled):
                 return
-            _, _, fresh_graph, blocked = await ready_request_context(
+            _, _, fresh_graph, blocked, _ = await ready_request_context(
                 self.services,
                 self.executions,
                 project_id,
@@ -1019,6 +1019,7 @@ class WorkGraphScheduler:
                     _,
                     latest_graph,
                     latest_blocked,
+                    _,
                 ) = await ready_request_context(
                     self.services,
                     self.executions,
@@ -1928,9 +1929,13 @@ async def _default_compose_dispatch(
                     and (getattr(element.creation, "text", "") or "").strip()
                     # Hand-written css snippets fail the compose-time
                     # safety check and ship the fallback bubble; only a
-                    # pipeline-designed document counts as styled.
+                    # pipeline-designed document counts as styled.  A
+                    # template document also has to still carry the
+                    # project's current subtitle style pack, which is how
+                    # picking a new pack reaches the final cut.
                     and not _is_trusted_caption_motion(
                         getattr(element.creation, "motion", None),
+                        snapshot.project,
                     )
                 )
                 # Variety frames own their visual through the blueprint:

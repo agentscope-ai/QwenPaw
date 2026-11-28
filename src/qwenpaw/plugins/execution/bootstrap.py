@@ -37,6 +37,7 @@ _STARTUP_ENVIRONMENT = (
             "PROCESSOR_ARCHITECTURE",
             "PROCESSOR_ARCHITEW6432",
             "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
             "SYSTEMDRIVE",
             "SYSTEMROOT",
             "TEMP",
@@ -44,6 +45,7 @@ _STARTUP_ENVIRONMENT = (
             "TMPDIR",
             "USERPROFILE",
             "WINDIR",
+            "QWENPAW_BACKEND_INSTANCE",
             "QWENPAW_DEPENDENCY_MAINTENANCE",
             "QWENPAW_DEPENDENCY_READER_SCOPE",
             "QWENPAW_DEPENDENCY_STATE_DIR",
@@ -53,7 +55,11 @@ _STARTUP_ENVIRONMENT = (
 )
 _AMBIENT_IMPORT_ENVIRONMENT = frozenset({"PYTHONHOME", "PYTHONPATH"})
 _PRIVATE_ENVIRONMENT_CONTROL = frozenset(
-    name.upper() for name in _STARTUP_ENVIRONMENT
+    # SSL_CERT_DIR was already a legal explicit plugin setting. Inheriting
+    # the host default must not newly prohibit that existing override.
+    name.upper()
+    for name in _STARTUP_ENVIRONMENT
+    if name != "SSL_CERT_DIR"
 ) | frozenset(
     {
         "HOME",
@@ -510,6 +516,10 @@ def _hash_code_root(code_root: Path) -> str:
         if path.is_file()
         and "__pycache__" not in path.parts
         and path.suffix != ".pyc"
+        # Match channel_protocol.artifacts: the host publishes this receipt
+        # after activation, without changing the executable artifact.
+        and path.relative_to(code_root).as_posix()
+        != ".plugin-install-commit.json"
     ]
     for path in sorted(
         files,

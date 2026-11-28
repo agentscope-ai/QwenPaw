@@ -15,6 +15,10 @@ class RuntimeSourceBusyError(RuntimeError):
     """A source mutation or retained lease excludes the requested operation."""
 
 
+class RuntimeIdentityConflictError(RuntimeError):
+    """Another retained runtime owns the same declared resource."""
+
+
 @dataclass(frozen=True)
 class RuntimeKey:
     """A capability slot in a stable scope, independent of its owner."""
@@ -147,7 +151,9 @@ class RuntimeOwners:
             set(claims).intersection(entry.identity_claims)
             for entry in self._entries.values()
         ):
-            raise RuntimeError("RUNTIME_IDENTITY_ALREADY_OWNED; needs_restart")
+            raise RuntimeIdentityConflictError(
+                "RUNTIME_IDENTITY_ALREADY_OWNED; needs_restart",
+            )
         code_root = Path(code_root).resolve()
         if dependency_owner is not None:
             parent = (
@@ -214,6 +220,28 @@ class RuntimeOwners:
         if entry.stopping is not None and not entry.stopping.done():
             return False
         del self._entries[lease.key]
+        return True
+
+    def retire_reaped_channel(self, lease, channel, result) -> bool:
+        """Retire a reaped channel and its claims for restart or shutdown."""
+        if (
+            self.resource(lease) is not channel
+            or result.acknowledged is not False
+            or not result.exited
+            or result.returncode is None
+            or result.residual
+        ):
+            return False
+        entries = [self._entries[lease.key]]
+        for entry in self._entries.values():
+            if entry.dependency_owner == lease:
+                if entry.resource != lease:
+                    return False
+                entries.append(entry)
+        if any(e.stopping and not e.stopping.done() for e in entries):
+            return False
+        for entry in entries:
+            del self._entries[entry.lease.key]
         return True
 
     def leases(self, plugin_id=None) -> tuple[RuntimeLease, ...]:

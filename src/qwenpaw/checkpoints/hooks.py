@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from ..hooks.base import LifecycleHook
-from ..hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+from .._session_signals import SESSION_SAVE_SUCCEEDED_KEY, TURN_COMMIT_KEY
 from ..runtime.hooks import HookContext, HookResult
 from ..runtime.phases import Phase
 
@@ -46,7 +47,14 @@ class CheckpointQueryGateHook(LifecycleHook):
         try:
             if ctx.workspace is not None:
                 engine = await RUNTIME.get_for_workspace_async(ctx.workspace)
-                await engine.query_gate.wait()
+                task = asyncio.current_task()
+                if task is not None:
+                    engine._query_waiters.add(task)
+                try:
+                    await engine.query_gate.wait()
+                finally:
+                    if task is not None:
+                        engine._query_waiters.discard(task)
         except Exception:
             logger.exception("Checkpoint query gate failed")
         return HookResult()
@@ -64,10 +72,25 @@ class CheckpointAutoSnapshotHook(LifecycleHook):
         try:
             if ctx.workspace is None:
                 return HookResult()
-            if ctx.extras.get(SESSION_SAVE_SUCCEEDED_KEY) is not True:
+            pending = (
+                getattr(ctx.request, "request_context", None) or {}
+            ).get(
+                TURN_COMMIT_KEY,
+            )
+            if ctx.extras.get(SESSION_SAVE_SUCCEEDED_KEY) is not True and not (
+                pending is not None and "runtime" in pending
+            ):
                 return HookResult()
             text = _last_user_text(ctx)
             if is_slash_like_input(text):
+                return HookResult()
+            if pending is not None:
+                pending["checkpoint"] = {
+                    "session_id": ctx.session_id,
+                    "user_id": _request_user_id(ctx),
+                    "channel": context_channel(ctx),
+                    "query_text": text or None,
+                }
                 return HookResult()
             await RUNTIME.schedule_auto_snapshot(
                 ctx.workspace,

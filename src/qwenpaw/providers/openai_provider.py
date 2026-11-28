@@ -522,6 +522,12 @@ class OpenAIProvider(Provider):
             "provider connectivity instead of a chat probe",
         )
 
+    @staticmethod
+    def _create_chat_model(**kwargs) -> ChatModelBase:
+        from .openai_chat_model_compat import OpenAIChatModelCompat
+
+        return OpenAIChatModelCompat(**kwargs)
+
     def _apply_thinking_config(self, model_id: str, effective: dict) -> None:
         """Serialize configured model defaults before request overrides."""
         info = self.resolve_model_info(model_id)
@@ -551,8 +557,6 @@ class OpenAIProvider(Provider):
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential._openai import OpenAICredential
         from agentscope.model import OpenAIChatModel
-
-        from .openai_chat_model_compat import OpenAIChatModelCompat
 
         credential = OpenAICredential(
             id=f"qwenpaw-{self.id}",
@@ -587,7 +591,7 @@ class OpenAIProvider(Provider):
         disable_kwargs = self.get_agent_thinking_kwargs(model_id, "off")
         disable_kwargs.pop("disable_thinking", None)
 
-        return OpenAIChatModelCompat(
+        return self._create_chat_model(
             credential=credential,
             provider_id=self.id,
             disable_thinking_kwargs=disable_kwargs,

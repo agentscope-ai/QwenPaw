@@ -19,28 +19,17 @@ describe("useSessionFavicon", () => {
     return decodeURIComponent(icon.getAttribute("href")!.split(",")[1]);
   }
 
-  it("shows blue while running, green when completed unread, then restores the icon", () => {
-    const { rerender } = renderHook(
-      ({ running, unread }) => useSessionFavicon(running, unread),
-      { initialProps: { running: true, unread: false } },
-    );
-    expect(svg()).toContain('fill="#00a5fb"');
+  it("shows a green dot for an unread completion and restores the icon once read", () => {
+    const { rerender } = renderHook(useSessionFavicon, { initialProps: true });
     expect(svg()).toContain("<path");
-    rerender({ running: false, unread: true });
     expect(svg()).toContain('fill="#52c41a"');
-    rerender({ running: false, unread: false });
+    rerender(false);
     expect(icon.getAttribute("href")).toBe("/console/online.svg");
-  });
-
-  it("prioritizes running over an earlier unread completion", () => {
-    renderHook(() => useSessionFavicon(true, true));
-    expect(svg()).toContain('fill="#00a5fb"');
-    expect(svg()).not.toContain('fill="#52c41a"');
   });
 
   it("restores the original favicon and type on navigation or unmount", () => {
     icon.type = "image/png";
-    const { unmount } = renderHook(() => useSessionFavicon(false, true));
+    const { unmount } = renderHook(() => useSessionFavicon(true));
     unmount();
     expect(icon.getAttribute("href")).toBe("/console/online.svg");
     expect(icon.type).toBe("image/png");
@@ -48,14 +37,14 @@ describe("useSessionFavicon", () => {
 
   it("creates and removes a temporary favicon when none exists", () => {
     icon.remove();
-    const { unmount } = renderHook(() => useSessionFavicon(false, true));
+    const { unmount } = renderHook(() => useSessionFavicon(true));
     expect(document.querySelector('link[rel="icon"]')).not.toBeNull();
     unmount();
     expect(document.querySelector('link[rel="icon"]')).toBeNull();
   });
 
   it("keeps idle and read sessions on the original icon", () => {
-    renderHook(() => useSessionFavicon(false, false));
+    renderHook(() => useSessionFavicon(false));
     expect(icon.getAttribute("href")).toBe("/console/online.svg");
   });
 });

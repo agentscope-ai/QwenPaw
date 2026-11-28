@@ -29,13 +29,10 @@ def test_matrix_requirements_match_channels_extra():
     with (project_root / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)
     declared = set(project["project"]["optional-dependencies"]["channels"])
-    requirements = {
-        line.strip()
-        for line in (project_root / "plugins/channel/matrix/requirements.txt")
-        .read_text()
-        .splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    }
+    manifest = json.loads(
+        (project_root / "plugins/channel/matrix/plugin.json").read_text(),
+    )
+    requirements = set(manifest["optional_dependencies"]["transport"])
     assert requirements <= declared
 
 

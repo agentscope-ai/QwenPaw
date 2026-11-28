@@ -1425,13 +1425,6 @@ class TestActiveLlmLocalFailureHint:
         hint = dc.active_llm_local_failure_hint(provider, "lmstudio")
         assert "LM Studio" in hint
 
-    def test_qwenpaw_local(self):
-        hint = dc.active_llm_local_failure_hint(
-            SimpleNamespace(),
-            "qwenpaw-local",
-        )
-        assert "llama.cpp" in hint
-
     def test_generic_local(self):
         provider = SimpleNamespace(is_local=True, base_url="http://x:1")
         hint = dc.active_llm_local_failure_hint(provider, "custom-local")
@@ -1440,95 +1433,6 @@ class TestActiveLlmLocalFailureHint:
     def test_non_local_empty(self):
         provider = SimpleNamespace(is_local=False)
         assert dc.active_llm_local_failure_hint(provider, "cloud") == ""
-
-
-# ---------------------------------------------------------------------------
-# qwenpaw_local_llm_deep_notes
-# ---------------------------------------------------------------------------
-
-
-class TestQwenpawLocalLlmDeepNotes:
-    def _patch_manager(self, monkeypatch, manager):
-        monkeypatch.setattr(
-            "qwenpaw.local_models.manager.LocalModelManager",
-            manager,
-        )
-
-    def test_all_ok(self, monkeypatch):
-        class _Lm:
-            def check_llamacpp_installation(self):
-                return True, "found"
-
-            def get_llamacpp_server_status(self):
-                return {
-                    "running": True,
-                    "port": 8080,
-                    "model_name": "m",
-                    "pid": 1,
-                }
-
-            def is_llamacpp_server_transitioning(self):
-                return True
-
-        class _Mgr:
-            @staticmethod
-            def get_instance():
-                return _Lm()
-
-        self._patch_manager(monkeypatch, _Mgr)
-        notes = dc.qwenpaw_local_llm_deep_notes()
-        assert any("binary: OK" in n for n in notes)
-        assert any("running=True" in n for n in notes)
-        assert any("transitioning" in n for n in notes)
-
-    def test_missing_binary_and_errors(self, monkeypatch):
-        class _Lm:
-            def check_llamacpp_installation(self):
-                return False, ""
-
-            def get_llamacpp_server_status(self):
-                raise RuntimeError("no status")
-
-            def is_llamacpp_server_transitioning(self):
-                raise RuntimeError("no")
-
-        class _Mgr:
-            @staticmethod
-            def get_instance():
-                return _Lm()
-
-        self._patch_manager(monkeypatch, _Mgr)
-        notes = dc.qwenpaw_local_llm_deep_notes()
-        assert any("missing or not installed" in n for n in notes)
-        assert any("server status failed" in n for n in notes)
-
-    def test_manager_get_instance_fails(self, monkeypatch):
-        class _Mgr:
-            @staticmethod
-            def get_instance():
-                raise RuntimeError("boom")
-
-        self._patch_manager(monkeypatch, _Mgr)
-        notes = dc.qwenpaw_local_llm_deep_notes()
-        assert len(notes) == 1
-        assert "LocalModelManager" in notes[0]
-
-    def test_install_check_exception(self, monkeypatch):
-        class _Lm:
-            def check_llamacpp_installation(self):
-                raise RuntimeError("check exploded")
-
-            def get_llamacpp_server_status(self):
-                return {}
-
-        class _Mgr:
-            @staticmethod
-            def get_instance():
-                return _Lm()
-
-        self._patch_manager(monkeypatch, _Mgr)
-        notes = dc.qwenpaw_local_llm_deep_notes()
-        assert any("install check failed" in n for n in notes)
 
 
 # ---------------------------------------------------------------------------
@@ -1550,58 +1454,24 @@ class TestResolveAgentEffectiveModelSlot:
         assert slot2 is slot
         assert source == "agent.active_model"
 
-    def test_routing_cloud_first_uses_cloud(self):
-        cloud = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(
-            enabled=True,
-            mode="cloud_first",
-            cloud=cloud,
-        )
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is cloud
+    @pytest.mark.parametrize("mode", ["cloud_first", "local_first"])
+    def test_legacy_routing_uses_runtime_primary_model(self, mode):
+        from qwenpaw.providers.model_selection import select_primary_model
 
-    def test_routing_cloud_first_falls_back_to_active(self):
-        active = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(enabled=True, mode="cloud_first", cloud=None)
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            active,
+        legacy = SimpleNamespace(provider_id="legacy", model="unused")
+        active = SimpleNamespace(provider_id="current", model="used")
+        cfg = self._agent_cfg(
+            routing=SimpleNamespace(
+                enabled=True,
+                mode=mode,
+                cloud=legacy,
+                local=legacy,
+            ),
         )
+        slot, source = dc._resolve_agent_effective_model_slot(cfg, active)
+        assert slot is select_primary_model(cfg.active_model, active)
         assert slot is active
-        assert "cloud fallback" in source
-
-    def test_routing_cloud_first_nothing(self):
-        routing = SimpleNamespace(enabled=True, mode="cloud_first", cloud=None)
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is None
-
-    def test_routing_local_first(self):
-        local = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(
-            enabled=True,
-            mode="local_first",
-            local=local,
-        )
-        slot, _ = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is local
-
-    def test_routing_local_first_unset(self):
-        routing = SimpleNamespace(enabled=True, mode="local_first", local=None)
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is None
-        assert "local slot is not set" in source
+        assert source == "providers.active_llm"
 
     def test_no_routing_uses_active(self):
         active = SimpleNamespace(provider_id="p", model="m")
@@ -1633,6 +1503,45 @@ class TestResolveAgentEffectiveModelSlot:
             )
             is True
         )
+
+
+@pytest.mark.parametrize("local_source", ["default", "agent", "disabled"])
+def test_selected_providers_follow_default_and_enabled_agents(
+    monkeypatch,
+    local_source,
+):
+    from qwenpaw.providers.provider_manager import ProviderManager
+
+    default = SimpleNamespace(
+        provider_id="qwenpaw-local" if local_source == "default" else "cloud",
+        model="test",
+    )
+    monkeypatch.setattr(
+        ProviderManager,
+        "get_instance",
+        lambda: SimpleNamespace(get_active_model=lambda: default),
+    )
+    config = _make_config(
+        {"example": SimpleNamespace(enabled=local_source != "disabled")},
+    )
+
+    def load(agent_id):
+        assert agent_id == "example" and local_source != "disabled"
+        return SimpleNamespace(
+            active_model=SimpleNamespace(
+                provider_id="qwenpaw-local",
+                model="test",
+            ),
+        )
+
+    monkeypatch.setattr(dc, "load_agent_config", load)
+    assert dc.selected_provider_ids(config) == (
+        {"qwenpaw-local"}
+        if local_source == "default"
+        else {"cloud", "qwenpaw-local"}
+        if local_source == "agent"
+        else {"cloud"}
+    )
 
 
 class TestCheckEnabledAgentsModelConnections:
@@ -1897,6 +1806,64 @@ class TestCheckEnabledAgentsModelConnections:
         assert any("unreachable" in line for line in lines)
         assert any("ollama serve" in line for line in lines)
 
+    @pytest.mark.parametrize("cloud_ok", [True, False])
+    def test_local_skip_preserves_cloud_check(self, monkeypatch, cloud_ok):
+        checked = []
+
+        async def check(model, timeout=None):
+            checked.append(model)
+            return cloud_ok, "" if cloud_ok else "cloud unreachable"
+
+        provider = SimpleNamespace(
+            is_local=False,
+            base_url="http://cloud.test",
+            require_api_key=False,
+            check_model_connection=check,
+        )
+
+        class _Mgr:
+            def get_active_model(self):
+                return None
+
+            def get_provider(self, pid):
+                return (
+                    provider
+                    if pid == "cloud"
+                    else SimpleNamespace(
+                        is_local=True,
+                        require_api_key=False,
+                        connection_check_requires_activation=True,
+                    )
+                )
+
+        self._patch_pm(monkeypatch, _Mgr())
+        monkeypatch.setattr(
+            dc,
+            "load_agent_config",
+            lambda aid: SimpleNamespace(
+                active_model=SimpleNamespace(
+                    provider_id="qwenpaw-local" if aid == "local" else "cloud",
+                    model=aid,
+                ),
+            ),
+        )
+        cfg = _make_config(
+            {aid: _profile_ref(aid, "/x") for aid in ("local", "cloud")},
+        )
+        ok, lines, _ = asyncio.run(
+            dc.check_enabled_agents_model_connections(
+                cfg,
+                timeout=1.0,
+                deep=False,
+            ),
+        )
+        assert checked == ["cloud"]
+        assert ok is cloud_ok
+        assert any("local: SKIP" in line for line in lines)
+        assert any(
+            f"cloud: {'OK' if cloud_ok else 'FAIL'}" in line for line in lines
+        )
+
     def test_check_exception_treated_as_failure(self, monkeypatch):
         class _Provider:
             is_local = False
@@ -1930,45 +1897,6 @@ class TestCheckEnabledAgentsModelConnections:
         )
         assert ok is False
         assert any("boom" in line for line in lines)
-
-    def test_deep_local_provider_adds_notes(self, monkeypatch):
-        class _Provider:
-            is_local = True
-            base_url = "http://127.0.0.1:8080"
-            require_api_key = False
-            support_connection_check = True
-
-            async def check_model_connection(self, model, timeout=None):
-                return True, ""
-
-        class _Mgr:
-            def get_active_model(self):
-                return SimpleNamespace(provider_id="qwenpaw-local", model="m")
-
-            def get_provider(self, pid):
-                return _Provider()
-
-        self._patch_pm(monkeypatch, _Mgr())
-        agent_cfg = SimpleNamespace(
-            active_model=None,
-            llm_routing=SimpleNamespace(enabled=False),
-        )
-        monkeypatch.setattr(dc, "load_agent_config", lambda aid: agent_cfg)
-        monkeypatch.setattr(
-            dc,
-            "qwenpaw_local_llm_deep_notes",
-            lambda: ["llama.cpp binary: OK"],
-        )
-        cfg = _make_config({"a": _profile_ref("a", "/x")})
-        ok, lines, notes = asyncio.run(
-            dc.check_enabled_agents_model_connections(
-                cfg,
-                timeout=1.0,
-                deep=True,
-            ),
-        )
-        assert ok is True
-        assert notes == ["llama.cpp binary: OK"]
 
 
 # ---------------------------------------------------------------------------

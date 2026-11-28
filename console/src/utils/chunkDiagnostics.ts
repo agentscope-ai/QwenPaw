@@ -1,3 +1,4 @@
+import { redactConsoleGrant } from "../features/platform-web/hostBridge";
 import { getFrontendBuildId } from "./chunkRecovery";
 import type { ChunkReloadDecision, ErrorLike } from "./chunkRecovery";
 import { getLazyImportFailure } from "./lazyImportFailure";
@@ -46,6 +47,11 @@ export interface ChunkDiagnostic {
   elapsedMs?: number;
 }
 
+/** Keep temporary Console credentials out of copied and displayed reports. */
+export function formatChunkDiagnostic(value: object): string {
+  return redactConsoleGrant(JSON.stringify(value, null, 2));
+}
+
 function safeUrl(value: string): string {
   const url = new URL(value, window.location.href);
   url.username = "";
@@ -56,7 +62,7 @@ function safeUrl(value: string): string {
     if (key !== "v" && key !== "t") url.searchParams.delete(key);
   }
   url.hash = "";
-  return url.toString();
+  return redactConsoleGrant(url.toString());
 }
 
 /** Keep URL brackets intact while separating surrounding error punctuation. */
@@ -115,7 +121,9 @@ export function captureChunkDiagnostic(
   const failure = getLazyImportFailure(error);
   return {
     capturedAt: new Date().toISOString(),
-    page: `${window.location.origin}${window.location.pathname}`,
+    page: redactConsoleGrant(
+      `${window.location.origin}${window.location.pathname}`,
+    ),
     frontendBuild: safeUrl(getFrontendBuildId()),
     browser: navigator.userAgent,
     online: navigator.onLine,
@@ -138,7 +146,10 @@ export function captureChunkDiagnostic(
 
 function saveDiagnostic(key: string, report: ChunkDiagnostic): void {
   try {
-    window.sessionStorage.setItem(key, JSON.stringify(report));
+    window.sessionStorage.setItem(
+      key,
+      redactConsoleGrant(JSON.stringify(report)),
+    );
   } catch {
     // In-page details and copying remain available when storage is blocked.
   }
@@ -156,13 +167,19 @@ export function saveChunkDiagnostic(report: ChunkDiagnostic): void {
 
 function readDiagnostic(key: string): ChunkDiagnostic | null {
   try {
-    const report = JSON.parse(window.sessionStorage.getItem(key) ?? "null");
-    return report &&
-      typeof report.capturedAt === "string" &&
-      typeof report.page === "string" &&
-      typeof report.originalError?.message === "string"
-      ? (report as ChunkDiagnostic)
-      : null;
+    const stored = window.sessionStorage.getItem(key);
+    if (!stored) return null;
+    const redacted = redactConsoleGrant(stored);
+    const report = JSON.parse(redacted);
+    if (
+      typeof report?.capturedAt !== "string" ||
+      typeof report.page !== "string" ||
+      typeof report.originalError?.message !== "string"
+    ) {
+      return null;
+    }
+    if (redacted !== stored) saveDiagnostic(key, report);
+    return report as ChunkDiagnostic;
   } catch {
     return null;
   }

@@ -10,7 +10,7 @@ import pytest
 from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from qwenpaw.checkpoints.hooks import CheckpointAutoSnapshotHook
 from qwenpaw.checkpoints.runtime import RUNTIME
-from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+from qwenpaw._session_signals import SESSION_SAVE_SUCCEEDED_KEY
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 

@@ -1,3 +1,6 @@
+// Exercise the retained queue implementation explicitly; production freezes it.
+const queueFeature = vi.hoisted(() => ({ MESSAGE_QUEUE_ENABLED: true }));
+vi.mock("./chatFeatures", () => queueFeature);
 /**
  * ChatPage coverage tests
  *
@@ -7,13 +10,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { forwardRef, useImperativeHandle, useEffect } from "react";
 import { screen, waitFor, act, fireEvent } from "@testing-library/react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Modal } from "antd";
 import { renderWithProviders } from "@/test/common_setup";
 import { useMessageQueueStore } from "@/stores/messageQueueStore";
 import ChatPage from "./index";
+import { TurnForkAction } from "./TurnForkAction";
 import { LongTextPasteInput } from "./LongTextPaste";
 import { ChatRunLifecycle } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Execution/runLifecycle";
 import sessionApi from "./sessionApi";
+import { getSenderTextareaFromTarget } from "./utils";
 import { stopBackgroundQueue } from "./backgroundQueueRegistry";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { useSessionFilesDrawer } from "@/stores/filesSurfaceStore";
@@ -30,6 +36,9 @@ const {
   mockFilePreviewUrl,
   mockGetChatStatus,
   mockRuntimeSubmit,
+  mockRuntimeResume,
+  mockRuntimeGetActiveRun,
+  mockSetSessionMessages,
   mockGetApiUrl,
   mockSelectedAgent,
   mockSetSelectedAgent,
@@ -39,10 +48,14 @@ const {
   mockRequiresQwenPawModel,
   mockHoldOwnershipLock,
   mockRuntimeMount,
+  mockRemoveAllMessages,
   mockFetchActiveLoopMode,
   mockSessionProjectDirectory,
   mockApprovalLevelToggle,
   mockHydrateBackgroundTasksForSession,
+  mockGetLoading,
+  mockGetMessages,
+  mockGetSessionMessages,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockPreviewModelInfo: vi.fn(),
@@ -51,6 +64,9 @@ const {
   mockFilePreviewUrl: vi.fn((f: string) => `/preview/${f}`),
   mockGetChatStatus: vi.fn(),
   mockRuntimeSubmit: vi.fn(),
+  mockRuntimeResume: vi.fn(),
+  mockRuntimeGetActiveRun: vi.fn(),
+  mockSetSessionMessages: vi.fn(),
   mockGetApiUrl: vi.fn((p: string) => `http://localhost:3000${p}`),
   mockSelectedAgent: vi.fn(() => "default"),
   mockSetSelectedAgent: vi.fn(),
@@ -60,10 +76,14 @@ const {
   mockRequiresQwenPawModel: vi.fn(() => true),
   mockHoldOwnershipLock: vi.fn(),
   mockRuntimeMount: vi.fn(),
+  mockRemoveAllMessages: vi.fn(),
   mockFetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
   mockSessionProjectDirectory: vi.fn(),
   mockApprovalLevelToggle: vi.fn(),
   mockHydrateBackgroundTasksForSession: vi.fn(() => Promise.resolve()),
+  mockGetLoading: vi.fn(() => false),
+  mockGetMessages: vi.fn(() => [] as any[]),
+  mockGetSessionMessages: vi.fn((_id: string) => [] as any[]),
 }));
 
 let capturedOptions: any = null;
@@ -100,6 +120,7 @@ vi.mock("./components/ChatSessionInitializer", () => ({
 vi.mock("@agentscope-ai/chat", () => ({
   AgentScopeRuntimeWebUI: forwardRef((props: any, ref) => {
     capturedOptions = props.options;
+    const actionAffix = props.options?.sender?.actionAffix;
     useEffect(() => {
       const id = props.options?.session?.currentSessionId;
       if (id) void props.options.session.api.getSession(id);
@@ -111,21 +132,26 @@ vi.mock("@agentscope-ai/chat", () => ({
     useImperativeHandle(ref, () => ({
       input: { submit: mockRuntimeSubmit },
       messages: {
-        removeAllMessages: vi.fn(),
-        getSessionMessages: vi.fn(() => []),
-        getMessages: vi.fn(() => []),
-        setSessionMessages: vi.fn(),
+        removeAllMessages: mockRemoveAllMessages,
+        getSessionMessages: mockGetSessionMessages,
+        getMessages: mockGetMessages,
+        setSessionMessages: mockSetSessionMessages,
       },
       execution: {
         execute: mockRuntimeSubmit,
         cancel: vi.fn(async () => ({ status: "not-found" })),
+        resume: mockRuntimeResume,
+        getActiveRun: mockRuntimeGetActiveRun,
+        subscribe: vi.fn(() => vi.fn()),
       },
     }));
     return (
       <div data-testid="chat-ui">
         {props.options?.theme?.rightHeader}
         {props.options?.sender?.prefix}
-        {props.options?.sender?.actionAffix}
+        {typeof actionAffix === "function"
+          ? actionAffix({ loading: false })
+          : actionAffix}
       </div>
     );
   }),
@@ -140,7 +166,7 @@ vi.mock("@agentscope-ai/chat", () => ({
     select({
       loading: false,
       setLoading: vi.fn(),
-      getLoading: vi.fn(() => false),
+      getLoading: mockGetLoading,
       setSessionLoading: vi.fn(),
       setDisabled: vi.fn(),
     }),
@@ -178,7 +204,9 @@ vi.mock("@/api/modules/chat", () => ({
     uploadFile: mockUploadFile,
     filePreviewUrl: mockFilePreviewUrl,
     getChatStatus: mockGetChatStatus,
-    stopChat: vi.fn(() => Promise.resolve()),
+    stopChat: vi.fn(async () => ({ stopped: true })),
+    forkChat: vi.fn(),
+    forkCapability: vi.fn(async () => ({ can_fork: true })),
   },
 }));
 
@@ -223,6 +251,8 @@ vi.mock("@/contexts/ThemeContext", () => ({
 
 vi.mock("./sessionApi", () => ({
   default: {
+    loadUserMessageIndexPage: vi.fn(async () => ({ items: [], total: 0 })),
+    loadHistoryAtAnchor: vi.fn(async () => ({ messages: [], noMore: true })),
     onSessionIdResolved: null,
     onSessionRemoved: null,
     onSessionSelected: null,
@@ -237,6 +267,7 @@ vi.mock("./sessionApi", () => ({
       (owner: { agentId: string }) => owner.agentId === mockSelectedAgent(),
     ),
     registerResolvedChat: vi.fn(),
+    registerForkedChat: vi.fn(),
     getRouteResolutionVersion: vi.fn(() => 0),
     isRouteRemoved: vi.fn(() => false),
     clearRouteRemoval: vi.fn(),
@@ -251,18 +282,23 @@ vi.mock("./sessionApi", () => ({
     refreshSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
-    setLastUserMessage: vi.fn(),
-    discardLastUserMessage: vi.fn(),
+    loadOlderHistory: vi.fn(async () => ({
+      messages: [],
+      noMore: true,
+    })),
+    showLatestHistory: vi.fn(() => null),
+    syncVisibleHistory: vi.fn(),
     setVisibleSession: vi.fn(),
     getSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     lastActiveChatId: "last-chat-1",
-    patchLastUserMessage: vi.fn(),
     getSessionIdentity: vi.fn(() => ({
       sessionId: "test-session",
       userId: "test-user",
       channel: "console",
     })),
+    getSessionList: vi.fn(async () => []),
     triggerResolve: vi.fn(),
+    invalidateConvertedCache: vi.fn(),
     isSessionSwitching: false,
     isUnresolvedLocalSession: vi.fn(() => false),
     getEffectiveSessionId: vi.fn((id: string) => id),
@@ -304,7 +340,9 @@ vi.mock("./components/ChatActionGroup", () => ({
 }));
 
 vi.mock("./components/ChatHeaderTitle", () => ({
-  default: () => <div data-testid="header-title" />,
+  default: ({ actions }: { actions: React.ReactNode }) => (
+    <div data-testid="header-title">{actions}</div>
+  ),
 }));
 
 vi.mock("@/api/modules/skill", () => ({
@@ -571,14 +609,26 @@ vi.mock("./utils", async () => {
 // ---------------------------------------------------------------------------
 describe("ChatPage coverage", () => {
   beforeEach(() => {
+    queueFeature.MESSAGE_QUEUE_ENABLED = true;
     stopBackgroundQueue();
     chatExtensions.__resetForTests();
     capturedOptions = null;
     mockCopyText.mockClear();
+    vi.mocked(getSenderTextareaFromTarget).mockReturnValue(null);
     mockGetChatStatus.mockReset();
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
     mockRuntimeSubmit.mockReset();
+    mockRuntimeResume.mockReset();
+    mockRuntimeResume.mockResolvedValue({});
+    mockRuntimeGetActiveRun.mockReset();
+    mockRuntimeGetActiveRun.mockResolvedValue(undefined);
+    mockSetSessionMessages.mockReset();
     mockRuntimeMount.mockReset();
+    mockRemoveAllMessages.mockReset();
+    mockGetLoading.mockReset().mockReturnValue(false);
+    mockGetMessages.mockReset().mockReturnValue([]);
+    mockGetSessionMessages.mockReset().mockReturnValue([]);
+    mockSetSessionMessages.mockReset();
     mockSelectedAgent.mockReturnValue("default");
     mockFetchActiveLoopMode.mockClear();
     mockSessionProjectDirectory.mockClear();
@@ -599,6 +649,12 @@ describe("ChatPage coverage", () => {
       }),
     );
     vi.mocked(sessionApi.createSession).mockClear();
+    vi.mocked(sessionApi.refreshSession).mockReset();
+    vi.mocked(sessionApi.refreshSession).mockResolvedValue({
+      id: "test-session",
+      name: "Test session",
+      messages: [],
+    });
     sessionApi.preferredChatId = null;
     sessionApi.lastActiveChatId = "last-chat-1";
     localStorage.clear();
@@ -695,6 +751,323 @@ describe("ChatPage coverage", () => {
     await screen.findByTestId("chat-ui");
     await act(async () => {});
     expect(capturedOptions).toBeTruthy();
+  });
+
+  it("attaches an externally started run without remounting the chat", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    vi.mocked(sessionApi.refreshSession).mockResolvedValue({
+      id: "test-session",
+      name: "External run",
+      messages: [{ id: "external-user", role: "user", cards: [] }],
+      generating: true,
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    expect(poll).toBeTypeOf("function");
+    act(() => poll?.());
+
+    await waitFor(() => {
+      expect(mockRuntimeResume).toHaveBeenCalledWith({
+        sessionId: "test-session",
+        source: "direct",
+      });
+    });
+    expect(mockSetSessionMessages).toHaveBeenCalledWith(
+      "test-session",
+      expect.any(Array),
+    );
+    expect(mockRuntimeMount).toHaveBeenCalledTimes(1);
+
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(2);
+    });
+    expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    expect(sessionApi.refreshSession).toHaveBeenCalledTimes(1);
+
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "running",
+    });
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(3);
+    });
+    expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(4);
+    });
+    expect(mockRuntimeResume).toHaveBeenCalledTimes(2);
+
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    vi.mocked(sessionApi.refreshSession).mockResolvedValueOnce({
+      id: "test-session",
+      name: "External run",
+      messages: [{ id: "external-user", role: "user", cards: [] }],
+      generating: true,
+    });
+    act(() => poll?.());
+
+    await waitFor(() => {
+      expect(sessionApi.refreshSession).toHaveBeenCalledTimes(2);
+    });
+    expect(mockSetSessionMessages).toHaveBeenCalledTimes(1);
+
+    vi.mocked(sessionApi.refreshSession).mockResolvedValueOnce({
+      id: "test-session",
+      name: "External run",
+      messages: [{ id: "external-user", role: "user", cards: [] }],
+      generating: false,
+    });
+    act(() => poll?.());
+
+    await waitFor(() => {
+      expect(sessionApi.refreshSession).toHaveBeenCalledTimes(3);
+    });
+    expect(mockSetSessionMessages).toHaveBeenCalledTimes(2);
+    expect(mockRuntimeMount).toHaveBeenCalledTimes(1);
+    setIntervalSpy.mockRestore();
+  });
+
+  it("preserves a restored run guard across later polling", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    const { rerender } = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(""));
+    await act(async () => {
+      await capturedOptions.api.reconnect({
+        chatSessionId: "test-session",
+        signal: new AbortController().signal,
+      });
+    });
+
+    const firstPoll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    act(() => firstPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
+
+    mockRequiresQwenPawModel.mockReturnValue(false);
+    rerender(<ChatPage />);
+    mockRequiresQwenPawModel.mockReturnValue(true);
+    rerender(<ChatPage />);
+    await waitFor(() => {
+      expect(
+        setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5000),
+      ).toHaveLength(2);
+    });
+    const latestPoll = setIntervalSpy.mock.calls
+      .filter(([, delay]) => delay === 5000)
+      .slice(-1)[0]?.[0] as (() => void) | undefined;
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(2);
+    });
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
+
+    mockGetChatStatus.mockResolvedValueOnce({ status: "idle" });
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockGetChatStatus).toHaveBeenCalledTimes(3);
+    });
+
+    mockRuntimeGetActiveRun.mockResolvedValue(null);
+    mockGetChatStatus.mockResolvedValueOnce({ status: "running" });
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    });
+    setIntervalSpy.mockRestore();
+  });
+
+  it("retries polling after an SDK reconnect request fails", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("reconnect failed"));
+    await expect(
+      capturedOptions.api.reconnect({
+        chatSessionId: "test-session",
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("reconnect failed");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    });
+    setIntervalSpy.mockRestore();
+  });
+
+  it("keeps the new session guard after an old reconnect fails", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const sourceChatId = "33322222-2222-4222-8222-222222222226";
+    const targetChatId = "33322222-2222-4222-8222-222222222227";
+    let rejectSourceReconnect: ((reason: Error) => void) | undefined;
+
+    function ChatHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button onClick={() => navigate(`/chat/${targetChatId}`)}>
+            Switch session
+          </button>
+          <ChatPage />
+        </>
+      );
+    }
+
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    renderWithProviders(<ChatHarness />, {
+      initialEntries: [`/chat/${sourceChatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    vi.mocked(fetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectSourceReconnect = reject;
+        }),
+    );
+    const sourceReconnect = capturedOptions.api.reconnect({
+      chatSessionId: sourceChatId,
+      signal: new AbortController().signal,
+    });
+    const sourceFailure = expect(sourceReconnect).rejects.toThrow(
+      "source reconnect failed",
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Switch session" }));
+    });
+    await waitFor(() => {
+      expect(
+        setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5000),
+      ).toHaveLength(2);
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(""));
+    await act(async () => {
+      await capturedOptions.api.reconnect({
+        chatSessionId: targetChatId,
+        signal: new AbortController().signal,
+      });
+    });
+    rejectSourceReconnect?.(new Error("source reconnect failed"));
+    await sourceFailure;
+
+    const latestPoll = setIntervalSpy.mock.calls
+      .filter(([, delay]) => delay === 5000)
+      .slice(-1)[0]?.[0] as (() => void) | undefined;
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
+  });
+
+  it("does not reconcile messages after a local run finishes", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "running",
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    expect(poll).toBeTypeOf("function");
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockGetChatStatus).toHaveBeenCalledTimes(2);
+    });
+
+    expect(sessionApi.refreshSession).not.toHaveBeenCalled();
+    expect(mockSetSessionMessages).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
+  });
+
+  it("does not resume after the active run check is aborted", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    let resolveActiveRun:
+      | ((value: { getState: () => string }) => void)
+      | undefined;
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveActiveRun = resolve;
+        }),
+    );
+    const { unmount } = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    expect(poll).toBeTypeOf("function");
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+
+    unmount();
+    await act(async () => {
+      resolveActiveRun?.({ getState: () => "disconnected" });
+      await Promise.resolve();
+    });
+
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
   });
 
   it("does not bind an unresolved route chat to the current agent", async () => {
@@ -921,7 +1294,7 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  it("handles history clear message detection", async () => {
+  it("keeps visible messages when the backend clears context", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -929,14 +1302,22 @@ describe("ChatPage coverage", () => {
     await act(async () => {});
 
     if (capturedOptions?.api?.responseParser) {
-      // Exercise the payloadRequestsHistoryClear / messageRequestsHistoryClear paths
-      const parsed = capturedOptions.api.responseParser(
+      capturedOptions.api.responseParser(
         JSON.stringify({
-          object: "message",
-          metadata: { clear_history: true },
+          object: "response",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              role: "assistant",
+              metadata: { context_reset: true },
+              content: [{ type: "text", text: "cleared" }],
+            },
+          ],
         }),
       );
-      expect(parsed).toBeTruthy();
+      await act(async () => {});
+      expect(mockRemoveAllMessages).not.toHaveBeenCalled();
     }
   });
 
@@ -1262,6 +1643,276 @@ describe("ChatPage coverage", () => {
     });
   });
 
+  it("freezes stored queues while idle submissions and attachments still work", async () => {
+    queueFeature.MESSAGE_QUEUE_ENABLED = false;
+    useMessageQueueStore
+      .getState()
+      .enqueue("test-session", { text: "old queued" });
+    const before = JSON.stringify(
+      useMessageQueueStore.getState().getQueue("test-session"),
+    );
+    const enqueue = vi.spyOn(useMessageQueueStore.getState(), "enqueue");
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+    const result = await capturedOptions.sender.beforeSubmit({
+      query: "normal",
+      session_id: "test-session",
+    });
+    expect(result.proceed).toBe(true);
+    expect(
+      JSON.stringify(useMessageQueueStore.getState().getQueue("test-session")),
+    ).toBe(before);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(mockRuntimeSubmit).not.toHaveBeenCalled();
+    mockGetChatStatus.mockRejectedValueOnce(new Error("offline"));
+    expect(
+      await capturedOptions.sender.beforeSubmit({
+        query: "keep draft",
+        session_id: "test-session",
+      }),
+    ).toBe(false);
+  });
+
+  it("only shows a cancelled turn fork after capability is confirmed", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    let resolve!: (value: { can_fork: boolean; reason: string | null }) => void;
+    vi.mocked(chatApi.forkCapability).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const props = {
+      data: {
+        status: "canceled",
+        metadata: { turn_id: "cancel-turn" },
+        output: [
+          {
+            role: "assistant",
+            type: "message",
+            content: [{ type: "text", text: "partial reply" }],
+          },
+        ],
+      },
+      chatId: "chat",
+      agentId: "default",
+      onFork: vi.fn(),
+      title: "fork-test",
+    };
+    const view = renderWithProviders(<TurnForkAction {...props} />);
+    expect(screen.queryByRole("button", { name: "fork-test" })).toBeNull();
+    await act(async () => resolve({ can_fork: true, reason: null }));
+    expect(
+      screen.getByRole("button", { name: "fork-test" }),
+    ).toBeInTheDocument();
+    vi.mocked(chatApi.forkCapability).mockResolvedValueOnce({
+      can_fork: false,
+      reason: "missing snapshot",
+    });
+    view.rerender(
+      <TurnForkAction
+        {...props}
+        data={{
+          ...props.data,
+          status: "completed",
+          metadata: { turn_id: "no-snapshot" },
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "fork-test" })).toBeNull(),
+    );
+  });
+
+  it("uses history capability without per-card requests and refreshes a restored run", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    vi.mocked(chatApi.forkCapability).mockClear();
+    const props = {
+      data: {
+        status: "canceled",
+        output: [
+          {
+            role: "assistant",
+            type: "message",
+            content: [{ type: "text", text: "partial reply" }],
+          },
+        ],
+        metadata: {
+          turn_id: "history-turn",
+          qwenpaw_history: true,
+          fork_capability_status: "canceled",
+          can_fork: true,
+        },
+      },
+      chatId: "chat",
+      agentId: "default",
+      onFork: vi.fn(),
+      title: "history-fork",
+    };
+    const view = renderWithProviders(<TurnForkAction {...props} />);
+    expect(
+      screen.getByRole("button", { name: "history-fork" }),
+    ).toBeInTheDocument();
+    expect(chatApi.forkCapability).not.toHaveBeenCalled();
+    view.rerender(
+      <TurnForkAction {...props} data={{ ...props.data, output: [] }} />,
+    );
+    expect(screen.queryByRole("button", { name: "history-fork" })).toBeNull();
+    expect(chatApi.forkCapability).not.toHaveBeenCalled();
+    view.rerender(
+      <TurnForkAction
+        {...props}
+        data={{
+          ...props.data,
+          metadata: { ...props.data.metadata, can_fork: false },
+        }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "history-fork" })).toBeNull();
+    expect(chatApi.forkCapability).not.toHaveBeenCalled();
+    vi.mocked(chatApi.forkCapability).mockResolvedValueOnce({
+      can_fork: true,
+      reason: null,
+    });
+    view.rerender(
+      <TurnForkAction
+        {...props}
+        data={{
+          ...props.data,
+          metadata: {
+            ...props.data.metadata,
+            fork_capability_status: "in_progress",
+            can_fork: false,
+          },
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "history-fork" }),
+      ).toBeInTheDocument(),
+    );
+    expect(chatApi.forkCapability).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes and navigates after fork without awaiting sidebar refresh", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    const childId = "44444444-4444-4444-8444-444444444444";
+    vi.mocked(chatApi.forkChat).mockResolvedValue({ id: childId } as never);
+    const destroy = vi.fn();
+    const update = vi.fn();
+    const confirm = vi.spyOn(Modal, "confirm").mockReturnValue({
+      destroy,
+      update,
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let rejectRefresh!: (reason: Error) => void;
+    const refresh = new Promise<never>((_, reject) => {
+      rejectRefresh = reject;
+    });
+    vi.mocked(sessionApi.getSessionList).mockReturnValueOnce(refresh);
+    function Harness() {
+      const location = useLocation();
+      return (
+        <>
+          <output data-testid="route">{location.pathname}</output>
+          <ChatPage />
+        </>
+      );
+    }
+    try {
+      renderWithProviders(<Harness />, {
+        initialEntries: ["/chat/test-session"],
+      });
+      await screen.findByTestId("chat-ui");
+      await act(async () => {});
+      await act(async () => {
+        capturedOptions.actions.list[1]
+          .render({
+            data: { id: "history-response:legacy:5", status: "completed" },
+          })
+          .props.onFork({
+            id: "history-response:legacy:5",
+            status: "completed",
+          });
+      });
+      expect(confirm).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await confirm.mock.calls[0][0].onOk?.();
+      });
+      expect(destroy).toHaveBeenCalledTimes(1);
+      expect(sessionApi.registerForkedChat).toHaveBeenCalledWith(
+        { id: childId },
+        expect.objectContaining({ agentId: mockSelectedAgent() }),
+      );
+      expect(screen.getByTestId("route")).toHaveTextContent(`/chat/${childId}`);
+      expect(chatApi.forkChat).toHaveBeenCalledTimes(1);
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cancelButtonProps: { disabled: true },
+          keyboard: false,
+          maskClosable: false,
+        }),
+      );
+      await act(async () => rejectRefresh(new Error("sidebar unavailable")));
+      expect(screen.getByTestId("route")).toHaveTextContent(`/chat/${childId}`);
+      expect(chatApi.forkChat).toHaveBeenCalledTimes(1);
+      expect(warning).toHaveBeenCalledWith(
+        "Failed to refresh chats after fork",
+        expect.any(Error),
+      );
+    } finally {
+      confirm.mockRestore();
+      warning.mockRestore();
+    }
+  });
+
+  it("does not retry a failed fork and refreshes before unlocking cancel", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    vi.mocked(chatApi.forkChat).mockRejectedValueOnce(new Error("offline"));
+    vi.mocked(sessionApi.getSessionList).mockResolvedValueOnce([]);
+    const update = vi.fn();
+    const confirm = vi.spyOn(Modal, "confirm").mockReturnValue({
+      destroy: vi.fn(),
+      update,
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+    await act(async () => {
+      capturedOptions.actions.list[1]
+        .render({
+          data: { id: "history-response:legacy:5", status: "completed" },
+        })
+        .props.onFork({
+          id: "history-response:legacy:5",
+          status: "completed",
+        });
+    });
+
+    await act(async () => {
+      await expect(confirm.mock.calls[0][0].onOk?.()).rejects.toThrow(
+        "offline",
+      );
+    });
+
+    expect(chatApi.forkChat).toHaveBeenCalledTimes(1);
+    expect(sessionApi.getSessionList).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cancelButtonProps: { disabled: false },
+        keyboard: true,
+        maskClosable: true,
+      }),
+    );
+    confirm.mockRestore();
+  });
+
   // ── actions list: timestamp render ─────────────────────────────────────
   it("actions list timestamp render returns element", async () => {
     renderWithProviders(<ChatPage />, {
@@ -1319,12 +1970,247 @@ describe("ChatPage coverage", () => {
   });
 
   // ── handleBeforeSubmit: SDK query override ─────────────────────────────
-  it("compact command uses execution.execute with current session identity", async () => {
+  it.each([false, true])(
+    "opens contiguous history while running=%s",
+    async (running) => {
+      const { historyMessageWindow } = await import(
+        "./historyMessageWindowStore"
+      );
+      const target = { id: "first-user", role: "user", history: true };
+      vi.mocked(sessionApi.loadHistoryAtAnchor).mockResolvedValueOnce({
+        messages: [target],
+        noMore: true,
+      } as Awaited<ReturnType<typeof sessionApi.loadHistoryAtAnchor>>);
+      renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/test-session"],
+      });
+      await screen.findByTestId("chat-ui");
+      await act(async () => {});
+      expect(historyMessageWindow.getSnapshot()).toBeNull();
+      const live = { id: "live-response", role: "assistant" };
+      mockGetLoading.mockReturnValue(running);
+      const foreign = { id: "other-session-response", role: "assistant" };
+      mockGetMessages.mockReturnValue([foreign]);
+      mockGetSessionMessages.mockImplementation((id: string) =>
+        id === "test-session" ? [live] : [],
+      );
+
+      const navigation = capturedOptions.theme.rightHeader.props.children.find(
+        (child: any) => typeof child?.props?.onNavigate === "function",
+      );
+      await act(async () => {
+        navigation.props.onNavigate({
+          messageId: "first-user",
+          preview: "First user",
+          createdAt: "2026-10-24T00:00:00Z",
+          anchor: "first-anchor",
+        });
+      });
+
+      expect(historyMessageWindow.getSnapshot()).toMatchObject({
+        sessionId: "test-session",
+        turnRows: [[target]],
+        canLoadOlder: false,
+        loading: false,
+      });
+      expect(sessionApi.syncVisibleHistory).toHaveBeenLastCalledWith(
+        "test-session",
+        [live],
+      );
+      const mounted = mockSetSessionMessages.mock.calls.slice(-1)[0]?.[1];
+      expect(mounted).not.toContain(foreign);
+      expect(mounted[0].id).toBe("qwenpaw-history-window-test-session");
+      expect(mounted.includes(live)).toBe(running);
+      expect(
+        Boolean(historyMessageWindow.getSnapshot()?.onReturnToLatest),
+      ).toBe(running);
+      await act(async () => {
+        historyMessageWindow.getSnapshot()?.onNavigateToUserMessage(
+          {
+            messageId: "sixth-user",
+            preview: "Sixth user",
+            createdAt: "2026-10-24T00:05:00Z",
+            anchor: "sixth-anchor",
+          },
+          "append-newer",
+        );
+      });
+      expect(sessionApi.loadHistoryAtAnchor).toHaveBeenLastCalledWith(
+        "test-session",
+        "sixth-anchor",
+        "first-user",
+        expect.any(AbortSignal),
+        "append-newer",
+        false,
+      );
+
+      const latestEntry = {
+        messageId: "latest-user",
+        preview: "Latest user",
+        createdAt: "2026-10-24T00:06:00Z",
+        anchor: "latest-anchor",
+      };
+      const latest = { id: latestEntry.messageId, role: "user", history: true };
+      vi.mocked(sessionApi.loadHistoryAtAnchor).mockResolvedValueOnce({
+        messages: [latest],
+        noMore: true,
+      } as Awaited<ReturnType<typeof sessionApi.loadHistoryAtAnchor>>);
+      await act(async () => {
+        historyMessageWindow.setUserMessages("test-session", [
+          {
+            messageId: "first-user",
+            preview: "First user",
+            createdAt: "2026-10-24T00:00:00Z",
+            anchor: "first-anchor",
+          },
+          latestEntry,
+        ]);
+        historyMessageWindow
+          .getSnapshot()
+          ?.onNavigateToUserMessage(latestEntry, "replace");
+      });
+      expect(sessionApi.loadHistoryAtAnchor).toHaveBeenLastCalledWith(
+        "test-session",
+        "latest-anchor",
+        "latest-user",
+        expect.any(AbortSignal),
+        "replace",
+        true,
+      );
+      await waitFor(() =>
+        expect(historyMessageWindow.getSnapshot()).toMatchObject({
+          turnRows: [[latest]],
+          canLoadNewer: false,
+          loading: false,
+        }),
+      );
+    },
+  );
+
+  it("carries a detached live viewport into completed history", async () => {
+    const { historyMessageWindow } = await import(
+      "./historyMessageWindowStore"
+    );
+    const source = sessionApi.bindToOwner();
+    const getSession = vi.fn<typeof source.getSession>(async (id: string) => ({
+      id,
+      name: id,
+      messages: [],
+    }));
+    vi.mocked(sessionApi.bindToOwner).mockReturnValueOnce({
+      ...source,
+      getSession,
+    });
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
     await act(async () => {});
+
+    const scroller = document.createElement("div");
+    scroller.className =
+      "qwenpaw-chat-anywhere-message-list-bubble-scroll " +
+      "bubble-list-order-desc";
+    Object.defineProperties(scroller, {
+      clientHeight: { value: 500 },
+      scrollHeight: { value: 2000 },
+    });
+    scroller.getBoundingClientRect = () => ({ top: 0, bottom: 500 }) as DOMRect;
+    const anchor = document.createElement("div");
+    anchor.id = "reading-message";
+    anchor.dataset.role = "assistant";
+    anchor.getBoundingClientRect = () => ({ top: 80, bottom: 180 }) as DOMRect;
+    scroller.append(anchor);
+    screen.getByTestId("chat-ui").append(scroller);
+    await act(async () => {});
+    fireEvent.wheel(scroller, { deltaY: -400 });
+    scroller.scrollTop = -400;
+    fireEvent.scroll(scroller);
+    getSession.mockResolvedValue({
+      id: "test-session",
+      name: "test-session",
+      generating: false,
+      messages: [{ id: "reading-message", role: "assistant" }],
+    });
+
+    await act(async () => {
+      await capturedOptions.session.api.getSession("test-session");
+    });
+
+    expect(historyMessageWindow.getSnapshot()).toMatchObject({
+      sessionId: "test-session",
+      initialScrollAnchor: { id: "reading-message", offsetTop: 80 },
+    });
+  });
+
+  it("pauses automatic older history loads after failure until manual retry", async () => {
+    const { historyMessageWindow } = await import(
+      "./historyMessageWindowStore"
+    );
+    const source = sessionApi.bindToOwner();
+    vi.mocked(sessionApi.bindToOwner).mockReturnValueOnce({
+      ...source,
+      getSession: vi.fn(async (id: string) => ({
+        id,
+        name: id,
+        messages: [{ id: "stored-user", role: "user" as const, history: true }],
+        historyPage: { has_more: true },
+      })),
+    });
+    const loadOlder = vi.mocked(sessionApi.loadOlderHistory);
+    loadOlder.mockClear();
+    loadOlder.mockRejectedValueOnce(new Error("Unavailable"));
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    const target = document.createElement("div");
+    const window = historyMessageWindow.getSnapshot()!;
+    await act(async () => window.onLoadOlder(target));
+    expect(loadOlder).toHaveBeenCalledWith(
+      "test-session",
+      expect.any(AbortSignal),
+      false,
+      "stored-user",
+    );
+    const retry = await screen.findByRole("button", { name: /retry/i });
+
+    await act(async () => {
+      window.onFillOlder(target);
+      window.onLoadOlder(target);
+    });
+    expect(loadOlder).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(retry);
+    await waitFor(() => expect(loadOlder).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(retry).not.toBeInTheDocument());
+  });
+
+  it("compact command uses execution.execute with current session identity", async () => {
+    const { historyMessageWindow } = await import(
+      "./historyMessageWindowStore"
+    );
+    const source = sessionApi.bindToOwner();
+    vi.mocked(sessionApi.bindToOwner).mockReturnValueOnce({
+      ...source,
+      getSession: vi.fn(async (id: string) => ({
+        id,
+        name: id,
+        messages: [{ id: "history-user", role: "user", history: true }],
+      })) as typeof source.getSession,
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    expect(historyMessageWindow.getSnapshot()?.sessionId).toBe("test-session");
+    mockRuntimeSubmit.mockImplementationOnce(() => {
+      expect(historyMessageWindow.getSnapshot()).toBeNull();
+    });
 
     fireEvent.click(screen.getByTestId("context-usage-compact"));
 
@@ -1833,54 +2719,6 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── responseParser: payloadRequestsHistoryClear via response.output ────
-  it("responseParser detects history clear in response output array", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "response",
-          status: "completed",
-          output: [
-            {
-              type: "message",
-              role: "assistant",
-              metadata: { clear_history: true },
-              content: [{ type: "text", text: "cleared" }],
-            },
-          ],
-        }),
-      );
-      expect(parsed).toBeTruthy();
-    }
-  });
-
-  // ── responseParser: nested metadata clear_history ──────────────────────
-  it("responseParser detects nested metadata clear_history", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "message",
-          metadata: {
-            metadata: { clear_history: true },
-          },
-        }),
-      );
-      expect(parsed).toBeTruthy();
-    }
-  });
-
   // ── customFetch: successful fetch with full request body ───────────────
   it("customFetch sends correct request body and returns response", async () => {
     const mockResponse = {
@@ -2036,26 +2874,6 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── customFetch: non-ok response discards last user message ────────────
-  it("customFetch discards last user message on non-ok response", async () => {
-    const mockResponse = { ok: false, status: 500, body: null };
-    global.fetch = vi.fn().mockResolvedValue(mockResponse) as any;
-
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    if (capturedOptions?.api?.fetch) {
-      const result = await capturedOptions.api.fetch({
-        input: [{ role: "user", content: "hello" }],
-        signal: undefined,
-      });
-      expect(result.ok).toBe(false);
-    }
-  });
-
   it("uses the host paste adapter without SDK draft conversion or truncation", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
@@ -2141,7 +2959,7 @@ describe("ChatPage coverage", () => {
 
     expect(capturedOptions?.actions?.replace).toBe(false);
     expect(capturedOptions?.actions?.right).toBe(false);
-    expect(capturedOptions?.actions?.list).toHaveLength(2);
+    expect(capturedOptions?.actions?.list).toHaveLength(3);
   });
 
   // ── customToolRenderConfig ─────────────────────────────────────────────
@@ -2442,49 +3260,74 @@ describe("ChatPage coverage", () => {
     expect(true).toBe(true);
   });
 
-  // ── composition events (IME) ───────────────────────────────────────────
-  it("IME composition events are handled", async () => {
+  it("preserves IME keys without querying input history", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    // Dispatch composition events
-    act(() => {
-      document.dispatchEvent(
-        new CompositionEvent("compositionstart", { bubbles: true }),
-      );
+    const root = await screen.findByTestId("chat-ui");
+    const sender = document.createElement("div");
+    sender.className = "sender";
+    const input = document.createElement("textarea");
+    sender.append(input);
+    root.append(sender);
+    vi.mocked(getSenderTextareaFromTarget).mockReturnValue(input);
+    input.value = "正在输入";
+    input.focus();
+    vi.mocked(sessionApi.loadUserMessageIndexPage).mockClear();
+    fireEvent.compositionStart(input);
+    const key = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
     });
-    act(() => {
-      document.dispatchEvent(
-        new CompositionEvent("compositionend", { bubbles: true }),
-      );
+    await act(async () => {
+      input.dispatchEvent(key);
     });
-
-    expect(true).toBe(true);
+    expect(key.defaultPrevented).toBe(false);
+    expect(input.value).toBe("正在输入");
+    expect(sessionApi.loadUserMessageIndexPage).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input);
   });
 
-  // ── ArrowUp/ArrowDown history navigation ──────────────────────────────
-  it("ArrowUp/ArrowDown key events are handled without crash", async () => {
+  it("leaves unmatched history and multiline editing to the textarea", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    act(() => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
-      );
+    const root = await screen.findByTestId("chat-ui");
+    const sender = document.createElement("div");
+    sender.className = "sender";
+    const input = document.createElement("textarea");
+    sender.append(input);
+    root.append(sender);
+    vi.mocked(getSenderTextareaFromTarget).mockReturnValue(input);
+    input.value = "draft";
+    input.focus();
+    mockGetMessages.mockReturnValue([]);
+    vi.mocked(sessionApi.loadUserMessageIndexPage).mockClear();
+    const key = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
     });
-    act(() => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-      );
+    await act(async () => {
+      input.dispatchEvent(key);
     });
-
-    expect(true).toBe(true);
+    expect(key.defaultPrevented).toBe(false);
+    expect(input.value).toBe("draft");
+    expect(sessionApi.loadUserMessageIndexPage).toHaveBeenCalledOnce();
+    input.value = "first\nsecond";
+    input.setSelectionRange(input.value.length, input.value.length);
+    const multiline = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      input.dispatchEvent(multiline);
+    });
+    expect(multiline.defaultPrevented).toBe(false);
+    expect(input.value).toBe("first\nsecond");
+    expect(sessionApi.loadUserMessageIndexPage).toHaveBeenCalledOnce();
   });
 
   // ── Trigger rate limit banner via responseParser ───────────────────────

@@ -462,6 +462,7 @@ class QQConfig(BaseChannelConfig):
     app_id: str = ""
     client_secret: str = ""
     markdown_enabled: bool = True
+    streaming_enabled: bool = False
     max_reconnect_attempts: int = 100
     ack_message: str = ""
 
@@ -635,6 +636,7 @@ class XiaoYiConfig(BaseChannelConfig):
     # Custom WS gateway (empty = official endpoints); disables backup.
     ws_url: str = ""
     task_timeout_ms: int = 3600000  # 1 hour task timeout
+    streaming_enabled: bool = False
 
 
 class YuanbaoConfig(BaseChannelConfig):
@@ -658,7 +660,7 @@ class WeChatConfig(BaseChannelConfig):
 
     bot_token:              Bearer token obtained after QR code login.
     bot_token_file:         Path to persist/load the bot_token
-                            (default ~/.qwenpaw/wechat_bot_token).
+                            (default <workspace>/wechat/wechat_bot_token).
     base_url:               iLink API base URL (leave empty to use default).
     media_dir:              Local directory for downloaded media files.
     message_merge_enabled:  When True, merge multiple outgoing text messages
@@ -1246,9 +1248,9 @@ class ScrollContextConfig(BaseModel):
     """Scroll (retrieval-driven) context manager configuration.
 
     Only consulted when ``LightContextConfig.strategy == "scroll"``. The
-    durable history uses ``db_filename`` (relative to the workspace unless
-    absolute). Evicted turns fold into an in-context eviction index,
-    recallable from the sandboxed ``recall_history_python`` REPL.
+    durable recall projection lives in each conversation database. Evicted
+    turns fold into an in-context eviction index, recallable from the
+    sandboxed ``recall_history_python`` REPL.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -1256,7 +1258,7 @@ class ScrollContextConfig(BaseModel):
     db_filename: str = Field(
         default="history.db",
         description=(
-            f"SQLite history path, absolute or relative to the workspace."
+            "Legacy history SQLite path used only as a migration source."
         ),
     )
 
@@ -1323,11 +1325,11 @@ class ScrollContextConfig(BaseModel):
         default=False,
         description=(
             "Also archive evicted turns to legacy ``dialog/{date}.jsonl`` "
-            "files. Off by default: under scroll the durable ``history.db`` "
-            "is already the full record, so dialog files are a redundant "
-            "opt-in for external consumers (analytics, backup). When on, "
-            "dialog is written on every eviction AND on /clear, /new, "
-            "/compact; when off, scroll never writes dialog anywhere."
+            "files. Off by default: the conversation database is already "
+            "the full record, so dialog files are a redundant opt-in for "
+            "external consumers. When on, dialog is written on every "
+            "eviction AND on /clear, /new, /compact; when off, scroll never "
+            "writes dialog anywhere."
         ),
     )
 
@@ -1375,8 +1377,8 @@ class LightContextConfig(BaseModel):
         default="scroll",
         description=(
             "Context management strategy. 'native' = AgentScope compression; "
-            "'scroll' = retrieval-driven history.db + eviction index with a "
-            "sandboxed recall_history_python recall REPL (the default)."
+            "'scroll' = retrieval-driven per-conversation recall projection "
+            "plus an eviction index and sandboxed recall REPL (the default)."
         ),
     )
 
@@ -2689,11 +2691,7 @@ class AgentsConfig(BaseModel):
         ),
     )
 
-    transcription_provider_type: Literal[
-        "disabled",
-        "whisper_api",
-        "local_whisper",
-    ] = Field(
+    transcription_provider_type: str = Field(
         default="disabled",
         description=(
             "Transcription backend. "
@@ -3487,6 +3485,7 @@ class Config(BaseModel):
         description="Plugin configurations. Key is plugin_id, "
         "value is plugin-specific config dict.",
     )
+    local_model_plugin_migrated: bool = False
     skill_paths: List[str] = Field(
         default_factory=list,
         description="Additional read-only skill pool roots, scanned after "
@@ -3987,7 +3986,6 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         load_config,
         _agent_config_cache,
         _agent_config_lock,
-        _record_agent_config_publication,
     )
 
     config = load_config()
@@ -4056,8 +4054,11 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
                 )
 
                 invalidate_agent_migration(workspace_dir)
-            write_json_atomic(agent_config_path, payload)
-            _record_agent_config_publication()
+            write_json_atomic(
+                agent_config_path,
+                payload,
+                retry_windows_replace=True,
+            )
             candidate.record_source_digest(saved_digest)
             agent_config.record_source_digest(saved_digest)
             try:

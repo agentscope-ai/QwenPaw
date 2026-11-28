@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
@@ -24,8 +25,31 @@ from .dependency_gate import (
     SharedDependencyError,
     parse_requirements_file,
 )
-from .execution.dependencies import DependencySnapshot, _dependency_closure
-from .wheel_additions import WheelAddition, validate_additions
+from .execution.dependencies import (
+    DependencySnapshot,
+    _dependency_closure,
+    host_module_affected,
+)
+from .wheel_additions import (
+    WheelAddition,
+    WheelFiles,
+    copy_wheel,
+    hash_wheel,
+    validate_additions,
+)
+
+
+def _affected_host_modules(facts, rows, write_paths, records):
+    return tuple(
+        fact
+        for fact in facts
+        if os.path.realpath(fact.origin) in write_paths
+        or any(witness[0] in write_paths for witness in fact.file_witness)
+        or any(
+            host_module_affected(row, (fact,), record_reads=records)
+            for row in rows
+        )
+    )
 
 
 def _core_requirements(installed, markers) -> tuple[str, ...]:
@@ -186,16 +210,12 @@ class PreparedResolution:
                 "DEPENDENCY_PLAN_STALE: resolution already consumed.",
             )
         for item in self.wheels:
-            if (
-                hashlib.sha256(item.path.read_bytes()).hexdigest()
-                != item.sha256
-            ):
+            target = destination / item.path.name
+            if copy_wheel(item.path, target) != item.sha256:
                 raise RuntimeError(
                     "DEPENDENCY_PLAN_STALE: prepared wheel changed.",
                 )
-            target = destination / item.path.name
-            shutil.copy2(item.path, target)
-            if hashlib.sha256(target.read_bytes()).hexdigest() != item.sha256:
+            if hash_wheel(target) != item.sha256:
                 raise RuntimeError(
                     "DEPENDENCY_PLAN_STALE: copied wheel changed.",
                 )
@@ -297,6 +317,7 @@ async def stage_dependency_refusal(loader, source_path, error, *, force=False):
     operation = await dependency_upgrades(loader).stage(
         source_path,
         force=force,
+        entry=getattr(error, "dependency_entry", None),
     )
     raise DependencyUpgradeRequired(operation) from error
 
@@ -385,6 +406,24 @@ class DependencyUpgradeManager:
     def status(self, operation_id):
         return self._public(self._read(operation_id))
 
+    def start_maintenance_worker(self, operation_id):
+        """Start an approved worker that waits for its CLI parent to exit."""
+        directory = self._directory(operation_id)
+        operation = self._read(operation_id)
+        if operation["status"] != "waiting_restart" or not operation.get(
+            "approved",
+        ):
+            raise RuntimeError(
+                "Dependency operation is not awaiting maintenance.",
+            )
+        _launch_maintenance_worker(directory, operation)
+        result = self._public(operation)
+        result["message"] = (
+            "Maintenance starts when this CLI exits. "
+            "Query this operation for its result."
+        )
+        return result
+
     def cancel(self, operation_id):
         directory = self._directory(operation_id)
         from .dependency_transaction import operation_lock
@@ -410,7 +449,7 @@ class DependencyUpgradeManager:
                 shutil.rmtree(directory / name, ignore_errors=True)
             return self._public(operation)
 
-    async def _binding(self, source):
+    async def _binding(self, source, entry=None):
         _, manifest = await run_sync_io(
             self.loader.read_source_manifest,
             source,
@@ -421,7 +460,9 @@ class DependencyUpgradeManager:
         if not compatible:
             _refuse("DEPENDENCY_PLAN_UNVERIFIED", message)
         return await run_sync_io(
-            self.loader.backend_resolver.resolve,
+            self.loader.backend_resolver.resolve_registration
+            if entry == "backend"
+            else self.loader.backend_resolver.resolve,
             source,
             manifest,
         )
@@ -625,26 +666,36 @@ class DependencyUpgradeManager:
 
     async def _consumer_candidates(self, binding, snapshot):
         """Cheap declarations and current coordination roots, never full audits."""
-        from .execution_backend import BackendBinding
-
         result = []
+        resolver = self.loader.backend_resolver
         for manifest, source in await run_sync_io(
             self.loader.discover_plugins,
         ):
             if manifest.id == binding.description.manifest.id:
                 continue
             try:
-                backend = self.loader.backend_resolver.select(manifest)
-                describe = getattr(
-                    backend,
-                    "describe_candidate",
-                    backend.describe,
+                entries = await run_sync_io(
+                    resolver.describe_candidates,
+                    source,
+                    manifest,
                 )
-                description = await run_sync_io(describe, source, manifest)
-                prepared = await backend.prepare_dependency_targets(
-                    description,
-                )
-                prepared.validate()
+                for candidate in entries:
+                    prepared = (
+                        await candidate.backend.prepare_dependency_targets(
+                            candidate.description,
+                        )
+                    )
+                    prepared.validate()
+                    result.append(
+                        {
+                            "binding": candidate,
+                            "prepared": prepared,
+                            "plugin_id": manifest.id,
+                            "source": source,
+                            "requirements": candidate.description.requirements,
+                            "sites": tuple(map(str, prepared.targets)),
+                        },
+                    )
             except (RuntimeError, ValueError, OSError):
                 result.append(
                     {
@@ -655,17 +706,6 @@ class DependencyUpgradeManager:
                         "risk": f"{manifest.id}: inactive dependency environment unavailable; verify before enabling.",
                     },
                 )
-                continue
-            result.append(
-                {
-                    "binding": BackendBinding(backend, description),
-                    "prepared": prepared,
-                    "plugin_id": manifest.id,
-                    "source": source,
-                    "requirements": description.requirements,
-                    "sites": tuple(map(str, prepared.targets)),
-                },
-            )
         return result
 
     @staticmethod
@@ -737,6 +777,7 @@ class DependencyUpgradeManager:
             return await self._legacy_prepare_consumer_targets()
         binding = await self._binding(
             self._directory(operation["id"]) / "source",
+            operation.get("dependency_entry"),
         )
         candidates = await self._consumer_candidates(binding, snapshot)
         targets = [
@@ -854,10 +895,11 @@ class DependencyUpgradeManager:
         for row in candidates:
             if row.get("risk"):
                 continue
+            candidate = row["binding"]
             other = await run_sync_io(
-                self.loader.backend_resolver.resolve,
+                candidate.refresh,
                 row["source"],
-                row["binding"].description.manifest,
+                candidate.description.manifest,
             )
             row["prepared"].validate()
             key = (type(other.backend), row["sites"])
@@ -880,7 +922,7 @@ class DependencyUpgradeManager:
                             _source_hash,
                             row["source"],
                         ),
-                        "requirements": list(other.description.requirements),
+                        "requirements": list(row["requirements"]),
                         "environment": observed.to_mapping(),
                     },
                 )
@@ -895,6 +937,16 @@ class DependencyUpgradeManager:
             if isinstance(payload_paths, dict)
             else set()
         )
+        rows = (
+            changes.values()
+            if isinstance(changes, dict)
+            else (
+                snapshot.distributions[name]
+                for name in changes or ()
+                if name in snapshot.distributions
+            )
+        )
+        changed_rows = tuple(row for row in rows if row is not None)
         for use in self.loader.registry.dependency_usage.snapshot().uses:
             if (
                 use.origin != "host"
@@ -941,42 +993,12 @@ class DependencyUpgradeManager:
                 continue
             facts = getattr(use, "host_modules", ())
             if facts and changes is not None:
-                from .execution.dependencies import host_module_affected
-
-                rows = (
-                    changes.values()
-                    if isinstance(changes, dict)
-                    else (
-                        snapshot.distributions[name]
-                        for name in changes
-                        if name in snapshot.distributions
-                    )
-                )
-                rows = tuple(row for row in rows if row is not None)
-                paths = (
-                    set(payload_paths.get("old", ()))
-                    | set(payload_paths.get("new", ()))
-                    if isinstance(payload_paths, dict)
-                    else set()
-                )
-                facts = tuple(
-                    fact
-                    for fact in facts
-                    if any(
-                        value in paths
-                        for value in (
-                            os.path.realpath(fact.origin),
-                            *(witness[0] for witness in fact.file_witness),
-                        )
-                    )
-                    or any(
-                        host_module_affected(
-                            row,
-                            (fact,),
-                            record_reads=records,
-                        )
-                        for row in rows
-                    )
+                facts = await run_sync_io(
+                    _affected_host_modules,
+                    facts,
+                    changed_rows,
+                    write_paths,
+                    records,
                 )
                 if not facts and not unknown:
                     continue
@@ -1366,7 +1388,9 @@ class DependencyUpgradeManager:
 
         requirements = [*requirements, CERTIFI_REQUIREMENT]
         immutable = (
-            context.immutable_providers() if context is not None else {}
+            context.immutable_providers(requirements, snapshot)
+            if context is not None
+            else {}
         )
         protected = _protected_providers(
             snapshot,
@@ -1449,9 +1473,9 @@ class DependencyUpgradeManager:
             str(constraints),
             "-r",
             str(resolver),
-            "-r",
-            str(requirements_path),
         ]
+        if requirements_path is not None and requirements_path.is_file():
+            command.extend(["-r", str(requirements_path)])
         return fingerprint, command
 
     @classmethod
@@ -1468,7 +1492,16 @@ class DependencyUpgradeManager:
 
         requirements = [*requirements, CERTIFI_REQUIREMENT]
         immutable = (
-            context.immutable_providers() if context is not None else {}
+            context.immutable_providers(
+                requirements,
+                snapshot,
+                resolved=(
+                    str(parse_wheel_filename(path.name)[0])
+                    for path in (directory / "wheels").glob("*.whl")
+                ),
+            )
+            if context is not None
+            else {}
         )
         from .execution.dependencies import _installed_metadata
 
@@ -1492,7 +1525,7 @@ class DependencyUpgradeManager:
             wheels.append(
                 WheelAddition(
                     path,
-                    hashlib.sha256(path.read_bytes()).hexdigest(),
+                    hash_wheel(path),
                 ),
             )
         if not changed:
@@ -1521,114 +1554,120 @@ class DependencyUpgradeManager:
                 if name not in changed
             },
         )
-        files, proposed = validate_additions(
-            tuple(wheels),
-            clean,
-            Path(target),
-        )
-        # A hard-only resolver retry may select newer compatible packages.
-        # Keep an installed provider whenever the whole requested closure still
-        # works with its own metadata; downloading a wheel does not mandate a write.
-        retained = set()
-        for name, old in changed.items():
-            if old is None:
-                continue
-            candidate = {**proposed.distributions, name: old}
-            try:
-                cls._compatible(
-                    requirements,
-                    candidate,
-                    snapshot.marker_environment,
-                )
-            except SharedDependencyError:
-                continue
-            proposed = replace(proposed, distributions=candidate)
-            retained.add(name)
-        if retained:
-            changed = {
-                name: old
-                for name, old in changed.items()
-                if name not in retained
-            }
-            wheels = [
-                wheel
-                for wheel in wheels
-                if str(parse_wheel_filename(wheel.path.name)[0])
-                not in retained
-            ]
+        with ExitStack() as buffers:
+            files = buffers.enter_context(WheelFiles())
             files, proposed = validate_additions(
                 tuple(wheels),
-                replace(
-                    clean,
-                    distributions={
-                        name: row
-                        for name, row in snapshot.distributions.items()
-                        if name not in changed
-                    },
-                ),
+                clean,
                 Path(target),
+                files=files,
             )
-        if not changed:
-            _refuse(
-                "DEPENDENCY_PLAN_UNVERIFIED",
-                "No dependency replacement was resolved.",
-            )
-        for name in changed.keys() & invalid.keys():
-            _refuse(
-                invalid[name],
-                f"Cannot safely replace ambiguous provider: {name}.",
-            )
-        destinations = {}
-        changes = []
-        for name in changed:
-            old, row = changed[name], proposed.distributions[name]
-            site = canonical(
-                Path(old["metadata_path"]).parent if old else target,
-            )
-            if context is not None and context.protected(site):
+            # A hard-only resolver retry may select newer compatible packages.
+            # Keep an installed provider whenever the whole requested closure still
+            # works with its own metadata; downloading a wheel does not mandate a write.
+            retained = set()
+            for name, old in changed.items():
+                if old is None:
+                    continue
+                candidate = {**proposed.distributions, name: old}
+                try:
+                    cls._compatible(
+                        requirements,
+                        candidate,
+                        snapshot.marker_environment,
+                    )
+                except SharedDependencyError:
+                    continue
+                proposed = replace(proposed, distributions=candidate)
+                retained.add(name)
+            if retained:
+                changed = {
+                    name: old
+                    for name, old in changed.items()
+                    if name not in retained
+                }
+                wheels = [
+                    wheel
+                    for wheel in wheels
+                    if str(parse_wheel_filename(wheel.path.name)[0])
+                    not in retained
+                ]
+                files.close()
+                files = buffers.enter_context(WheelFiles())
+                files, proposed = validate_additions(
+                    tuple(wheels),
+                    replace(
+                        clean,
+                        distributions={
+                            name: row
+                            for name, row in snapshot.distributions.items()
+                            if name not in changed
+                        },
+                    ),
+                    Path(target),
+                    files=files,
+                )
+            if not changed:
                 _refuse(
-                    "DEPENDENCY_ENVIRONMENT_PROTECTED",
-                    "Bundled dependencies cannot be replaced; update the desktop app.",
+                    "DEPENDENCY_PLAN_UNVERIFIED",
+                    "No dependency replacement was resolved.",
                 )
-            destinations[name] = str(site)
-            proposed.distributions[name]["metadata_path"] = str(
-                site / Path(row["metadata_path"]).name,
+            for name in changed.keys() & invalid.keys():
+                _refuse(
+                    invalid[name],
+                    f"Cannot safely replace ambiguous provider: {name}.",
+                )
+            destinations = {}
+            changes = []
+            for name in changed:
+                old, row = changed[name], proposed.distributions[name]
+                site = canonical(
+                    Path(old["metadata_path"]).parent if old else target,
+                )
+                if context is not None and context.protected(site):
+                    _refuse(
+                        "DEPENDENCY_ENVIRONMENT_PROTECTED",
+                        "Bundled dependencies cannot be replaced; update the desktop app.",
+                    )
+                destinations[name] = str(site)
+                proposed.distributions[name]["metadata_path"] = str(
+                    site / Path(row["metadata_path"]).name,
+                )
+                changes.append(
+                    {
+                        "name": name,
+                        "current_version": old["version"] if old else None,
+                        "target_version": row["version"],
+                    },
+                )
+            inventory = dict(proposed.distributions)
+            cls._compatible(
+                requirements,
+                inventory,
+                snapshot.marker_environment,
             )
-            changes.append(
-                {
-                    "name": name,
-                    "current_version": old["version"] if old else None,
-                    "target_version": row["version"],
-                },
-            )
-        inventory = dict(proposed.distributions)
-        cls._compatible(
-            requirements,
-            inventory,
-            snapshot.marker_environment,
-        )
-        from .dependency_transaction import prepare_payload
+            from .dependency_transaction import prepare_payload
 
-        payload = prepare_payload(
-            directory,
-            snapshot.to_mapping(),
-            changed,
-            destinations,
-            files,
-            [
-                (
-                    item.to_mapping()
-                    if hasattr(item, "to_mapping")
-                    else {
-                        "path": str(item.path),
-                        "sha256": item.sha256,
-                    }
-                )
-                for item in wheels
-            ],
-            context.to_mapping() if context is not None else None,
-        )
-        return changed, changes, inventory, payload
+            payload = prepare_payload(
+                directory,
+                snapshot.to_mapping(),
+                changed,
+                destinations,
+                files,
+                [
+                    (
+                        item.to_mapping()
+                        if hasattr(item, "to_mapping")
+                        else {
+                            "path": str(item.path),
+                            "sha256": item.sha256,
+                        }
+                    )
+                    for item in wheels
+                ],
+                context.to_mapping() if context is not None else None,
+            )
+            return changed, changes, inventory, payload
 
     @classmethod
     def _seal_operation(cls, directory, operation):
@@ -1639,7 +1678,52 @@ class DependencyUpgradeManager:
             authenticate_plan(directory, operation, seal=True)
         cls._save(directory, operation)
 
-    async def stage(self, source_path, force=False, *, prepared=None):
+    async def stage(
+        self,
+        source_path,
+        force=False,
+        *,
+        prepared=None,
+        entry=None,
+    ):
+        """Prepare a plan under the shared install timeout and cancellation."""
+        async with self.loader._dependency_install_scope(Path(source_path)):
+            return await self._stage(source_path, force, prepared, entry)
+
+    @staticmethod
+    async def _installation_requirements(runtime, selected, target):
+        """Include each entry whose packages will share the installation site."""
+        from .dependency_requirements import host_requirements
+
+        registration = runtime.registration
+        public = registration or (
+            runtime
+            if not runtime.description.manifest.entry.descriptor
+            else None
+        )
+        requirements = []
+        for binding in (runtime, registration):
+            if binding is None:
+                continue
+            if binding is not selected:
+                roots = await binding.backend.prepare_dependency_targets(
+                    binding.description,
+                )
+                roots.validate()
+                if target not in roots.targets:
+                    continue
+            description = binding.description
+            requirements.extend(description.requirements)
+            if (
+                binding is public
+                and description.manifest.optional_dependencies
+            ):
+                requirements.extend(
+                    host_requirements(description.manifest),
+                )
+        return requirements
+
+    async def _stage(self, source_path, force, prepared, entry):
         operation_id = uuid4().hex
         directory = self.root / operation_id
         try:
@@ -1649,18 +1733,23 @@ class DependencyUpgradeManager:
                 source_path,
                 directory,
             )
-            binding = await self._binding(source)
-            plugin_id = binding.description.manifest.id
-            parsed = await run_sync_io(
-                parse_requirements_file,
-                binding.description.requirements_path,
+            runtime = await self._binding(source)
+            registration = runtime.registration
+            binding = (
+                registration
+                if entry == "backend" and registration
+                else runtime
             )
-            if parsed.unsupported:
-                _refuse(
-                    "DEPENDENCY_PLAN_UNVERIFIED",
-                    "Unsupported dependency declarations: "
-                    + ", ".join(parsed.unsupported),
-                )
+            plugin_id = binding.description.manifest.id
+            path = binding.description.requirements_path
+            if path is not None:
+                parsed = await run_sync_io(parse_requirements_file, path)
+                if parsed.unsupported:
+                    _refuse(
+                        "DEPENDENCY_PLAN_UNVERIFIED",
+                        "Unsupported dependency declarations: "
+                        + ", ".join(parsed.unsupported),
+                    )
             snapshot = await binding.backend.audit_dependencies(
                 binding.description,
             )
@@ -1681,12 +1770,18 @@ class DependencyUpgradeManager:
                     "DEPENDENCY_PLAN_UNVERIFIED",
                     "The dependency installation site is ambiguous.",
                 )
+            declared = await self._installation_requirements(
+                runtime,
+                binding,
+                target,
+            )
             wheel_tags = await run_sync_io(context.inspect_executor)
             requirements = await run_sync_io(
                 _resolution_requirements,
                 snapshot,
-                binding.description.requirements,
+                declared,
             )
+            excluded_tokens = ()
             if prepared is not None:
                 from .dependency_transaction import environment_fingerprint
 
@@ -1695,20 +1790,26 @@ class DependencyUpgradeManager:
                     or prepared.owner is not asyncio.current_task()
                     or prepared.claimed
                     or prepared.source_revision != revision
-                    or prepared.environment_fingerprint
-                    != await run_sync_io(
-                        environment_fingerprint,
-                        snapshot.to_mapping(),
-                    )
-                    or prepared.context != context.to_mapping()
-                    or prepared.candidates != _candidate_scope(candidates)
-                    or not set(requirements) <= set(prepared.requirements)
                 ):
                     _refuse(
                         "DEPENDENCY_PLAN_STALE",
                         "Prepared resolution inputs changed.",
                     )
-                requirements = prepared.requirements
+                excluded_tokens = prepared.excluded_tokens
+                if (
+                    prepared.environment_fingerprint
+                    == await run_sync_io(
+                        environment_fingerprint,
+                        snapshot.to_mapping(),
+                    )
+                    and prepared.context == context.to_mapping()
+                    and prepared.candidates == _candidate_scope(candidates)
+                    and set(requirements) <= set(prepared.requirements)
+                ):
+                    requirements = prepared.requirements
+                else:
+                    # Resolve from the activation backend's view before review.
+                    prepared = None
             preferences_failed = (
                 prepared.preferences_failed if prepared is not None else False
             )
@@ -1745,11 +1846,9 @@ class DependencyUpgradeManager:
                 if attempt == 0 and prepared is not None:
                     await run_sync_io(prepared.claim, directory / "wheels")
                 else:
-                    result = await run_sync_io(
-                        self.loader._run_subprocess_with_streaming_log,
+                    result = await self.loader._run_dependency_install_command(
                         command,
-                        timeout=300,
-                        plugin_id=plugin_id,
+                        plugin_id,
                     )
                     if result.returncode:
                         preferences_failed = True
@@ -1759,11 +1858,11 @@ class DependencyUpgradeManager:
                         )
                         await run_sync_io(shutil.rmtree, directory / "wheels")
                         await run_sync_io((directory / "wheels").mkdir)
-                        result = await run_sync_io(
-                            self.loader._run_subprocess_with_streaming_log,
-                            command,
-                            timeout=300,
-                            plugin_id=plugin_id,
+                        result = (
+                            await self.loader._run_dependency_install_command(
+                                command,
+                                plugin_id,
+                            )
                         )
                     if result.returncode:
                         _refuse(
@@ -1785,7 +1884,7 @@ class DependencyUpgradeManager:
                 expanded = await run_sync_io(
                     _resolution_requirements,
                     snapshot,
-                    binding.description.requirements,
+                    declared,
                     proposed=inventory,
                     changed=changed,
                 )
@@ -1807,9 +1906,7 @@ class DependencyUpgradeManager:
                 candidates=candidates,
                 changes={name: inventory[name] for name in changed},
                 payload_paths=payload,
-                excluded_tokens=(
-                    prepared.excluded_tokens if prepared is not None else ()
-                ),
+                excluded_tokens=excluded_tokens,
             )
             from .dependency_transaction import imported_changes_async
 
@@ -1868,6 +1965,7 @@ class DependencyUpgradeManager:
             operation = {
                 "id": operation_id,
                 "policy_version": 3,
+                "dependency_entry": entry,
                 "plugin_id": plugin_id,
                 "status": "needs_confirmation",
                 "changes": changes,
@@ -1907,11 +2005,7 @@ class DependencyUpgradeManager:
                     consumers,
                     sites=snapshot.dependency_sites,
                     policy_version=3,
-                    excluded_tokens=(
-                        prepared.excluded_tokens
-                        if prepared is not None
-                        else ()
-                    ),
+                    excluded_tokens=excluded_tokens,
                 ),
                 "proposed": inventory,
                 "payload": payload,
@@ -1938,14 +2032,14 @@ class DependencyUpgradeManager:
                 _refuse(str(exc).split(":", 1)[0], str(exc))
             raise
 
-    async def apply(self, operation_id):
+    async def apply(self, operation_id, wait_for_readers=False):
         from .dependency_transaction import apply_operation
 
         lock = self._locks.setdefault(operation_id, asyncio.Lock())
         if lock.locked():
             return await run_sync_io(self.status, operation_id)
         async with lock:
-            return await apply_operation(self, operation_id)
+            return await apply_operation(self, operation_id, wait_for_readers)
 
 
 def retain_maintenance_assets(directory, operation, runtime):
@@ -2038,10 +2132,37 @@ def run_native_continuation(directory, phase):
     asyncio.run(continue_operation(directory, preflight=phase == "1"))
 
 
+def _launch_maintenance_worker(directory, operation):
+    """Detach the retained worker so its parent can release the environment."""
+    import subprocess
+
+    script = directory / "worker" / "dependency_worker.py"
+    command = [operation["worker_python"], "-I", "-B", "-S", str(script)]
+    options = (
+        {"start_new_session": True}
+        if os.name != "nt"
+        else {
+            "creationflags": getattr(
+                subprocess,
+                "CREATE_NEW_PROCESS_GROUP",
+                0,
+            ),
+        }
+    )
+    with (directory / "worker.log").open("ab") as log:
+        # The worker waits for its parent to exit; waiting here would deadlock.
+        return subprocess.Popen(  # pylint: disable=consider-using-with
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            **options,
+        )
+
+
 def schedule_maintenance(manager, directory, operation, *, loop=None):
     """Explicit apply persists approval before handing off to a fresh worker."""
     import shlex
-    import subprocess
 
     worker = directory / "worker"
     operation.update(
@@ -2070,28 +2191,7 @@ def schedule_maintenance(manager, directory, operation, *, loop=None):
     ]
     manager._save(directory, operation)
     if shutdown is not None and restart is not None:
-        options = (
-            {"start_new_session": True}
-            if os.name != "nt"
-            else {
-                "creationflags": getattr(
-                    subprocess,
-                    "CREATE_NEW_PROCESS_GROUP",
-                    0,
-                ),
-            }
-        )
-        log = (directory / "worker.log").open("ab")
-        try:
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                **options,
-            )
-        finally:
-            log.close()
+        process = _launch_maintenance_worker(directory, operation)
         operation["worker_pid"] = process.pid
         operation[
             "message"
@@ -2165,7 +2265,10 @@ async def continue_operation(directory, *, preflight=False):
             raise RuntimeError(
                 "DEPENDENCY_PLAN_STALE: retained source changed.",
             )
-        binding = await manager._binding(source)
+        binding = await manager._binding(
+            source,
+            operation.get("dependency_entry"),
+        )
         observed = await binding.backend.audit_dependencies(
             binding.description,
         )

@@ -1,8 +1,10 @@
-import { Form } from "antd";
+import { App, Form } from "antd";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter, useLocation } from "react-router-dom";
+import { request } from "@/api/request";
 
 import type { AgentSummary } from "@/api/types/agents";
 import { AgentModal } from "./AgentModal";
@@ -10,6 +12,22 @@ import { AgentModal } from "./AgentModal";
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
+
+vi.mock("@/api/request", () => ({ request: vi.fn() }));
+beforeEach(() => {
+  vi.mocked(request).mockReset().mockResolvedValue({
+    available: true,
+    status: "active",
+    diagnostics: [],
+  });
+});
+
+function Location() {
+  const location = useLocation();
+  return (
+    <output data-testid="route">{location.pathname + location.search}</output>
+  );
+}
 
 vi.mock("@/api/modules/provider", () => ({
   providerApi: { listProviders: vi.fn().mockResolvedValue([]) },
@@ -47,13 +65,18 @@ function Harness({ mailMode }: { mailMode: "personal" | "dedicated" }) {
   }, [form, mailMode]);
 
   return (
-    <AgentModal
-      open
-      editingAgent={EDITING_AGENT}
-      form={form}
-      selectedSkills={[]}
-      {...stableCallbacks}
-    />
+    <MemoryRouter>
+      <App>
+        <Location />
+        <AgentModal
+          open
+          editingAgent={EDITING_AGENT}
+          form={form}
+          selectedSkills={[]}
+          {...stableCallbacks}
+        />
+      </App>
+    </MemoryRouter>
   );
 }
 
@@ -79,6 +102,28 @@ describe.each(["personal", "dedicated"] as const)(
 );
 
 describe("AgentModal dedicated mailbox credential", () => {
+  it("guides unavailable Mail to official plugins without automatic installation", async () => {
+    vi.mocked(request).mockResolvedValue({
+      available: false,
+      status: "not_installed",
+      diagnostics: [],
+    });
+    const user = userEvent.setup();
+    render(<Harness mailMode="personal" />);
+    await user.click(
+      await screen.findByRole("button", { name: "mcpFeature.openOfficial" }),
+    );
+    expect(screen.getByTestId("route")).toHaveTextContent(
+      "/market?tab=plugins&view=official",
+    );
+    expect(
+      vi
+        .mocked(request)
+        .mock.calls.every(
+          ([, options]) => !options?.method || options.method === "GET",
+        ),
+    ).toBe(true);
+  });
   it("shows one optional provider credential and no registration secrets", async () => {
     render(<Harness mailMode="dedicated" />);
 

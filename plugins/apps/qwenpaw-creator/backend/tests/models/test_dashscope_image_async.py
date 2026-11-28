@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import httpx
 import pytest
 
 import models.image.dashscope_provider as dashscope_provider  # noqa: PLR0402  pylint: disable=consider-using-from-import
+from models.image.base import REFERENCE_DOWNLOAD_ERROR_CODE
 from models.image.dashscope_provider import DashScopeImageModel
 from utils.exceptions import ModelError
 
@@ -166,6 +168,165 @@ def test_failed_task_raises_a_deterministic_model_error() -> None:
     assert "safety rejection" in str(caught.value)
     # Deterministic wording: must NOT look transient to the scheduler.
     assert "timed out" not in str(caught.value).lower()
+
+
+def test_request_log_keeps_routing_facts_never_the_reference_signature(
+    monkeypatch,
+) -> None:
+    """A successful request must not write its reference grant to the log.
+
+    Issue #8592: the INFO line printed the whole request body, so an OSS
+    pre-signed reference URL (``OSSAccessKeyId``/``Signature``) reached
+    creator.log even when the render succeeded, and that pair is a usable
+    grant for anyone who can read the file.
+    """
+    signed = (
+        "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png"
+        "?OSSAccessKeyId=AK123&Expires=1700000000&Signature=SECRET"
+    )
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"output": {"choices": []}})
+
+    monkeypatch.setattr(DashScopeImageModel, "_async_unsupported", True)
+    records: list[logging.LogRecord] = []
+
+    class _Collector(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    target = logging.getLogger("model.image.dashscope")
+    collector = _Collector(logging.INFO)
+    target.addHandler(collector)
+    try:
+
+        async def scenario() -> httpx.Response:
+            async with httpx.AsyncClient(
+                transport=httpx.MockTransport(handler),
+            ) as client:
+                return await model._request(client, "p", "1:1", [signed])
+
+        model = DashScopeImageModel(
+            model_name="qwen-image-3.0-pro",
+            api_key="sk-secret-key-123456",
+            base_url=dashscope_provider.DEFAULT_BASE_URL,
+            timeout=30,
+        )
+        assert asyncio.run(scenario()).status_code == 200
+    finally:
+        target.removeHandler(collector)
+
+    # The body still carries the grant (it is what the provider needs).
+    embedded = bodies[0]["input"]["messages"][0]["content"][0]["image"]
+    assert "Signature=SECRET" in embedded
+    logged = "\n".join(record.getMessage() for record in records)
+    assert "OSSAccessKeyId" not in logged
+    assert "Signature" not in logged
+    assert "sk-secret-key-123456" not in logged
+    assert "model=qwen-image-3.0-pro" in logged
+    assert "mode=generate" in logged
+    assert "references=1" in logged
+
+
+def test_failed_task_scrubs_reference_signature_and_stays_permanent() -> None:
+    """HTTP 200 + FAILED "download 403" must match the sync classification.
+
+    The task payload carries the upstream message verbatim, so the async
+    path used to surface the raw pre-signed URL as a retryable error while
+    the sync HTTP branch scrubbed it and refused to retry.
+    """
+    signed = (
+        "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png"
+        "?OSSAccessKeyId=AK123&Signature=SECRET"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "output": {
+                    "task_id": "t-1",
+                    "task_status": "FAILED",
+                    "message": f"failed to download image: {signed} (status 403)",
+                },
+            },
+        )
+
+    with pytest.raises(ModelError) as caught:
+        _poll(_model(), httpx.MockTransport(handler))
+    message = str(caught.value)
+    assert caught.value.retryable is False
+    assert "AK123" not in message
+    assert "SECRET" not in message
+    # The surviving facts stay diagnosable.
+    assert "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png" in message
+    assert "(status 403)" in message
+    assert "regenerate or reselect" in message
+
+
+def test_failed_task_keeps_storage_5xx_download_failures_retryable() -> None:
+    """A storage 5xx is transient, unlike the 403 grant expiry above.
+
+    The sync HTTP branch only classifies a reference failure as permanent
+    for a 4xx; a 5xx object-store failure stays retryable. The async
+    terminal payload carries the same prose and must reach the same
+    verdict so a recovered store can be retried.
+    """
+    signed = (
+        "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png"
+        "?OSSAccessKeyId=AK123&Signature=SECRET"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "output": {
+                    "task_id": "t-1",
+                    "task_status": "FAILED",
+                    "message": f"failed to download image: {signed} (status 503)",
+                },
+            },
+        )
+
+    with pytest.raises(ModelError) as caught:
+        _poll(_model(), httpx.MockTransport(handler))
+    message = str(caught.value)
+    assert caught.value.retryable is True
+    assert caught.value.code != REFERENCE_DOWNLOAD_ERROR_CODE
+    assert "AK123" not in message
+    assert "SECRET" not in message
+    assert "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png" in message
+    assert "(status 503)" in message
+
+
+def test_failed_task_scrubs_urls_but_keeps_other_failures_retryable() -> None:
+    signed = (
+        "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png"
+        "?OSSAccessKeyId=AK123&Signature=SECRET"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "output": {
+                    "task_id": "t-1",
+                    "task_status": "FAILED",
+                    "message": f"internal error while reading {signed}",
+                },
+            },
+        )
+
+    with pytest.raises(ModelError) as caught:
+        _poll(_model(), httpx.MockTransport(handler))
+    message = str(caught.value)
+    assert caught.value.retryable is True
+    assert "AK123" not in message
+    assert "SECRET" not in message
+    assert "internal error while reading" in message
 
 
 def test_deadline_exhaustion_reads_as_a_transient_timeout(monkeypatch) -> None:

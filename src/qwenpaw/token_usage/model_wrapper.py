@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Model wrapper that records token usage from LLM responses."""
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, timezone
-from typing import Any, AsyncGenerator, Literal
+from typing import Any, AsyncGenerator, Iterator, Literal
 
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
@@ -12,6 +14,34 @@ from ..utils.model_response import safe_attr
 from .buffer import _UsageEvent
 from .counter import record_session_tokens
 from .manager import _usage_agent_id, get_token_usage_manager
+
+_auxiliary_usage = ContextVar(f"auxiliary_token_usage", default=False)
+
+
+def set_conversation_context_tokens(tokens: int | None) -> None:
+    """Capture message/summary size for the current model invocation."""
+    from ..app.agent_context import get_current_session_id
+
+    session_id = get_current_session_id()
+    if session_id and not _auxiliary_usage.get():
+        snapshots = (
+            TokenRecordingModelWrapper._usage_buffer()
+        )  # pylint: disable=protected-access
+        snapshots[session_id] = {
+            **(snapshots.get(session_id) or {}),
+            f"context_tokens": tokens,
+        }
+
+
+@contextmanager
+def auxiliary_model_usage() -> Iterator[None]:
+    """Bill auxiliary calls without replacing conversation context metrics."""
+    token = _auxiliary_usage.set(True)
+    try:
+        yield
+    finally:
+        _auxiliary_usage.reset(token)
+
 
 # AgentScope does not expose provider cache semantics through a public
 # capability API. These prefixes therefore depend on its concrete adapter MRO
@@ -27,6 +57,28 @@ _CACHE_USAGE_MODEL_MODULES = (
     "agentscope.model._openai_response",
     "agentscope.model._xai",
 )
+
+
+_scoped_usage: ContextVar[dict[str, dict[str, Any]] | None] = ContextVar(
+    "scoped_turn_usage",
+    default=None,
+)
+
+
+def has_isolated_turn_usage() -> bool:
+    return _scoped_usage.get() is not None
+
+
+@contextmanager
+def isolated_turn_usage() -> Iterator[None]:
+    """Keep staged usage private to one background run."""
+    usage: dict[str, dict[str, Any]] = {}
+    token = _scoped_usage.set(usage)
+    try:
+        yield
+    finally:
+        usage.clear()
+        _scoped_usage.reset(token)
 
 
 def _cache_usage_metrics(
@@ -163,11 +215,18 @@ class TokenRecordingModelWrapper(ChatModelBase):
         # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
         get_token_usage_manager().enqueue(event)
 
+        # The context meter shows this value per request, so it must be the
+        # full prompt the provider processed: Anthropic reports only the
+        # uncached part in ``input_tokens`` and its cache read/write counters
+        # separately, while OpenAI-style ``prompt_tokens`` already includes
+        # cached tokens (and ``cache_eligible`` equals ``pt`` there).
         usage_data = {
             "provider_id": self._provider_id,
             "model_name": self.model,
             "prompt_tokens": pt,
-            "last_prompt_tokens": pt,
+            "last_prompt_tokens": (
+                cache_eligible if cache_observed and cache_eligible > 0 else pt
+            ),
             "completion_tokens": ct,
             "total_tokens": pt + ct,
             "cache_read_tokens": cache_read,
@@ -179,9 +238,8 @@ class TokenRecordingModelWrapper(ChatModelBase):
                 if cache_eligible > 0
                 else None
             ),
-            # Context window of the wrapped model, so the UI can show how full
-            # the *current* context is (prompt_tokens / context_size), distinct
-            # from the cumulative session totals. 0 = unknown.
+            # Model window used as the denominator for message/summary usage.
+            # Provider prompt tokens remain separate billing data.
             "context_size": int(getattr(self._model, "context_size", 0) or 0),
             # Auto-compaction threshold (fraction of the window) so the UI can
             # mark where context gets evicted. None = disabled/unknown.
@@ -190,13 +248,21 @@ class TokenRecordingModelWrapper(ChatModelBase):
         self._store_usage(usage_data)
 
     @classmethod
+    def _usage_buffer(cls) -> dict[str, dict[str, Any]]:
+        scoped = _scoped_usage.get()
+        return cls._usage_by_session if scoped is None else scoped
+
+    @classmethod
     def peek_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
         """Read the latest cumulative snapshot without consuming it."""
-        return cls._usage_by_session.get(session_id)
+        return cls._usage_buffer().get(session_id)
 
     @classmethod
     def pop_usage_for_session(cls, session_id: str) -> dict[str, Any] | None:
-        return cls._usage_by_session.pop(session_id, None)
+        usage = cls._usage_buffer().pop(session_id, None)
+        if usage is not None and set(usage) == {f"context_tokens"}:
+            return None
+        return usage
 
     def _store_usage(self, usage: dict[str, Any] | None) -> None:
         from ..app.agent_context import get_current_session_id
@@ -204,13 +270,23 @@ class TokenRecordingModelWrapper(ChatModelBase):
         session_id = get_current_session_id()
         if session_id and usage:
             record_session_tokens(session_id, int(usage[f"total_tokens"]))
-            previous = TokenRecordingModelWrapper._usage_by_session.get(
-                session_id,
-            )
+            buffer = TokenRecordingModelWrapper._usage_buffer()
+            previous = buffer.get(session_id)
+            usage[f"context_tokens"] = (previous or {}).get(f"context_tokens")
+            if _auxiliary_usage.get():
+                for key in (
+                    f"last_prompt_tokens",
+                    f"context_tokens",
+                    f"context_size",
+                    f"compact_threshold",
+                    f"provider_id",
+                    f"model_name",
+                ):
+                    usage.pop(key, None)
+                    if previous is not None and key in previous:
+                        usage[key] = previous[key]
             if previous is None:
-                TokenRecordingModelWrapper._usage_by_session[
-                    session_id
-                ] = usage
+                buffer[session_id] = usage
                 return
             for key in (
                 "prompt_tokens",
@@ -235,7 +311,7 @@ class TokenRecordingModelWrapper(ChatModelBase):
                 if cache_eligible > 0
                 else None
             )
-            TokenRecordingModelWrapper._usage_by_session[session_id] = usage
+            buffer[session_id] = usage
 
     async def generate_structured_output(
         self,

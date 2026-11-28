@@ -118,12 +118,20 @@ def test_build_plugin_catalog_returns_normalized_plugins(
     ]
 
 
-def test_bundled_hubs_remain_installable_when_cdn_is_unavailable() -> None:
+@pytest.mark.parametrize(
+    ("host_version", "mcp_available"),
+    [("2.3.0.post1", False), ("2.3.1b1", True)],
+)
+def test_bundled_hubs_remain_installable_when_cdn_is_unavailable(
+    host_version: str,
+    mcp_available: bool,
+) -> None:
     from qwenpaw.plugins.download_catalog import (
         build_plugin_catalog as catalog,
     )
 
     with (
+        patch("qwenpaw.__version__.__version__", host_version),
         patch(
             "qwenpaw.plugins.download_catalog._fetch_json",
             side_effect=ConnectionResetError("offline"),
@@ -135,7 +143,16 @@ def test_bundled_hubs_remain_installable_when_cdn_is_unavailable() -> None:
     ):
         result = catalog()
 
-    hubs = {entry["plugin_id"]: entry for entry in result["plugins"]}
+    entries = {entry["plugin_id"]: entry for entry in result["plugins"]}
+    if mcp_available:
+        mcp = entries["qwenpaw-mcp"]
+        assert mcp["kind"] == "protocol"
+        assert mcp["install_url"] == "bundled:qwenpaw-mcp"
+    hubs = {
+        plugin_id: entry
+        for plugin_id, entry in entries.items()
+        if entry["kind"] == "hub"
+    }
     assert set(hubs) == {
         "qwenpaw-hub",
         "clawhub-hub",
@@ -159,9 +176,15 @@ def test_bundled_hubs_replace_same_cdn_version_and_keep_remote_updates(
     from qwenpaw.plugins.download_catalog import (
         build_plugin_catalog as catalog,
     )
+    from qwenpaw.plugins.local_whisper import SOURCE as whisper_source
 
     bundled = tmp_path / "bundled"
     shutil.copytree(get_builtin_hub_plugins_dir(), bundled / "hub")
+    shutil.copytree(
+        whisper_source,
+        bundled / "transcription" / "local-whisper",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
     tool = bundled / "tool" / "bundled-tool"
     tool.mkdir(parents=True)
     (tool / "plugin.json").write_text(
@@ -198,6 +221,9 @@ def test_bundled_hubs_replace_same_cdn_version_and_keep_remote_updates(
     ):
         result = catalog()
 
+    assert all(
+        row["plugin_id"] != "local-whisper" for row in result["plugins"]
+    )
     qwenpaw = {
         entry["version"]: entry
         for entry in result["plugins"]
@@ -216,6 +242,60 @@ def test_bundled_hubs_replace_same_cdn_version_and_keep_remote_updates(
     )
     assert tool_entry["kind"] == "tool"
     assert Path(tool_entry["install_url"]) == tool
+
+
+@pytest.mark.parametrize(
+    "installed_version,upgrade_available",
+    [("0.1.0.dev0", True), ("0.1.0", False), ("0.2.0", False)],
+)
+def test_channel_catalog_matches_local_version_and_host_compatibility(
+    tmp_path,
+    monkeypatch,
+    installed_version,
+    upgrade_available,
+):
+    source = tmp_path / "local-source"
+    source.mkdir()
+    (source / "plugin.json").write_text(
+        json.dumps({"id": "matrix", "version": installed_version}),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.config.utils.get_plugins_dir",
+        lambda: tmp_path,
+    )
+    entry = {
+        "plugin_id": "matrix",
+        "version": "0.1.0",
+        "platform": "channel",
+        "url": "/files/plugins/channel/matrix/matrix-0.1.0.zip",
+        "qwenpaw_version": {"min": "0.0.0"},
+    }
+    with patch(
+        "qwenpaw.plugins.download_catalog._fetch_json",
+        side_effect=[
+            {"products": {"plugins": {"index_url": "/plugins.json"}}},
+            {
+                "files": {
+                    "matrix-0.1.0": entry,
+                    "matrix-0.2.0": {
+                        **entry,
+                        "version": "0.2.0",
+                        "qwenpaw_version": {"min": "999.0.0"},
+                    },
+                },
+            },
+        ],
+    ):
+        catalog = build_plugin_catalog()
+    assert len(catalog["plugins"]) == 1
+    channel = catalog["plugins"][0]
+    assert channel["plugin_id"] == "matrix" and channel["installed"]
+    assert channel["installed_version"] == installed_version
+    assert channel["upgrade_available"] is upgrade_available
+    assert channel["install_url"] == (
+        "https://download.qwenpaw.agentscope.io"
+        "/files/plugins/channel/matrix/matrix-0.1.0.zip"
+    )
 
 
 def test_entry_with_qwenpaw_version_compatible() -> None:

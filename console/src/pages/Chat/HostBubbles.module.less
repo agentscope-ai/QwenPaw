@@ -1,3 +1,41 @@
+.deferredHistoryContent {
+  min-height: calc(48px * var(--app-font-scale));
+  contain: layout paint style;
+}
+
+.historyMarkdown {
+  overflow-anchor: none;
+}
+
+.loadOlderMarkdown {
+  margin-bottom: 12px;
+  border: 0;
+  padding: 0;
+  color: var(--app-primary-color);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.completionWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-block: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-warning-border);
+  border-radius: 8px;
+  background: var(--app-warning-bg);
+  color: var(--app-warning-text);
+  font-size: var(--app-font-caption);
+  line-height: 1.5;
+
+  svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+}
+
 .reasoningStep {
   width: 100%;
 
@@ -90,8 +128,17 @@
   }
 }
 
-// Native selection keeps prose/code layout while omitting their UI controls.
+/* Fix #8811: this wrapper sits between the SDK bubble content and the
+ * markdown root. The bubble content sizes itself intrinsically, and a flex
+ * child defaults to min-width: auto, so without these constraints the
+ * max-content width of wide tables and code blocks widens the wrapper
+ * instead of scrolling inside the block - the bubble then clips the
+ * overflow silently on both desktop and mobile. */
 .quoteResponse {
+  min-width: 0;
+  max-width: 100%;
+
+  // Native selection keeps prose/code layout while omitting their UI controls.
   button,
   [role="button"],
   input,
@@ -101,5 +148,15 @@
   iframe {
     -webkit-user-select: none;
     user-select: none;
+  }
+}
+
+.emptyResponseActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+
+  &:not(:empty) {
+    margin-top: 8px;
   }
 }

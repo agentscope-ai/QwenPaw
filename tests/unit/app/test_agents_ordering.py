@@ -297,14 +297,12 @@ async def test_create_agent_appends_new_id_to_order(monkeypatch, tmp_path):
     monkeypatch.setattr(agents_router, "load_config", lambda: config)
     monkeypatch.setattr(agents_router, "WORKING_DIR", tmp_path)
     monkeypatch.setattr(
-        agents_router,
-        "mutate_config",
+        "qwenpaw.services.agent_setup.mutate_config",
         _fake_mutate_config(config),
     )
     saved_agents: list[AgentProfileConfig] = []
     monkeypatch.setattr(
-        agents_router,
-        "write_json_atomic",
+        "qwenpaw.services.agent_setup.write_json_atomic",
         lambda path, data: saved_agents.append(
             AgentProfileConfig.model_validate(data),
         ),

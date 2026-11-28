@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
+import type { SubtitleStyleDocument } from "@/contracts/creator";
+
 /**
  * Copy-overlay rendering layer identical to the final render.
  *
@@ -21,6 +23,15 @@ const VIBE_EMOJI: Record<string, string> = {
 // back to same-family CJK sans fonts.
 const CJK_FONT_STACK =
   '"PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif';
+
+// Per-family preview stacks mirroring the backend _SUBTITLE_FONT_FAMILIES; the
+// auto face (null/default/unknown) keeps the historical sans stack, so an
+// untouched project previews exactly as before.
+const SUBTITLE_FONT_STACKS: Record<string, string> = {
+  song: '"Songti SC", "SimSun", "Noto Serif CJK SC", serif',
+  hei: CJK_FONT_STACK,
+  kai: '"Kaiti SC", "KaiTi", "STKaiti", "Noto Serif CJK SC", serif',
+};
 
 let sharedMeasureContext: CanvasRenderingContext2D | null = null;
 
@@ -316,6 +327,125 @@ export function InterviewSummaryBox({
             fill="#ffffff"
             stroke="#000000"
             strokeWidth={strokeWidth}
+            style={{ paintOrder: "stroke" }}
+          >
+            {line}
+          </text>
+        ))}
+      </svg>
+    </div>
+  );
+}
+
+/** Simple text caption preview for the caption_role values. Shows a subtle
+ * text-only indicator placed like the backend preset for that role, so the
+ * author can verify timing and placement in the live preview.  Does not try
+ * to replicate the exact backend render — it is a lightweight in-timeline
+ * hint. */
+export function PlainCaption({
+  text,
+  stageWidth,
+  role,
+  style,
+}: {
+  text: string;
+  stageWidth: number;
+  role?: string | null;
+  /** Project subtitle-bar overrides; absent keeps the historical look. */
+  style?: SubtitleStyleDocument | null;
+}) {
+  if (stageWidth < 4) return null;
+  const clampScale = (raw: unknown, low: number, high: number) => {
+    const value = typeof raw === "number" && Number.isFinite(raw) ? raw : 1;
+    return Math.min(high, Math.max(low, value));
+  };
+  const fontScale = clampScale(style?.font_scale, 0.6, 1.8);
+  const strokeScale = clampScale(style?.stroke_scale, 0, 3);
+  const fontStack =
+    SUBTITLE_FONT_STACKS[String(style?.font_family ?? "").toLowerCase()] ??
+    CJK_FONT_STACK;
+  // The hint draws its own neutral block because it does not know the pack's
+  // alpha; a stated pick is different — it is exactly what the cut will do, so
+  // 无底板 must drop the block here as well instead of contradicting the pick.
+  const backgroundRaw =
+    typeof style?.background_opacity === "number" &&
+    Number.isFinite(style.background_opacity)
+      ? Math.min(1, Math.max(0, style.background_opacity))
+      : null;
+  const fillColor =
+    typeof style?.color === "string" && /^#[0-9a-fA-F]{6}$/.test(style.color)
+      ? style.color
+      : "#ffffff";
+  const isTitle = role === "opening_title";
+  // Mirror the backend caption_role placement so the hint does not contradict
+  // the cut: chapter cards and interview facts pin the top edge, location
+  // labels pin the bottom-left corner, and ordinary speech hugs the bottom
+  // centre. Still a timing and placement hint, not a pixel copy of the render.
+  const isTopEdge = role === "chapter" || role === "interview_summary";
+  const isLeftEdge = role === "location";
+  // Narration is distinguished by width only (backend preset 0.65). The
+  // caption renderer takes no role at all, so every role renders upright --
+  // an italic hint here would promise styling the cut never delivers.
+  const isNarrow = role === "narration";
+  const onTopEdge = isTitle || isTopEdge;
+  const fontSize = Math.max(
+    8,
+    Math.round((stageWidth / 1280) * (isTitle ? 48 : 26) * fontScale),
+  );
+  const widthFactor = isTitle ? 0.7 : isNarrow ? 0.65 : 0.8;
+  const maxW = Math.round(stageWidth * widthFactor);
+  const padding = Math.round(fontSize * 0.35);
+  const lines = wrapGreedy(text, fontSize, maxW - padding * 2);
+  const lh = lineHeightOf(fontSize);
+  const textH = lines.length * lh - 2;
+  const boxW = Math.min(
+    Math.max(...lines.map((l) => measureWidth(l, fontSize)), 1) + padding * 2,
+    maxW,
+  );
+  const boxH = textH + padding * 2;
+  return (
+    <div
+      data-overlay-copy="plain"
+      className="pointer-events-none flex h-full w-full items-center justify-center"
+      style={{
+        alignItems: onTopEdge ? "flex-start" : "flex-end",
+        paddingTop: isTitle ? "25%" : isTopEdge ? "6%" : undefined,
+        paddingBottom: onTopEdge ? undefined : "5%",
+        justifyContent: isLeftEdge ? "flex-start" : undefined,
+        paddingLeft: isLeftEdge ? "6%" : undefined,
+      }}
+    >
+      <svg
+        viewBox={`0 0 ${boxW} ${boxH}`}
+        width={boxW}
+        height={boxH}
+        aria-hidden
+      >
+        {!isTitle && backgroundRaw !== 0 && (
+          <rect
+            x={0}
+            y={0}
+            width={boxW - 1}
+            height={boxH - 1}
+            rx={Math.round(Math.min(boxW, boxH) * 0.1)}
+            fill={`rgba(0,0,0,${backgroundRaw ?? 0.45})`}
+          />
+        )}
+        {lines.map((line, index) => (
+          <text
+            key={index}
+            x={boxW / 2}
+            y={padding + index * lh + fontSize * 0.86}
+            textAnchor="middle"
+            fontSize={fontSize}
+            fontFamily={fontStack}
+            fill={fillColor}
+            stroke="#000000"
+            strokeWidth={
+              strokeScale === 0
+                ? 0
+                : Math.max(1, Math.round(fontSize * 0.05 * strokeScale))
+            }
             style={{ paintOrder: "stroke" }}
           >
             {line}

@@ -104,7 +104,11 @@ def get_chat(
     base_url = resolve_base_url(ctx, base_url)
     with client(base_url) as c:
         headers = {"X-Agent-Id": agent_id}
-        r = c.get(f"/chats/{chat_id}", headers=headers)
+        r = c.get(
+            f"/chats/{chat_id}",
+            headers=headers,
+            params={"full_history": "true"},
+        )
         if r.status_code == 404:
             raise click.ClickException(f"chat not found: {chat_id}")
         r.raise_for_status()

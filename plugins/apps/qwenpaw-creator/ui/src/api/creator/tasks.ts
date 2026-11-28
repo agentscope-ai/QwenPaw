@@ -17,12 +17,17 @@ const project = (id: string) => `/projects/${encodeURIComponent(id)}`;
 export function listSpecialistRuns(
   projectId: string,
   filters: { status?: SpecialistRunStatus; role?: SpecialistRole } = {},
+  options: { dedupe?: boolean } = {},
 ): Promise<SpecialistRunListResponse> {
   const query = new URLSearchParams();
   if (filters.status) query.set("status", filters.status);
   if (filters.role) query.set("role", filters.role);
   const suffix = query.size ? `?${query}` : "";
-  return creatorRequest(`${project(projectId)}/specialist-runs${suffix}`);
+  return creatorRequest(
+    `${project(projectId)}/specialist-runs${suffix}`,
+    {},
+    options,
+  );
 }
 
 export function getSpecialistRun(
@@ -34,8 +39,11 @@ export function getSpecialistRun(
   );
 }
 
-export function listTasks(projectId: string): Promise<TaskListResponse> {
-  return creatorRequest(`${project(projectId)}/tasks`);
+export function listTasks(
+  projectId: string,
+  options: { dedupe?: boolean } = {},
+): Promise<TaskListResponse> {
+  return creatorRequest(`${project(projectId)}/tasks`, {}, options);
 }
 
 export function getTask(projectId: string, taskId: string): Promise<TaskView> {
@@ -68,14 +76,17 @@ export interface TimelineRenderResult {
   replayed: boolean;
 }
 
-/** User-initiated final-cut export: deterministic compositing, no Agent. */
+/** Dispatch a deterministic final cut. Automatic requests respect regeneration holds. */
 export function renderTimeline(
   projectId: string,
   timelineId: string,
   clientRequestId = newClientId("timeline-render"),
+  automatic = false,
 ): Promise<TimelineRenderResult> {
   return creatorRequest(
-    `${project(projectId)}/timelines/${encodeURIComponent(timelineId)}/render`,
+    `${project(projectId)}/timelines/${encodeURIComponent(timelineId)}/render${
+      automatic ? "?automatic=true" : ""
+    }`,
     {
       method: "POST",
       headers: { "Idempotency-Key": clientRequestId },

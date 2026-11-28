@@ -83,21 +83,26 @@ class DiscordPlatform:
             proxy_auth=auth,
         )
 
-        @self._client.event
-        async def on_ready():
+        async def mark_connected(event):
             if not self._stopping:
                 self.connected = True
                 await self.on_state("connected")
+                logger.info(f"Discord Gateway {event}")
+
+        @self._client.event
+        async def on_ready():
+            await mark_connected(f"ready")
 
         @self._client.event
         async def on_resumed():
-            await on_ready()
+            await mark_connected(f"session resumed")
 
         @self._client.event
         async def on_disconnect():
             self.connected = False
             self._epoch += 1
             if not self._stopping:
+                logger.warning(f"Discord Gateway disconnected")
                 await self.on_state("disconnected")
 
         @self._client.event
@@ -167,6 +172,7 @@ class DiscordPlatform:
                 return
             msg_id = str(message.id)
             if msg_id in self._processed:
+                logger.debug(f"Discord duplicate message ignored")
                 return
             text = (message.content or "").strip()
             bot = self._client.user
@@ -198,6 +204,9 @@ class DiscordPlatform:
                 parts.append({"type": kind, field: local})
             group = message.guild is not None
             is_thread = isinstance(message.channel, discord.Thread)
+            logger.debug(
+                f"Discord message received: group={group} thread={is_thread}",
+            )
             thread = (
                 getattr(message, "thread", None) if not is_thread else None
             )
@@ -254,6 +263,8 @@ class DiscordPlatform:
                 self._processed[msg_id] = None
                 while len(self._processed) > 500:
                     self._processed.popitem(last=False)
+            elif not accepted:
+                logger.warning(f"Discord inbound event admission failed")
 
     async def _on_thread_create(self, thread, epoch):
         starter = getattr(thread, "starter_message", None)
@@ -261,6 +272,7 @@ class DiscordPlatform:
             return
         key, value = str(starter.id), str(thread.id)
         self._recent_thread_starts[key] = value
+        logger.debug(f"Discord thread_create recorded starter reference")
         while len(self._recent_thread_starts) > 500:
             self._recent_thread_starts.popitem(last=False)
         await asyncio.sleep(30)
@@ -284,13 +296,17 @@ class DiscordPlatform:
         path = self._media_dir / f"{attachment.id}_{safe}"
         try:
             await attachment.save(path)
+            logger.debug(f"Discord inbound attachment downloaded")
             return str(path)
         except asyncio.CancelledError:
             path.unlink(missing_ok=True)
             raise
-        except Exception:
+        except Exception as exc:
             path.unlink(missing_ok=True)
-            logger.exception("Discord attachment download failed")
+            logger.warning(
+                f"Discord inbound attachment download failed "
+                f"({type(exc).__name__})",
+            )
             return None
 
     async def resolve_target(self, route):
@@ -305,6 +321,7 @@ class DiscordPlatform:
                 ident,
             ) or await self._client.fetch_user(ident)
             return user.dm_channel or await user.create_dm()
+        logger.warning(f"Discord outbound destination unavailable")
         raise DiscordDeliveryError("OUTBOUND_TARGET_UNKNOWN")
 
     @asynccontextmanager
@@ -319,11 +336,15 @@ class DiscordPlatform:
             self._effect_tasks.discard(task)
 
     @staticmethod
-    async def _request(call):
+    async def _request(call, *, operation=f"send message"):
         try:
             return await call
         except discord.HTTPException as exc:
             rejected = 400 <= exc.status < 500
+            code = getattr(exc, f"code", None)
+            logger.warning(
+                f"Discord {operation} failed: HTTP {exc.status}, code={code}",
+            )
             raise DiscordDeliveryError(
                 "DISCORD_REJECTED" if rejected else "DISCORD_RESULT_UNKNOWN",
                 side_effect_possible=not rejected,
@@ -332,6 +353,9 @@ class DiscordPlatform:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            logger.warning(
+                f"Discord {operation} failed ({type(exc).__name__})",
+            )
             raise DiscordDeliveryError(
                 "DISCORD_RESULT_UNKNOWN",
                 side_effect_possible=True,
@@ -391,7 +415,10 @@ class DiscordPlatform:
     async def _send_file(self, target, path, filename=None):
         attachment = discord.File(str(path), filename=filename)
         try:
-            return await self._request(target.send(file=attachment))
+            return await self._request(
+                target.send(file=attachment),
+                operation=f"send attachment",
+            )
         finally:
             attachment.close()
 
@@ -420,6 +447,7 @@ class DiscordPlatform:
         if url.startswith("file://"):
             local = file_url_to_local_path(url)
             if not local:
+                logger.warning(f"Discord rejected invalid file URL")
                 return None
             path = Path(local)
             self._authorize_path(path)
@@ -428,6 +456,10 @@ class DiscordPlatform:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as response:
                     if response.status != 200:
+                        logger.warning(
+                            f"Discord outbound media download failed: "
+                            f"HTTP {response.status}",
+                        )
                         return None
                     data = await response.read()
             parsed = Path(urlparse(url).path)
@@ -453,7 +485,10 @@ class DiscordPlatform:
             target = await self.resolve_target(route)
             return self._receipt(
                 target,
-                await self._request(target.send(text)),
+                await self._request(
+                    target.send(text),
+                    operation=f"stream start",
+                ),
             )
 
     async def update_stream(self, resource, text, final=False):
@@ -461,7 +496,10 @@ class DiscordPlatform:
             target = await self.resolve_target(resource)
             message = target.get_partial_message(int(resource["message_id"]))
             if final and len(text) > 2000:
-                await self._request(message.delete())
+                await self._request(
+                    message.delete(),
+                    operation=f"stream final replace",
+                )
                 try:
                     replacement = (
                         {"user_id": resource["replacement_user_id"]}
@@ -481,7 +519,10 @@ class DiscordPlatform:
             display = text
             if not final and len(display) > 2000:
                 display = "..." + display[-1996:]
-            await self._request(message.edit(content=display))
+            await self._request(
+                message.edit(content=display),
+                operation=f"stream end" if final else f"stream delta",
+            )
             return {
                 "channel_id": resource["channel_id"],
                 "message_id": resource["message_id"],

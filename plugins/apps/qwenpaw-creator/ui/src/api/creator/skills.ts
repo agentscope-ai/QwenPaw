@@ -101,3 +101,62 @@ export function importSkillFromUrl(
     { timeoutMs: 100_000 },
   );
 }
+
+// ── Market search ───────────────────────────────────────────────────────────
+
+export interface MarketSkillResult {
+  source: string;
+  source_label: string | null;
+  slug: string;
+  name: string;
+  description: string | null;
+  source_url: string;
+  version: string | null;
+  author: string | null;
+  icon_url: string | null;
+  stats: Record<string, string | number> | null;
+}
+
+export interface MarketSearchResponse {
+  results: MarketSkillResult[];
+  has_more: boolean;
+  totals: Record<string, number>;
+}
+
+export function searchMarketSkills(
+  query: string,
+  page = 1,
+  limit = 20,
+  lang = "en",
+  providers?: string[],
+): Promise<MarketSearchResponse> {
+  const params = new URLSearchParams();
+  if (query) params.set("query", query);
+  params.set("page", String(page));
+  params.set("limit", String(limit));
+  params.set("lang", lang);
+  // Empty/omitted means "every reachable market" (the default); only send the
+  // filter once the user narrows the source picker.
+  if (providers && providers.length > 0) {
+    params.set("providers", providers.join(","));
+  }
+  return creatorRequest<MarketSearchResponse>(
+    `/skills/market/search?${params.toString()}`,
+  );
+}
+
+export interface MarketProvider {
+  key: string;
+  label: string;
+  available: boolean;
+  reason: string | null;
+  supports_browse: boolean;
+}
+
+export function listMarketProviders(): Promise<{
+  providers: MarketProvider[];
+}> {
+  return creatorRequest<{ providers: MarketProvider[] }>(
+    "/skills/market/providers",
+  );
+}

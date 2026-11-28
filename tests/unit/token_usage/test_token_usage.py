@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the token usage core module."""
+
 from __future__ import annotations
 
 import asyncio
@@ -914,6 +915,114 @@ class TestTokenRecordingModelWrapper:
         model.model = "gpt-4"
         return TokenRecordingModelWrapper("openai", model), captured
 
+    def _module_model_harness(self, _tmp_path, monkeypatch, module, name):
+        captured: list = []
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.model_wrapper.get_token_usage_manager",
+            lambda: MagicMock(enqueue=captured.append),
+        )
+        model = type(
+            "FakeModel",
+            (),
+            {"__module__": module, "model": name},
+        )()
+        return TokenRecordingModelWrapper("provider", model), captured
+
+    def test_last_prompt_tokens_counts_anthropic_cache_tokens(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Anthropic input_tokens exclude cache reads, so add them back."""
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context.get_current_session_id",
+            lambda: "sess-anthropic-live-context",
+        )
+        wrapper, captured = self._module_model_harness(
+            tmp_path,
+            monkeypatch,
+            "agentscope.model._anthropic._model",
+            "claude-sonnet-4",
+        )
+        usage = MagicMock()
+        usage.input_tokens = 3_000
+        usage.output_tokens = 500
+        usage.cache_input_tokens = 120_000
+        usage.cache_creation_input_tokens = 5_000
+
+        wrapper._record_usage(usage)
+
+        stored = TokenRecordingModelWrapper.pop_usage_for_session(
+            "sess-anthropic-live-context",
+        )
+        assert stored is not None
+        assert stored["last_prompt_tokens"] == 128_000
+        assert stored["cache_eligible_input_tokens"] == 128_000
+        # Session totals keep the uncached prompt as the billing input.
+        assert stored["prompt_tokens"] == 3_000
+        assert captured[0].prompt_tokens == 3_000
+        assert captured[0].cache_eligible_input_tokens == 128_000
+
+    def test_last_prompt_tokens_keeps_openai_input_tokens(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """OpenAI prompt_tokens already include cached tokens."""
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context.get_current_session_id",
+            lambda: "sess-openai-live-context",
+        )
+        wrapper, _ = self._module_model_harness(
+            tmp_path,
+            monkeypatch,
+            "agentscope.model._openai_chat._model",
+            "gpt-4.1",
+        )
+        usage = MagicMock()
+        usage.input_tokens = 4_000
+        usage.output_tokens = 20
+        usage.cache_input_tokens = 3_000
+        usage.cache_creation_input_tokens = 0
+
+        wrapper._record_usage(usage)
+
+        stored = TokenRecordingModelWrapper.pop_usage_for_session(
+            "sess-openai-live-context",
+        )
+        assert stored is not None
+        assert stored["last_prompt_tokens"] == 4_000
+
+    def test_last_prompt_tokens_ignores_unverifiable_cache_tokens(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Providers without cache semantics should keep raw input tokens."""
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context.get_current_session_id",
+            lambda: "sess-unknown-live-context",
+        )
+        wrapper, _ = self._module_model_harness(
+            tmp_path,
+            monkeypatch,
+            "some.vendor.model",
+            "vendor-model",
+        )
+        usage = MagicMock()
+        usage.input_tokens = 7_000
+        usage.output_tokens = 30
+        usage.cache_input_tokens = 4_000
+        usage.cache_creation_input_tokens = 0
+
+        wrapper._record_usage(usage)
+
+        stored = TokenRecordingModelWrapper.pop_usage_for_session(
+            "sess-unknown-live-context",
+        )
+        assert stored is not None
+        assert stored["last_prompt_tokens"] == 7_000
+
     def test_init_wraps_model(self, tmp_path, monkeypatch):
         """Should wrap a ChatModelBase instance."""
         monkeypatch.setattr(
@@ -1054,6 +1163,46 @@ class TestTokenRecordingModelWrapper:
         assert second[f"prompt_tokens"] == 300
         assert second[f"last_prompt_tokens"] == 200
         assert wrapper.pop_usage_for_session(f"live-usage") == second
+
+    def test_auxiliary_usage_preserves_context_and_restores_scope(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from qwenpaw.token_usage.model_wrapper import (
+            auxiliary_model_usage,
+            set_conversation_context_tokens,
+        )
+
+        monkeypatch.setattr(
+            f"qwenpaw.app.agent_context.get_current_session_id",
+            lambda: f"auxiliary-usage",
+        )
+        wrapper, captured = self._stream_harness(tmp_path, monkeypatch)
+        usage = MagicMock()
+        usage.input_tokens = 60000
+        usage.output_tokens = 10
+        usage.cache_input_tokens = 0
+        usage.cache_creation_input_tokens = 0
+        set_conversation_context_tokens(123)
+        wrapper._record_usage(usage)
+        with pytest.raises(ValueError), auxiliary_model_usage():
+            set_conversation_context_tokens(1)
+            usage.input_tokens = 180
+            wrapper._record_usage(usage)
+            raise ValueError(f"scope cleanup")
+        snapshot = wrapper.peek_usage_for_session(f"auxiliary-usage")
+        assert snapshot[f"prompt_tokens"] == 60180
+        assert snapshot[f"last_prompt_tokens"] == 60000
+        assert snapshot[f"context_tokens"] == 123
+        assert len(captured) == 2
+        usage.input_tokens = 61000
+        set_conversation_context_tokens(234)
+        wrapper._record_usage(usage)
+        snapshot = wrapper.pop_usage_for_session(f"auxiliary-usage")
+        assert snapshot[f"last_prompt_tokens"] == 61000
+        assert snapshot[f"context_tokens"] == 234
+        assert snapshot[f"prompt_tokens"] == 121180
 
     @pytest.mark.parametrize(f"reported", [None, 0, 80])
     def test_raw_cache_presence_controls_observation(

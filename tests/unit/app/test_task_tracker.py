@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from qwenpaw.app.replay_store import RECONNECT_REQUIRED_SSE
 from qwenpaw.app.task_tracker import TaskTracker
 
 # ---------------------------------------------------------------------------
@@ -49,6 +50,32 @@ def _make_stream(events: list[str]):
 # ---------------------------------------------------------------------------
 # get_status / has_active_tasks / list_active_tasks
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_background_task_tracks_until_completion_and_detaches():
+    tracker = TaskTracker()
+    release = asyncio.Event()
+    start = Mock(side_effect=lambda: asyncio.create_task(release.wait()))
+    task = tracker.start_background_task("workflow:report", start)
+    try:
+        assert await tracker.snapshot_active_tasks() == {
+            "workflow:report": task,
+        }
+        assert await tracker.has_active_tasks_excluding(task) is False
+        with pytest.raises(ValueError, match="already tracked"):
+            tracker.start_background_task("workflow:report", start)
+        start.assert_called_once_with()
+        queue = await tracker.attach("workflow:report")
+        release.set()
+        await task
+        assert await tracker.snapshot_active_tasks() == {}
+        assert tracker._runs == {}
+        assert await queue.get() is not None  # Replay boundary.
+        assert await queue.get() is None
+    finally:
+        release.set()
+        await task
 
 
 @pytest.mark.asyncio
@@ -127,9 +154,31 @@ async def test_attach_or_start_streams_events_and_marks_completion():
     assert [a, b] == events
     assert sentinel is None
 
-    # After completion the tracker cleans up the run.
+    # Completion is idle immediately, while terminal replay remains available
+    # for a reconnect that started from a concurrent history request.
     assert await tracker.get_status("run-1") == "idle"
-    assert "run-1" not in tracker._runs
+    replay = await tracker.attach("run-1")
+    assert replay is not None
+    assert await _drain(replay, 4) == [
+        *events,
+        'data: {"type": "replay_end"}\n\n',
+        None,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_completed_replay_can_expire_immediately():
+    tracker = TaskTracker(reconnect_grace_seconds=0)
+
+    queue, _ = await tracker.attach_or_start(
+        "run-expire",
+        payload=None,
+        stream_fn=_make_stream(["data: done\n\n"]),
+    )
+    assert await _drain(queue, 2) == ["data: done\n\n", None]
+
+    assert await tracker.attach("run-expire") is None
+    assert "run-expire" not in tracker._runs
 
 
 @pytest.mark.asyncio
@@ -559,6 +608,53 @@ async def test_owned_stream_cancellation_never_stops_successor_run(
 
 
 @pytest.mark.asyncio
+async def test_channel_handoff_excludes_only_transferable_runs_from_drain():
+    tracker = TaskTracker()
+    owner, other_owner = object(), object()
+    release = asyncio.Event()
+
+    async def stream(_):
+        await release.wait()
+        yield "data: done\n\n"
+
+    try:
+        for key, run_owner, channel, transferable in (
+            ("cron", owner, "wechat", True),
+            ("inbound", owner, "wechat", False),
+            ("other-owner", other_owner, "wechat", False),
+            ("other-channel", owner, "console", False),
+        ):
+            await tracker.attach_or_start(
+                key,
+                None,
+                stream,
+                owner=run_owner,
+                channel_id=channel,
+                channel_handoff_safe=transferable,
+            )
+        assert set(
+            await tracker.snapshot_active_tasks(
+                owner=owner,
+                channel_id="wechat",
+            ),
+        ) == {"cron", "inbound"}
+        assert set(
+            await tracker.snapshot_active_tasks(
+                owner=owner,
+                channel_id="wechat",
+                channel_handoff=True,
+            ),
+        ) == {"inbound"}
+        assert await tracker.get_status("cron") == "running"
+        assert await tracker.request_stop("cron")
+        assert await tracker.get_status("cron") == "idle"
+        assert await tracker.get_status("inbound") == "running"
+    finally:
+        release.set()
+        await tracker.wait_all_done(1)
+
+
+@pytest.mark.asyncio
 async def test_wait_all_done_returns_true_when_idle():
     tracker = TaskTracker()
 
@@ -780,3 +876,21 @@ async def test_attach_appends_replay_end_marker_after_buffer():
     # The original (non-reconnect) subscriber never sees the marker.
     rest_a = await _drain(queue_a, 3)
     assert rest_a == ["data: first\n\n", "data: second\n\n", None]
+
+
+@pytest.mark.asyncio
+async def test_slow_subscriber_is_bounded_and_told_to_reconnect():
+    """A stalled client cannot retain an unbounded live event backlog."""
+    tracker = TaskTracker(subscriber_queue_max=2)
+    events = [f"data: {index}\n\n" for index in range(3)]
+
+    queue, _ = await tracker.attach_or_start(
+        "run-slow",
+        payload=None,
+        stream_fn=_make_stream(events),
+    )
+    while await tracker.get_status("run-slow") == "running":
+        await asyncio.sleep(0)
+
+    assert queue.maxsize == 2
+    assert await _drain(queue, 2) == [RECONNECT_REQUIRED_SSE, None]

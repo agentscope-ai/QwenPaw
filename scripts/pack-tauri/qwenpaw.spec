@@ -10,9 +10,13 @@ option.
 
 import os
 import runpy
+import shutil
 import sys
+import tomllib
+from importlib.metadata import packages_distributions
 from pathlib import Path
 
+from PyInstaller.building.utils import format_binaries_and_datas
 from PyInstaller.utils.hooks import (
     collect_data_files,
     collect_submodules,
@@ -55,7 +59,7 @@ def collect_tree(source_dir, target_dir):
             str(Path(target_dir) / path.relative_to(source_dir).parent),
         )
         for path in source_dir.rglob("*")
-        if path.is_file()
+        if path.is_file() and "__pycache__" not in path.parts
     ]
 
 
@@ -86,17 +90,41 @@ datas = [
     (str(SRC / src), dst) for src, dst in _data_dirs if (SRC / src).is_dir()
 ]
 datas.append((str(REPO_ROOT / "plugins/hub"), "qwenpaw/plugins/bundled/hub"))
+# Keep the offline, opt-in MCP payload identical to wheel package data. Do not
+# copy the whole author tree (which may contain node_modules or build caches).
+_packaging = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())[
+    "tool"
+]["setuptools"]
+_optional_package = "qwenpaw.plugins.bundled.optional.mcp"
+_optional_source = REPO_ROOT / _packaging["package-dir"][_optional_package]
+for _pattern in _packaging["package-data"][_optional_package]:
+    for _path in sorted(_optional_source.glob(_pattern)):
+        if _path.is_file():
+            datas.append(
+                (
+                    str(_path),
+                    str(
+                        Path(*_optional_package.split("."))
+                        / _path.relative_to(_optional_source).parent
+                    ),
+                ),
+            )
+datas.append(
+    (
+        str(REPO_ROOT / "plugins/provider"),
+        "qwenpaw/plugins/bundled/provider",
+    )
+)
 datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
+# Ship the SDK adapter as source data, without analysing its optional imports.
+datas += collect_tree(
+    REPO_ROOT / "plugins/transcription/local-whisper",
+    "qwenpaw/plugins/bundled/transcription/local-whisper",
+)
 datas.append(
     (
         str(SRC / "browser/control_link/injected/engine.js"),
         "qwenpaw/browser/control_link/injected",
-    ),
-)
-datas.append(
-    (
-        str(SRC / "local_models/runtime-release.json"),
-        "qwenpaw/local_models",
     ),
 )
 
@@ -107,7 +135,6 @@ datas.append(
 datas += collect_data_files("reme")
 datas += collect_data_files("reme_auto_fin")
 datas += collect_data_files("reme_daily_paper")
-datas += collect_data_files("whisper")
 datas += collect_data_files("agentscope")
 datas += collect_data_files(
     "agentscope.tool._builtin._scripts",
@@ -162,8 +189,6 @@ _metadata_pkgs = [
     "reme-auto-fin",
     "reme-daily-paper",
     "huggingface_hub",
-    "modelscope",
-    "openai-whisper",
 ]
 for _pkg in _metadata_pkgs:
     try:
@@ -181,6 +206,8 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=[
+        # Optional PyTorch imports this stdlib module after installation.
+        "pickletools",
         # Bundled Hub entrypoints are plugin data, not statically imported.
         "qwenpaw.market.providers.qwenpaw",
         "qwenpaw.market.providers.clawhub",
@@ -239,30 +266,60 @@ a = Analysis(
         "psutil",
         "multipart",
         "websockets",
-        "modelscope",
-        "modelscope.hub.api",
-        "modelscope.hub.snapshot_download",
+        # Model download SDKs reuse the host's tqdm at runtime. Their
+        # imports are outside PyInstaller's analysis of the host.
+        "tqdm.auto",
         *collect_submodules("agentscope.tool._builtin._scripts"),
         *collect_submodules("agentscope.workspace._mcp_gateway"),
-        *collect_submodules("whisper"),
         *collect_submodules("chromadb"),
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # Optional Harness runtimes belong to independently installed plugins.
+    # Keep optional audio, Harness and external Channel modules out of the backend.
     excludes=[
+        "whisper",
+        "torch",
+        "torchaudio",
+        "torchvision",
+        "triton",
         "qwenpaw.harnesses",
         "openai_codex",
         "codex_cli_bin",
         "qoder_agent_sdk",
+        "modelscope",
         "lark_oapi",
         "dingtalk_stream",
         "alibabacloud_dingtalk",
+        # The desktop bundle does not need GPU/CUDA wheels; the Linux build
+        # installs CPU-only torch, which is what this exclusion keeps out.
+        "nvidia",
+        "triton",
         *_external_channel_modules,
     ],
     noarchive=False,
 )
+
+# Runtime plugin installs must see the versions of all bundled host packages,
+# including packages that never query their own metadata. Only collect metadata
+# for modules actually included by Analysis, not unused build-environment tools.
+_distributions = packages_distributions()
+_bundled_roots = {
+    name.replace("/", ".").split(".", 1)[0]
+    for name, *_ in [*a.pure, *a.binaries]
+}
+_bundled_packages = {
+    package
+    for root in _bundled_roots
+    for package in _distributions.get(root, ())
+}
+for _pkg in sorted(_bundled_packages):
+    a.datas += [
+        (destination, source, "DATA")
+        for destination, source in format_binaries_and_datas(
+            copy_metadata(_pkg)
+        )
+    ]
 
 pyz = PYZ(a.pure)
 
@@ -341,3 +398,30 @@ coll = COLLECT(
     upx=False,
     name="qwenpaw-backend",
 )
+
+
+def _strip_cuda_payload(bundle):
+    """Drop the CUDA runtime that torch pulls in through the whisper extra.
+
+    The ``nvidia-*`` wheels and ``triton`` add several gigabytes and are only
+    usable with a matching driver. Desktop installs fetch llama.cpp on demand
+    for local inference, so only torch's CPU path is shipped. PyInstaller
+    collects these libs from package data rather than from imports, so the
+    ``excludes`` entry alone is not enough.
+    """
+    for entry in sorted((bundle / "_internal").glob("*")):
+        # Match the payload only. ``triton-*.dist-info`` must stay: Whisper
+        # declares triton, and plugin dependency checks read that metadata.
+        name = entry.name
+        if name not in ("nvidia", "triton") and not name.startswith(
+            ("nvidia.", "triton."),
+        ):
+            continue
+        print(f"stripping CUDA payload: {name}")
+        if entry.is_dir():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+
+_strip_cuda_payload(Path(DISTPATH) / "qwenpaw-backend")

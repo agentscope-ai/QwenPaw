@@ -328,10 +328,11 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     variables into the subprocess — e.g. pointing channel endpoints at local
     mock IM servers (``QQ_TOKEN_URL``/``QQ_API_BASE``).
     """
-    tmp_path = tmp_path_factory.mktemp("app_server")
+    short_paths = getattr(request, "param", None) == "short"
+    tmp_path = tmp_path_factory.mktemp("app" if short_paths else "app_server")
     host = "127.0.0.1"
 
-    working_dir = tmp_path / "working"
+    working_dir = tmp_path / ("w" if short_paths else "working")
     secret_dir = tmp_path / "working.secret"
     backups_dir = tmp_path / "working.backups"
     working_dir.mkdir(parents=True, exist_ok=True)
@@ -533,3 +534,14 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     finally:
         client.close()
         _shutdown_app(process, log_thread)
+
+
+@pytest.fixture(scope="module")
+# Pytest injects the existing fixture under its public name.
+# pylint: disable-next=redefined-outer-name
+def installed_mcp_plugin(app_server: AppServer) -> None:
+    """Explicitly install MCP for modules testing its available runtime."""
+    response = app_server.api_request("POST", "/api/mcp-plugin/install")
+    assert response.status_code == 200, app_server.logs_tail()
+    state = response.json()
+    assert state["status"] == "active", state

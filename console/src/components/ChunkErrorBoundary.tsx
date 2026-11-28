@@ -14,6 +14,7 @@ import { resetFailedLazyImports } from "../utils/lazyWithRetry";
 import {
   captureChunkDiagnostic,
   failedResourceUrl,
+  formatChunkDiagnostic,
   readBeforeAutomaticReloadDiagnostic,
   recheckChunkResource,
   saveChunkDiagnostic,
@@ -21,6 +22,10 @@ import {
 import type { ChunkDiagnostic } from "../utils/chunkDiagnostics";
 import { waitForChunkServerReady } from "../utils/chunkServerReadiness";
 import { copyText } from "../utils/clipboard";
+import {
+  redactConsoleGrant,
+  reloadConsole,
+} from "../features/platform-web/hostBridge";
 import styles from "./ChunkErrorBoundary.module.less";
 
 interface Props {
@@ -174,10 +179,14 @@ export class ChunkErrorBoundary extends Component<Props, State> {
       return;
     }
     const reloading = reloadAfterChunkError((decision) => {
+      if (generation !== this.diagnosticGeneration) return;
       completed.automaticReloadAttempted = decision.reason === "reload";
       completed.automaticReload = decision;
       saveChunkDiagnostic(completed);
-      this.setState({ diagnostic: { ...completed } });
+      this.setState({
+        diagnostic: { ...completed },
+        recovering: decision.reason === "reload",
+      });
     });
     if (!reloading) this.setState({ recovering: false });
   };
@@ -193,14 +202,10 @@ export class ChunkErrorBoundary extends Component<Props, State> {
   };
 
   diagnosticText() {
-    return JSON.stringify(
-      {
-        current: this.state.diagnostic,
-        beforeAutomaticReload: this.state.previousDiagnostic,
-      },
-      null,
-      2,
-    );
+    return formatChunkDiagnostic({
+      current: this.state.diagnostic,
+      beforeAutomaticReload: this.state.previousDiagnostic,
+    });
   }
 
   restartRuntime = async () => {
@@ -226,10 +231,21 @@ export class ChunkErrorBoundary extends Component<Props, State> {
     }
   };
 
-  reloadPage = () => {
+  reloadPage = async () => {
     this.diagnosticGeneration += 1;
     this.readinessController?.abort();
-    window.location.reload();
+    try {
+      const pending = reloadConsole();
+      if (pending) {
+        this.setState({ recovering: true, restartError: "" });
+        await pending;
+      }
+    } catch (error) {
+      this.setState({
+        recovering: false,
+        restartError: redactConsoleGrant(String(error)),
+      });
+    }
   };
 
   render() {

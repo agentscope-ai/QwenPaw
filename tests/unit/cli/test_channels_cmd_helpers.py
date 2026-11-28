@@ -164,7 +164,7 @@ class TestGetChannelNames:
             "get_channel_registry",
             lambda: {"console": object(), "discord": object()},
         )
-        names = cc._get_channel_names()
+        names = cc._get_channel_names(cc.get_configurable_channel_catalog())
         assert names["console"] == "Console"
         assert names["discord"] == "Discord"
         assert names["telegram"] == "Telegram"
@@ -180,7 +180,7 @@ class TestGetChannelNames:
             "get_channel_registry",
             lambda: {"mychan": _Plugin},
         )
-        names = cc._get_channel_names()
+        names = cc._get_channel_names(cc.get_configurable_channel_catalog())
         assert names["mychan"] == "My Plugin Channel"
 
     def test_plugin_channel_fallback_title(self, monkeypatch):
@@ -194,7 +194,7 @@ class TestGetChannelNames:
             "get_channel_registry",
             lambda: {"my_channel": object},
         )
-        names = cc._get_channel_names()
+        names = cc._get_channel_names(cc.get_configurable_channel_catalog())
         assert names["my_channel"] == "My Channel"
 
 
@@ -283,7 +283,9 @@ class TestGetChannelConfigurators:
         monkeypatch.setattr(cc, "get_channel_registry", lambda: {})
         configurators = cc.get_channel_configurators()
         assert "ghost" not in configurators
-        assert "ghost" not in cc._get_channel_names()
+        assert "ghost" not in cc._get_channel_names(
+            cc.get_configurable_channel_catalog(),
+        )
 
 
 @pytest.mark.usefixtures("isolated_channel_catalog")

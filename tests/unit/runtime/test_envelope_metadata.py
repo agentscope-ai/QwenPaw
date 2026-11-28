@@ -147,6 +147,8 @@ async def test_metadata_is_added_to_existing_stream_outputs():
                     state="success",
                 ),
             ],
+            # The first data block emits once to preserve content order;
+            # later fragments remain subject to the snapshot gate.
             [2, 1, 1, 2],
         ),
         (
@@ -175,6 +177,42 @@ async def test_metadata_is_added_to_existing_stream_outputs():
             assert all(
                 payload["metadata"] == event.metadata for payload in payloads
             )
+
+
+@pytest.mark.asyncio
+async def test_emitted_tool_result_delta_still_carries_metadata():
+    """A snapshot the byte gate lets through keeps its event metadata.
+
+    Small tool result deltas are now suppressed, so the data delta that
+    used to emit unconditionally has to cross the threshold to be seen.
+    """
+    envelope = Envelope()
+    for event in (
+        _event(
+            EventType.TOOL_RESULT_START,
+            tool_call_id="result",
+            tool_call_name="lookup",
+        ),
+        _event(
+            EventType.TOOL_RESULT_TEXT_DELTA,
+            tool_call_id="result",
+            delta="done",
+        ),
+    ):
+        await _translate(envelope, event)
+
+    data_event = _event(
+        EventType.TOOL_RESULT_DATA_DELTA,
+        tool_call_id="result",
+        block_id="image",
+        media_type="image/png",
+        data="YWJj" * 512,
+        url=None,
+    )
+    payloads = await _translate(envelope, data_event)
+
+    assert len(payloads) == 1
+    assert payloads[0]["metadata"] == data_event.metadata
 
 
 @pytest.mark.asyncio
@@ -320,3 +358,48 @@ async def test_empty_metadata_keeps_existing_content_shape():
 
     assert message["metadata"] is None
     assert "metadata" not in delta
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (f"selected", f"has_marker"),
+    [
+        ({f"finish_reason": f"stop", f"truncated": False}, True),
+        ({f"finish_reason": f"length", f"truncated": True}, True),
+        (None, True),
+        (None, False),
+    ],
+)
+async def test_reply_completion_preserves_usage_and_unrelated_metadata(
+    selected,
+    has_marker,
+):
+    """Only an explicit reply marker overrides the last model's reason."""
+    envelope = Envelope()
+    key = f"qwenpaw_model_completion"
+    previous = {f"finish_reason": f"length", f"truncated": True}
+    envelope.response.metadata = {f"custom": f"keep"}
+    await _translate(
+        envelope,
+        _event(
+            EventType.MODEL_CALL_END,
+            metadata={key: previous},
+            input_tokens=17,
+            output_tokens=9,
+        ),
+    )
+    await _translate(
+        envelope,
+        _event(
+            EventType.REPLY_END,
+            metadata={key: selected} if has_marker else {},
+        ),
+    )
+
+    final = (await _dump(envelope.finalize()))[-1]
+    expected = selected if has_marker else previous
+    assert final[f"metadata"].get(key) == expected
+    if has_marker and selected is None:
+        assert key not in final[f"metadata"]
+    assert final[f"metadata"][f"custom"] == f"keep"
+    assert final[f"usage"] == {f"input_tokens": 17, f"output_tokens": 9}

@@ -12,6 +12,7 @@ from agentscope.message import ToolResultState
 import qwenpaw.agents.context as context_mod
 from qwenpaw.runtime.builder import AgentBuilder, _resolve_react_iterations
 from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.config.config import AgentProfileConfig, LightContextConfig
@@ -27,8 +28,19 @@ def _history_workspace(tmp_path, filename="history.db", strategy="scroll"):
     # Use the production descriptor without starting unrelated services.
     manager = ws._service_manager
     manager.descriptors = {
-        "history_store": manager.descriptors["history_store"],
+        "transcript_store": manager.descriptors["transcript_store"],
     }
+    catalog = TranscriptCatalog(tmp_path)
+    try:
+        for session_id in ("first", "second", "s", "cancelled"):
+            catalog.write_runtime_state(
+                session_id=session_id,
+                user_id=session_id,
+                channel="",
+                state={"agent": {}},
+            )
+    finally:
+        catalog.close()
     return ws
 
 
@@ -53,60 +65,61 @@ async def test_workspace_history_survives_requests_and_reload(
     old_manager = old._service_manager
     new_manager = new._service_manager
     await old_manager.start_all()
-    store = old.history_store
-    assert store is not None
     managers = []
     try:
         for session_id in ("first", "second"):
-            ctx = SimpleNamespace(workspace=old, session_id=session_id)
             components = await AgentBuilder._build_scroll_components(
-                ctx,
+                SimpleNamespace(workspace=old, session_id=session_id),
                 old.config,
                 model=None,
             )
             assert components is not None
-            cm = components.context_manager
-            assert cm._history is store
-            managers.append(cm)
-
+            managers.append(components.context_manager)
+        first, second = [cm._history for cm in managers]
+        assert first.path != second.path
         managers[0].close()
-        assert not store.closed
-        store.append(
+        assert first.closed and not second.closed
+        second.append(
             session_id="second",
-            entry=LogEntry(kind="model_turn", role="assistant", content="ok"),
+            entry=LogEntry(kind="model_turn", content="persisted"),
         )
-        assert store.count("second") == 1
-
         reusable = old_manager.get_reusable_services()
         await new.set_reusable_components(reusable)
         await new_manager.start_all()
         if reload_kind == "discard":
             await new_manager.stop_all(final=True, preserve_reused=True)
-            assert not store.closed
         else:
             MultiAgentManager._mark_rejected_reusable_services_for_cleanup(
                 old,
                 new,
                 reusable,
             )
-            # The outgoing request can still write until it finishes.
-            assert not store.closed
-            managers[1].close()
             await old_manager.stop_all(final=False)
-            if reload_kind == "same":
-                assert new.history_store is store
-                assert not store.closed
-                assert new.history_store.count("second") == 1
+        assert not second.closed
+        assert second.count("second") == 1
+        managers[1].close()
+        if reload_kind != "discard":
+            components = await AgentBuilder._build_scroll_components(
+                SimpleNamespace(workspace=new, session_id="second"),
+                new.config,
+                model=None,
+            )
+            if reload_kind == "native":
+                assert components is None
             else:
-                assert store.closed
-                assert new.history_store is not store
-            await new_manager.stop_all(final=True)
+                assert components is not None
+                managers.append(components.context_manager)
+                reopened = components.context_manager._history
+                assert reopened.path == second.path
+                assert reopened.count("second") == 1
+        assert not (tmp_path / "history.db").exists()
+        assert not (tmp_path / "other.db").exists()
     finally:
         for cm in managers:
             cm.close()
         await old_manager.stop_all(final=True)
         await new_manager.stop_all(final=True)
-    assert store.closed
+    assert all(cm._history.closed for cm in managers)
 
 
 @pytest.mark.asyncio
@@ -122,15 +135,17 @@ async def test_final_stop_cancels_request_and_persists_history(
     multi.agents["agent"] = ws
     started = asyncio.Event()
     cancelled = asyncio.Event()
-    store = ws.history_store
+    store = None
 
     async def request(_payload):
+        nonlocal store
         components = await AgentBuilder._build_scroll_components(
             SimpleNamespace(workspace=ws, session_id="s"),
             ws.config,
             model=None,
         )
         assert components is not None
+        store = components.context_manager._history
         started.set()
         try:
             await asyncio.Event().wait()  # A cancellable model/tool wait.
@@ -195,11 +210,9 @@ async def test_runtime_fts_corruption_is_repaired_on_next_borrow(
         True
     )
     await ws._service_manager.start_all()
-    store = ws.history_store
+    store = None
     components = []
     try:
-        if not store._fts:
-            pytest.skip("SQLite build lacks FTS5")
         ctx = SimpleNamespace(workspace=ws, session_id="s")
         first = await AgentBuilder._build_scroll_components(
             ctx,
@@ -208,6 +221,9 @@ async def test_runtime_fts_corruption_is_repaired_on_next_borrow(
         )
         assert first is not None
         components.append(first)
+        store = first.context_manager._history
+        if not store._fts:
+            pytest.skip("SQLite build lacks FTS5")
         store.append(
             session_id="s",
             agent_id="agent",
@@ -231,7 +247,8 @@ async def test_runtime_fts_corruption_is_repaired_on_next_borrow(
         )
         assert second is not None
         components.append(second)
-        assert second.context_manager._history is store
+        assert store.closed
+        store = second.context_manager._history
         result = await second.recall_tool(op="search", query="aardvark")
         assert result.state == ToolResultState.SUCCESS
         assert "aardvark" in result.content[0].text
@@ -248,7 +265,6 @@ async def test_history_path_change_without_workspace_reload(tmp_path):
     ws = _history_workspace(tmp_path)
     await ws._service_manager.start_all()
     components = []
-    original = ws.history_store
     try:
         ctx = SimpleNamespace(workspace=ws, session_id="s")
         first = await AgentBuilder._build_scroll_components(
@@ -258,7 +274,8 @@ async def test_history_path_change_without_workspace_reload(tmp_path):
         )
         assert first is not None
         components.append(first)
-        # A request sees the edited config before any workspace reload.
+        original = first.context_manager._history
+        # Legacy import settings cannot redirect live session recall.
         ws.config.running.light_context_config.scroll_config.db_filename = (
             "changed.db"
         )
@@ -270,18 +287,19 @@ async def test_history_path_change_without_workspace_reload(tmp_path):
         assert second is not None
         components.append(second)
         changed = second.context_manager._history
-        assert changed.path == tmp_path / "changed.db"
-        assert ws.history_store is original
-        for store in (original, changed):
+        assert changed.path == original.path
+        assert changed is not original
+        assert not (tmp_path / "changed.db").exists()
+        for number, store in enumerate((original, changed), start=1):
             store.append(
                 session_id="s",
                 entry=LogEntry(kind="model_turn", content="persisted"),
             )
-            assert store.count("s") == 1
+            assert store.count("s") == number
         second.context_manager.close()
         assert changed.closed
         assert not original.closed
-        assert original.count("s") == 1
+        assert original.count("s") == 2
     finally:
         for component in components:
             component.context_manager.close()
@@ -298,10 +316,12 @@ async def test_cancelled_scroll_build_releases_workspace_history(
     started = threading.Event()
     release = threading.Event()
     build = context_mod.build_scroll_components
+    histories = []
 
     def blocking_build(**kwargs):
         components = build(**kwargs)
         assert components is not None
+        histories.append(components.context_manager._history)
         started.set()
         assert release.wait(timeout=5)
         return components
@@ -323,7 +343,8 @@ async def test_cancelled_scroll_build_releases_workspace_history(
     finally:
         release.set()
         await ws._service_manager.stop_all(final=True)
-    assert ws.history_store.closed
+    assert len(histories) == 1
+    assert histories[0].closed
 
 
 def test_only_internal_migration_can_raise_react_iterations():
@@ -356,9 +377,11 @@ async def test_scroll_component_build_runs_in_worker_thread(
     release = threading.Event()
     loop_thread = threading.get_ident()
     result = object()
+    captured = {}
 
-    def blocking_build(**_kwargs):
+    def blocking_build(**kwargs):
         assert threading.get_ident() != loop_thread
+        captured.update(kwargs)
         started.set()
         assert release.wait(timeout=2)
         return result
@@ -372,6 +395,8 @@ async def test_scroll_component_build_runs_in_worker_thread(
         workspace=SimpleNamespace(workspace_dir=tmp_path),
         session_id="session",
         agent_id="agent",
+        session_state={"_context_generation": 3},
+        request=SimpleNamespace(user_id="channel-user", channel="feishu"),
     )
     config = SimpleNamespace(id="agent")
 
@@ -392,3 +417,6 @@ async def test_scroll_component_build_runs_in_worker_thread(
         release.set()
 
     assert await asyncio.wait_for(task, timeout=1) is result
+    assert captured["context_generation"] == 3
+    assert captured["user_id"] == "channel-user"
+    assert captured["channel"] == "feishu"

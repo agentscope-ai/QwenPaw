@@ -1,7 +1,18 @@
+import { act, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CreatorMessage, CreatorSessionView } from "@/contracts/creator";
+import type {
+  CreatorEvent,
+  CreatorMessage,
+  CreatorSessionView,
+} from "@/contracts/creator";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { useCreatorEditBufferStore } from "@/store/creatorEditBufferStore";
+import { installMockFetch } from "@/test/mockFetch";
+import {
+  bootstrapRoutes,
+  ev,
+  testEventSources,
+} from "@/test/sessionEventBuilders";
 
 const store = () => useCreatorSessionStore.getState();
 
@@ -59,6 +70,27 @@ describe("Creator Session async project/conversation isolation", () => {
     store().reset();
     useCreatorEditBufferStore.getState().reset();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps the refreshed error when an older failure arrives on the stream", async () => {
+    bind("p1", "c1");
+    const error = {
+      code: "LATEST",
+      message: "latest failure",
+      retryable: false,
+    };
+    store().ingestEvent(ev(1, "agent.run.started"));
+    installMockFetch(
+      bootstrapRoutes({ session: { lastEventSeq: 4, status: "ERROR", error } }),
+    );
+    await store().refreshSession();
+
+    const delayed = ev(2, "agent.run.failed", {
+      error: { ...error, message: "old failure" },
+    });
+    store().ingestEvent(delayed);
+    expect(store().events).toContainEqual(delayed);
+    expect(store().session).toMatchObject({ lastEventSeq: 4, error });
   });
 
   it("drops an old send acceptance after switching projects", async () => {
@@ -296,5 +328,115 @@ describe("Creator Session async project/conversation isolation", () => {
       activeConversationId: "conversation-p2",
       conversations: [],
     });
+  });
+});
+
+/**
+ * Durable log of a session that is already IDLE: a delegation accepted near the
+ * head of the log, its specialist cancelled shortly after, a superseded mainline
+ * run end event, and 900 later events pushing all of them far below any window.
+ */
+function terminalDelegationLog(): CreatorEvent[] {
+  const delegate = {
+    parentActionId: "delegate-1",
+    runId: "run-specialist",
+    role: "media_understanding_agent",
+  };
+  return [
+    ev(1, "agent.tool_started", {
+      actionId: "delegate-1",
+      tool: "delegate_to_agent",
+      role: "media_understanding_agent",
+    }),
+    ev(10, "subagent.accepted", {
+      ...delegate,
+      delegationText: "理解刚上传的素材",
+    }),
+    ev(90, "agent.run.cancelled", { runId: "run-mainline" }),
+    ev(100, "subagent.failed", {
+      ...delegate,
+      cancelled: true,
+      error: "specialist run cancelled",
+    }),
+    ...Array.from({ length: 898 }, (_, index) =>
+      ev(101 + index, "task.progress_updated", {
+        taskId: "task-1",
+        status: "RUNNING",
+        progress: 0.5,
+      }),
+    ),
+    ev(999, "agent.tool_completed", {
+      actionId: "delegate-1",
+      tool: "delegate_to_agent",
+      state: "accepted",
+      result: { ok: true, status: "ACCEPTED" },
+    }),
+    ev(1000, "session.status_changed", { status: "IDLE" }),
+  ];
+}
+
+describe("terminal projection rebuild after a first-entry replay", () => {
+  beforeEach(() => {
+    store().reset();
+    vi.unstubAllGlobals();
+  });
+
+  it("rebuilds the delegation terminal from the replay exactly as the raw log does", async () => {
+    const history = terminalDelegationLog();
+    installMockFetch(
+      bootstrapRoutes({
+        session: {
+          lastMessageSeq: 1,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 1000,
+          status: "IDLE",
+        },
+      }),
+    );
+
+    store().reset();
+    useCreatorSessionStore.setState({
+      projectId: "p1",
+      activeConversationId: "c1",
+    });
+    store().ingestEvents(history);
+    const reference = store().subagentActivities;
+    expect(reference["delegate-1"]).toMatchObject({
+      completed: true,
+      terminalKind: "CANCELLED",
+      terminalEventSeq: 100,
+    });
+
+    // Contrast: replaying only the last 400 events — what the bounded window
+    // used to fetch — keeps the card in "素材理解中" forever, because the
+    // durable snapshot holds no terminal projection to fall back on.
+    store().reset();
+    useCreatorSessionStore.setState({
+      projectId: "p1",
+      activeConversationId: "c1",
+    });
+    store().ingestEvents(history.slice(-400));
+    expect(store().subagentActivities["delegate-1"]?.completed).toBe(false);
+
+    store().reset();
+    await store().bootstrap("p1");
+    const sources = testEventSources();
+    // Replay exactly what the stream the store opened can deliver, so a
+    // re-introduced bounded window fails this test instead of being papered
+    // over by a hand-fed event list.
+    const deliveredFrom = Number(
+      /after=(\d+)/u.exec(sources[0].url)?.[1] ?? "0",
+    );
+    act(() => {
+      for (const event of history)
+        if (event.seq > deliveredFrom) sources[0].emit(event.type, event);
+    });
+    await waitFor(() => expect(store().lastEventSeq).toBe(1000));
+    expect(store().subagentActivities).toEqual(reference);
+    // The superseded mainline run keeps its authoritative end event even after
+    // high-volume streaming history leaves the bounded `events` cache.
+    expect(store().events).toContainEqual(
+      expect.objectContaining({ seq: 90, type: "agent.run.cancelled" }),
+    );
   });
 });

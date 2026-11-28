@@ -1,7 +1,7 @@
 {
   "id": "mqtt",
   "name": "MQTT",
-  "version": "0.1.0.dev0",
+  "version": "0.1.2",
   "type": "channel",
   "description": "MQTT messaging channel; standalone integration preview.",
   "author": "QwenPaw Team",
@@ -9,7 +9,18 @@
     "descriptor": "channel.json"
   },
   "qwenpaw_version": {
-    "min": "2.2.2b4"
+    "min": "2.3.1"
   },
-  "publish": false
+  "publish": true,
+  "sdk": {
+    "version": "1.2.0",
+    "capabilities": [
+      "dependencies"
+    ]
+  },
+  "optional_dependencies": {
+    "transport": [
+      "paho-mqtt>=2.0.0"
+    ]
+  }
 }

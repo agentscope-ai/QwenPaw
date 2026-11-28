@@ -19,12 +19,14 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.agents.context.scroll.history import (
+    _RUNTIME_CONTEXT_CLEANUP,
     HistoryStore,
     HistorySchemaError,
     backup_history_database,
     validate_history_database,
 )
 from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     RUNTIME_CONTEXT_MESSAGE_TAG,
@@ -1006,7 +1008,7 @@ def test_unversioned_schema_is_migrated_in_place(tmp_path: Path):
 
     store = HistoryStore(db)
     try:
-        assert store._conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert store._conn.execute("PRAGMA user_version").fetchone()[0] == 1
         columns = {
             row["name"]
             for row in store._conn.execute(
@@ -1063,7 +1065,12 @@ def test_runtime_context_migration_removes_rows_and_search_hits(
     )
     if old._fts:
         assert len(_fts_hits(old, "privatezebra")) == 1
-    old._conn.execute(f"PRAGMA user_version={version}")
+    with old._conn:
+        old._conn.execute(
+            "DELETE FROM history_migrations WHERE migration_key = ?",
+            (_RUNTIME_CONTEXT_CLEANUP,),
+        )
+        old._conn.execute(f"PRAGMA user_version={version}")
     old.close()
 
     for _ in range(2):
@@ -1080,8 +1087,9 @@ def test_runtime_context_migration_removes_rows_and_search_hits(
             )
             assert (
                 migrated._conn.execute("PRAGMA user_version").fetchone()[0]
-                == 2
+                == 1
             )
+            assert migrated.migration_complete("", _RUNTIME_CONTEXT_CLEANUP)
             if migrated._fts:
                 assert _fts_hits(migrated, "privatezebra") == []
                 assert len(_fts_hits(migrated, "normal")) == 1
@@ -1107,7 +1115,11 @@ def test_runtime_context_migration_failure_preserves_history(
         ),
     )
     old.append(session_id="s", entry=_entry("normal conversation"))
-    old._conn.execute("PRAGMA user_version=1")
+    with old._conn:
+        old._conn.execute(
+            "DELETE FROM history_migrations WHERE migration_key = ?",
+            (_RUNTIME_CONTEXT_CLEANUP,),
+        )
     old.close()
 
     def fail_rebuild(_self):
@@ -1120,6 +1132,13 @@ def test_runtime_context_migration_failure_preserves_history(
     conn = sqlite3.connect(db)
     try:
         assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT 1 FROM history_migrations WHERE migration_key = ?",
+                (_RUNTIME_CONTEXT_CLEANUP,),
+            ).fetchone()
+            is None
+        )
         assert (
             conn.execute(
                 "SELECT count(*) FROM conversation_history",
@@ -1136,6 +1155,81 @@ def test_runtime_context_migration_failure_preserves_history(
     finally:
         conn.close()
     assert not list(tmp_path.glob("*.corrupt-*"))
+
+
+def test_runtime_context_cleanup_survives_shared_database_rebuild(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "session.db"
+    identity = dict(session_id="s", user_id="u", channel="console")
+    transcript = TranscriptStore(path)
+    try:
+        transcript.write_runtime_state(**identity, state={"agent": {}})
+        old = HistoryStore(path)
+        try:
+            old.append(
+                session_id="s",
+                entry=_entry(
+                    "privatezebra",
+                    metadata={
+                        QWENPAW_MESSAGE_TAG_KEY: RUNTIME_CONTEXT_MESSAGE_TAG,
+                    },
+                ),
+            )
+            normal = old.append(session_id="s", entry=_entry("public text"))
+            with old._conn:
+                old._conn.execute(
+                    "DELETE FROM history_migrations WHERE migration_key = ?",
+                    (_RUNTIME_CONTEXT_CLEANUP,),
+                )
+        finally:
+            old.close()
+        migrated = HistoryStore(path)
+        try:
+            assert migrated.count("s") == 1
+            assert migrated.contents_by_seqs({normal}) == {
+                normal: "public text",
+            }
+        finally:
+            migrated.close()
+        transcript.rebuild_projections()
+        # Open without running migrations so this verifies the replay itself.
+        rebuilt = HistoryStore(path, initialize=False)
+        try:
+            assert rebuilt.count("s") == 1
+            assert rebuilt.contents_by_seqs({normal}) == {
+                normal: "public text",
+            }
+            if rebuilt._fts:
+                assert _fts_hits(rebuilt, "privatezebra") == []
+        finally:
+            rebuilt.close()
+    finally:
+        transcript.close()
+
+
+def test_legacy_import_excludes_tagged_runtime_context(tmp_path: Path) -> None:
+    source = HistoryStore(tmp_path / "history.db")
+    target = HistoryStore(tmp_path / "session.db")
+    try:
+        source.append(
+            session_id="s",
+            entry=_entry(
+                "privatezebra",
+                metadata={
+                    QWENPAW_MESSAGE_TAG_KEY: RUNTIME_CONTEXT_MESSAGE_TAG,
+                },
+            ),
+        )
+        normal = source.append(session_id="s", entry=_entry("public text"))
+
+        assert target.import_legacy_database(source.path, session_id="s") == 1
+        assert target.count("s") == 1
+        assert target.contents_by_seqs({normal}) == {normal: "public text"}
+        assert source.count("s") == 2
+    finally:
+        target.close()
+        source.close()
 
 
 def test_newer_schema_is_rejected_without_quarantine(tmp_path: Path):

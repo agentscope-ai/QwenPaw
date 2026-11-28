@@ -197,15 +197,12 @@ variables power many built-in tools (e.g. web search).
 
 Manage LLM providers and the active model.
 
-| Command                                  | What it does                                         |
-| ---------------------------------------- | ---------------------------------------------------- |
-| `qwenpaw models list`                    | Show all providers, API key status, and active model |
-| `qwenpaw models config`                  | Full interactive setup: API keys → active model      |
-| `qwenpaw models config-key [provider]`   | Configure a single provider's API key                |
-| `qwenpaw models set-llm`                 | Switch the active model (API keys unchanged)         |
-| `qwenpaw models download <repo_id>`      | Download a local model (llama.cpp)                   |
-| `qwenpaw models local`                   | List downloaded local models                         |
-| `qwenpaw models remove-local <model_id>` | Delete a downloaded local model                      |
+| Command                                | What it does                                         |
+| -------------------------------------- | ---------------------------------------------------- |
+| `qwenpaw models list`                  | Show all providers, API key status, and active model |
+| `qwenpaw models config`                | Full interactive setup: API keys → active model      |
+| `qwenpaw models config-key [provider]` | Configure a single provider's API key                |
+| `qwenpaw models set-llm`               | Switch the active model (API keys unchanged)         |
 
 ```bash
 qwenpaw models list                    # See what's configured
@@ -218,34 +215,11 @@ qwenpaw models set-llm                 # Change active model only
 
 #### Local models
 
-QwenPaw can also run models locally via llama.cpp, Ollama, or LM Studio — no API key needed.
-But you need to download the corresponding application first, such as [Ollama](https://ollama.com/download) or [LM Studio](https://lmstudio.ai/download).
-
-```bash
-# Download a model (auto-selects Q4_K_M GGUF)
-qwenpaw models download Qwen/Qwen3-4B-GGUF
-
-# Download from ModelScope
-qwenpaw models download Qwen/Qwen2-0.5B-Instruct-GGUF --source modelscope
-
-# List downloaded models
-qwenpaw models local
-
-# Delete a downloaded model
-qwenpaw models remove-local <model_id>
-qwenpaw models remove-local <model_id> --yes   # skip confirmation
-```
-
-| Option     | Short | Default       | Description                                                           |
-| ---------- | ----- | ------------- | --------------------------------------------------------------------- |
-| `--source` | `-s`  | `huggingface` | Download source (`huggingface` or `modelscope`)                       |
-| `--file`   | `-f`  | _(auto)_      | Specific filename. If omitted, auto-selects (prefers Q4_K_M for GGUF) |
+Enable the QwenPaw Local plugin to download, list, or delete GGUF models from the Console or with `qwenpaw models download <repo-id>`, `qwenpaw models local`, and `qwenpaw models remove-local <model-id>`. See [QwenPaw Local setup](./models#QwenPaw-Local-llamacpp-Configuration) for installation, import, and startup. For Ollama or LM Studio, manage the weights in the external service.
 
 #### Ollama models
 
 QwenPaw integrates with Ollama to run models locally. Models are dynamically loaded from your Ollama daemon — install Ollama first from [ollama.com](https://ollama.com).
-
-Install the Ollama SDK: `pip install 'qwenpaw[ollama]'` (or re-run the installer with `--extras ollama`)
 
 ```bash
 # Download an Ollama model
@@ -263,11 +237,11 @@ qwenpaw models config           # Select Ollama → Choose from model list
 qwenpaw models set-llm          # Switch to a different Ollama model
 ```
 
-**Key differences from local models:**
+**How Ollama differs from QwenPaw Local:**
 
 - Models come from Ollama daemon (not downloaded by QwenPaw)
-- Use `ollama` CLI to manage models (not `qwenpaw models download/remove-local`)
-- Model list updates dynamically when you add/remove via Ollama CLI or QwenPaw
+- Use `ollama` CLI to manage models
+- After adding or removing weights in Ollama, use **Update model list** in the Console to refresh the candidates
 
 > **Note:** You are responsible for ensuring the API key is valid. QwenPaw does
 > not verify key correctness. See [Config — LLM Providers](./config#llm-providers).
@@ -823,7 +797,7 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 | `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `enable` · `disable` · `info` · `test` |        No        |
 | `qwenpaw task`      | —                                                                                    |        No        |
 | `qwenpaw auth`      | `reset-password`                                                                     |        No        |
-| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        No        |
+| `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate` · `dependency-upgrade`        |        No        |
 | `qwenpaw acp`       | —                                                                                    |        No        |
 | `qwenpaw clean`     | —                                                                                    |        No        |
 | `qwenpaw shutdown`  | —                                                                                    |        No        |
@@ -840,6 +814,7 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 - [Console](./console) — Web-based management UI
 - [Channels](./channels) — DingTalk, Feishu, iMessage, Discord, QQ setup
 - [Heartbeat](./heartbeat) — Scheduled check-in / digest
+- [Plugin management](./plugins#Plugin-Management) — Install plugins and confirm shared package upgrades
 - [Skills](./skills) — Built-in and custom skills
 - [Config & Working Directory](./config) — Working directory and config.json
 - [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration

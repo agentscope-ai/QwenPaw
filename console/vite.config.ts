@@ -3,6 +3,10 @@ import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { startupMonitorPlugin } from "./scripts/startup-monitor-plugin";
+import {
+  chatScrollPolicyOptimizer,
+  chatScrollPolicyPlugin,
+} from "./scripts/chat-scroll-policy-plugin";
 import { normalizeConsoleBasename } from "./src/utils/consoleBasename";
 
 // Vitest-only plugin: transforms .css imports inside node_modules to empty
@@ -38,7 +42,9 @@ export default defineConfig(({ command, mode }) => {
     base:
       !desktop && consoleBasename
         ? `${normalizeConsoleBasename(consoleBasename)}/`
-        : "/",
+        : desktop
+        ? "/"
+        : "./",
     define: {
       VITE_API_BASE_URL: JSON.stringify(desktop ? "" : apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
@@ -47,6 +53,20 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       startupMonitorPlugin(),
+      {
+        name: "console-host-document",
+        transformIndexHtml(html: string) {
+          const base =
+            !desktop && consoleBasename
+              ? `${normalizeConsoleBasename(consoleBasename)}/`
+              : "/";
+          return html.replace(
+            "<head>",
+            `<head><base href="${base}"><meta name="qwenpaw-console-protocol" content="1">`,
+          );
+        },
+      } satisfies Plugin,
+      chatScrollPolicyPlugin,
       ...(desktop
         ? [
             {
@@ -88,7 +108,9 @@ export default defineConfig(({ command, mode }) => {
       port: 5173,
       proxy: {
         "/api": {
-          target: "http://localhost:8088",
+          target: /^https?:\/\//i.test(apiBaseUrl)
+            ? apiBaseUrl
+            : "http://localhost:8088",
           changeOrigin: false,
         },
       },
@@ -180,6 +202,7 @@ export default defineConfig(({ command, mode }) => {
     },
     optimizeDeps: {
       include: ["diff"],
+      esbuildOptions: { plugins: [chatScrollPolicyOptimizer] },
     },
     build: {
       ...(desktop ? { outDir: "dist-tauri" } : {}),
@@ -188,23 +211,36 @@ export default defineConfig(({ command, mode }) => {
       // outDir: path.resolve(__dirname, "../src/qwenpaw/console"),
       // emptyOutDir: true,
       cssCodeSplit: true,
+      manifest: !desktop,
       sourcemap: mode !== "production" && !desktop,
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
         ...(desktop ? { input: path.resolve(__dirname, "tauri.html") } : {}),
         output: {
+          onlyExplicitManualChunks: true,
           manualChunks(id) {
             // Automatic splitting keeps the small desktop shell independent
             // of the console's UI vendor bundle.
             if (desktop) return;
-            // Charts and the UI's Markdown renderer share D3 and preload helpers.
-            // Keep those in the UI chunk so lazy trends cannot create a cycle.
+            // Keep shared icons together to avoid a burst of tiny HTTP/2
+            // requests when Console is served through Platform Relay.
+            if (id.includes("node_modules/lucide-react/")) {
+              return "icons-vendor";
+            }
+            // A shared runtime must not land in a lazy consumer that its
+            // vendor imports back (for example Monaco and TabbedEditor).
             if (
-              id.includes("node_modules/d3-") ||
-              id.includes("node_modules/d3/") ||
+              id.includes("commonjsHelpers.js") ||
               id.includes("vite/preload-helper")
             ) {
-              return "ui-vendor";
+              return "runtime-vendor";
+            }
+            // Share D3 between lazy charts and maps without hoisting it into UI.
+            if (
+              id.includes("node_modules/d3-") ||
+              id.includes("node_modules/d3/")
+            ) {
+              return "d3-vendor";
             }
             // React core
             if (
@@ -223,7 +259,8 @@ export default defineConfig(({ command, mode }) => {
             }
             if (
               id.includes("node_modules/monaco-editor/") ||
-              id.includes("node_modules/@monaco-editor/")
+              id.includes("node_modules/@monaco-editor/") ||
+              id.includes("node_modules/state-local/")
             ) {
               return "editor-vendor";
             }
@@ -239,25 +276,9 @@ export default defineConfig(({ command, mode }) => {
                 return "chat-vendor";
               }
             }
-            // XMarkdown is also lazy-only. Do not let the broad @ant-design
-            // rule below merge it into the initial UI vendor chunk.
-            if (id.includes("node_modules/@ant-design/x-markdown/")) {
-              return;
-            }
-            // Ant Design + AgentScope design system (merged to avoid circular deps)
-            if (
-              id.includes("node_modules/antd/") ||
-              id.includes("node_modules/antd-style/") ||
-              id.includes("node_modules/@ant-design/") ||
-              id.includes("node_modules/@babel/runtime/") ||
-              id.includes("node_modules/clsx/") ||
-              id.includes("node_modules/dompurify/") ||
-              id.includes("node_modules/lucide-react/") ||
-              (id.includes("node_modules/@agentscope-ai/") &&
-                !id.includes(chatPackageRoot))
-            ) {
-              return "ui-vendor";
-            }
+            // Let Rollup split UI exports by actual use. Merging every antd
+            // export here would pull deferred plugin components and icons
+            // back into the entry.
             // i18n
             if (
               id.includes("node_modules/i18next/") ||

@@ -110,6 +110,19 @@ class CheckpointRuntime:
         service.workspace = workspace
         return service
 
+    async def get_existing_for_workspace_async(
+        self,
+        workspace: Any,
+    ) -> CheckpointService | None:
+        """Find an initialized service without creating checkpoint storage.
+
+        Callers already tracked as workspace writers can run without a
+        service: a subsequently initialized restore must wait for them.
+        """
+        key = await run_sync_io(self._workspace_key, workspace.workspace_dir)
+        with self._lock:
+            return self._services.get(key)
+
     async def get_for_workspace_dir_async(
         self,
         workspace_dir: str | Path,

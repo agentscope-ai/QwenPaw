@@ -7,7 +7,8 @@ import json
 import logging
 import re
 import uuid
-from typing import Any, AsyncIterator, Dict
+from contextlib import aclosing
+from typing import Any, AsyncGenerator, Dict
 
 from ...utils.io_utils import run_sync_io
 from ..inbox_trace_store import (
@@ -105,9 +106,13 @@ class CronExecutor:
         self._workspace = workspace
         self._channel_manager = channel_manager
 
-    async def _send_channel(self, method: str, **kwargs: Any) -> None:
-        manager = getattr(self._workspace, "_manager", None)
-        delivery = getattr(manager, "channel_delivery", None)
+    async def _send_channel(
+        self,
+        method: str,
+        *,
+        delivery: Any,
+        **kwargs: Any,
+    ) -> None:
         if delivery is None:
             await getattr(self._channel_manager, method)(**kwargs)
             return
@@ -130,6 +135,10 @@ class CronExecutor:
         target_user_id = job.dispatch.target.user_id
         target_session_id = job.dispatch.target.session_id
         target_channel = job.dispatch.channel
+        # Pin the routing strategy for this run. Only this route may wait for
+        # a replacement owner without keeping the outgoing channel alive.
+        manager = getattr(self._workspace, "_manager", None)
+        delivery = getattr(manager, "channel_delivery", None)
         run_id = str(uuid.uuid4())
         dispatch_meta: Dict[str, Any] = dict(job.dispatch.meta or {})
         if job.task_type == "agent":
@@ -157,6 +166,7 @@ class CronExecutor:
             try:
                 await self._send_channel(
                     "send_text",
+                    delivery=delivery,
                     channel=target_channel,
                     user_id=target_user_id,
                     session_id=target_session_id,
@@ -266,7 +276,7 @@ class CronExecutor:
 
         final_no_content = False
 
-        async def _run() -> AsyncIterator[Any]:
+        async def _run() -> AsyncGenerator[Any, None]:
             nonlocal delivery_error, final_no_content
 
             async def _deliver(event: Any) -> None:
@@ -274,6 +284,7 @@ class CronExecutor:
                 try:
                     await self._send_channel(
                         "send_event",
+                        delivery=delivery,
                         channel=target_channel,
                         user_id=target_user_id,
                         session_id=target_session_id,
@@ -304,19 +315,20 @@ class CronExecutor:
                         "backend; select Default for this agent",
                     )
             final_event: Any | None = None
-            async for event in self._workspace.stream_query(req):
-                yield event
-                if job.dispatch.silent:
-                    continue
-                if job.dispatch.mode == "final":
-                    if (
-                        getattr(event, "object", None) == "message"
-                        and getattr(event, "status", None)
-                        == RunStatus.Completed
-                    ):
-                        final_event = event
-                    continue
-                await _deliver(event)
+            async with aclosing(self._workspace.stream_query(req)) as stream:
+                async for event in stream:
+                    yield event
+                    if job.dispatch.silent:
+                        continue
+                    if job.dispatch.mode == "final":
+                        if (
+                            getattr(event, "object", None) == "message"
+                            and getattr(event, "status", None)
+                            == RunStatus.Completed
+                        ):
+                            final_event = event
+                        continue
+                    await _deliver(event)
 
             if final_event is not None:
                 await _deliver(final_event)
@@ -331,8 +343,9 @@ class CronExecutor:
         async def _run_tracked() -> None:
             tracker = getattr(self._workspace, "task_tracker", None)
             if _chat_spec is None or tracker is None:
-                async for _ in _run():
-                    pass
+                async with aclosing(_run()) as events:
+                    async for _ in events:
+                        pass
                 return
 
             error: BaseException | None = None
@@ -350,8 +363,9 @@ class CronExecutor:
             async def _tracked_stream(_payload: Any):
                 nonlocal error
                 try:
-                    async for event in _run():
-                        yield _to_sse(event)
+                    async with aclosing(_run()) as events:
+                        async for event in events:
+                            yield _to_sse(event)
                 except asyncio.CancelledError as exc:
                     error = exc
                     raise
@@ -366,6 +380,7 @@ class CronExecutor:
                 owner=self._workspace,
                 on_finished=chat_manager.mark_chat_finished,
                 channel_id=target_channel,
+                channel_handoff_safe=delivery is not None,
             )
             if not is_new_run:
                 await tracker.detach_subscriber(_chat_spec.id, queue)
@@ -382,11 +397,14 @@ class CronExecutor:
             if error is not None:
                 raise error
 
+        from ...token_usage.model_wrapper import isolated_turn_usage
+
         try:
-            await asyncio.wait_for(
-                _run_tracked(),
-                timeout=job.runtime.timeout_seconds,
-            )
+            with isolated_turn_usage():
+                await asyncio.wait_for(
+                    _run_tracked(),
+                    timeout=job.runtime.timeout_seconds,
+                )
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._workspace,

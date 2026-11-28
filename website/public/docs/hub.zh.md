@@ -8,7 +8,7 @@ QwenPaw Hub 用于在一台服务器上为团队提供 QwenPaw。团队成员通
 
 > Hub 2.2.0 是一个早期版本，目前只面向成员彼此信任的内部团队。即使配置了 HTTPS 和公网访问，也不应将当前版本作为面向陌生用户的公网多租户服务。
 
-![Hub 登录页与用户条款弹窗](https://img.alicdn.com/imgextra/i2/O1CN01hhIGAbMm89B6lBsc_!!6000000006867-2-tps-3330-1772.png)
+![Hub 登录页与用户条款弹窗](https://img.alicdn.com/imgextra/i4/O1CN01jStYJVsKWLL3FPfU_!!6000000006530-2-tps-1600-1000.png)
 
 ## Hub 适合什么场景
 
@@ -107,7 +107,7 @@ Docker 模式要求 Hub 能访问运行 Linux 容器的 Docker Engine。Windows 
 
 当前 Docker 资源限制是由管理员为所有容器统一设置的上限。Hub 尚未支持按用户配置不同配额、资源用量统计、多机容量调度或弹性扩缩容；Local 也没有与容器相同的资源限制能力。
 
-![系统设置中的 Local/Docker 后端选择](https://img.alicdn.com/imgextra/i3/O1CN01IJbgQoGjpaL6lBso_!!6000000000707-2-tps-3330-1784.png)
+![系统设置中的 Local/Docker 后端选择](https://img.alicdn.com/imgextra/i2/O1CN01KqJADV78L2J3FPfU_!!6000000005825-2-tps-1600-1000.png)
 
 ## 让可信团队远程访问 Hub
 
@@ -176,9 +176,13 @@ qwenpaw hub \
 | Docker 重建 | 使用当前镜像策略重新创建容器         |
 | 删除        | 删除运行环境记录，但保留磁盘数据     |
 
-运行环境失败或被普通停止后，用户可以在个人页面自行重启。管理员执行“禁止启动”后，只能由管理员恢复。
+普通用户点击控制台左下角的账户按钮，打开 **账户管理 → 个人运行环境 → 重启运行环境**。
 
-![普通用户的个人运行环境状态与重启入口](https://img.alicdn.com/imgextra/i2/O1CN01q71ewupZntB6lRUM_!!6000000000685-2-tps-3332-1770.png)
+![普通用户在「账户管理」窗口中的个人运行环境重启按钮](https://img.alicdn.com/imgextra/i3/O1CN01DIr9amtantJ3FPfU_!!6000000003933-2-tps-1600-1000.png)
+
+如果控制台因运行环境失败或被普通停止而打不开，启动状态页也提供重启入口；管理员已禁止启动时，用户看不到重试按钮，需要联系管理员。
+
+![管理员停止进程后，用户在启动状态页看到「重启运行环境」按钮](https://img.alicdn.com/imgextra/i3/O1CN01WAXVTeu0jTK3FPfU_!!6000000004347-2-tps-1600-1000.png)
 
 ## 数据保存在哪里
 
@@ -234,7 +238,7 @@ runtimes/
 
 ### 登录成功，但个人 QwenPaw 无法打开
 
-在「运行环境」中查看该用户的状态和最近错误。确认所选的 Local 或 Docker 环境可用，并尝试重启。
+管理员可在管理面板的「运行环境」中查看该用户的状态和最近错误。确认所选的 Local 或 Docker 环境可用，并尝试重启。
 
 ### 页面能打开，但聊天无法持续输出
 

@@ -8,18 +8,28 @@ client's stream reader completes normally and falls back to loading the
 persisted history. Returning ``None`` produced a JSON ``null`` body,
 which left the chat UI blank until a manual refresh.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
-from qwenpaw.app.routers.console import _extract_session_and_payload
+from qwenpaw.app.routers.console import (
+    _extract_session_and_payload,
+    post_console_chat,
+)
+from qwenpaw.app.routers.remote_access import runtime_router
+from qwenpaw.remote_access.operation_dispatcher import RelayLocalApi
+from qwenpaw.remote_access.run_state import RelayRuns
 from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.schemas import AgentRequest, Message, Role, TextContent
 
@@ -50,6 +60,7 @@ def console_workspace(workspace_mock):
     chat.id = "chat-1"
     chat.name = "New Chat"
     workspace_mock.chat_manager = MagicMock(name="ChatManager")
+    workspace_mock.chat_manager.can_start_run = AsyncMock(return_value=True)
     workspace_mock.chat_manager.get_or_create_chat = AsyncMock(
         return_value=chat,
     )
@@ -122,11 +133,22 @@ def test_extract_payload_preserves_user_message_metadata():
 async def test_reconnect_with_active_run_replays_buffer_and_marker(
     app,
     console_workspace,
+    monkeypatch,
 ):
-    from starlette.requests import Request
-    from qwenpaw.app.routers.console import post_console_chat
-
     tracker = console_workspace.task_tracker
+    app.state.relay_runs = RelayRuns()
+    app.include_router(runtime_router)
+    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "runtime-secret")
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app))
+    hub = RelayLocalApi(
+        lambda: (
+            "http://127.0.0.1:19088",
+            {"X-QwenPaw-Runtime-Token": "runtime-secret"},
+        ),
+        client=client,
+    )
+    node_id = str(uuid4())
+    run_id = f"{node_id}.{'a' * 64}.{'b' * 32}"
     release = asyncio.Event()
 
     async def slow_stream(_payload):
@@ -143,7 +165,8 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
             "type": "http",
             "method": "POST",
             "path": "/api/console/chat",
-            "headers": [],
+            "query_string": b"",
+            "headers": [(b"x-qwenpaw-relay-run", run_id.encode())],
             "app": app,
         },
     )
@@ -157,6 +180,20 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
         request=request,
     )
 
+    iterator = response.body_iterator
+    assert await anext(iterator) == "data: first\n\n"
+    await iterator.aclose()
+    assert (await hub.sync_runs(node_id, []))["runs"] == [run_id]
+    assert await tracker.has_active_tasks()
+    response = await post_console_chat(
+        request_data={
+            "reconnect": True,
+            "session_id": "console:default",
+            "user_id": "default",
+            "channel": "console",
+        },
+        request=request,
+    )
     received: list[str] = []
 
     async def _consume() -> None:
@@ -178,6 +215,87 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
     assert payload == {"type": "replay_end"}
     # No fresh run was started by the reconnect.
     assert console_workspace.console_channel.stream_calls == []
+    await asyncio.sleep(0)
+    completed = await hub.sync_runs(node_id, [])
+    assert completed == {"runs": [], "finished": [run_id]}
+    acknowledged = await hub.sync_runs(node_id, [run_id])
+    assert acknowledged == {"runs": [], "finished": []}
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_reconnect_can_request_one_materialized_replay_snapshot(
+    app,
+    console_workspace,
+):
+    """Chat can replace a replay prefix with one equivalent response."""
+    from starlette.requests import Request
+    from qwenpaw.app.routers.console import post_console_chat
+
+    tracker = console_workspace.task_tracker
+    release = asyncio.Event()
+    response_sse = (
+        'data: {"id":"response-1","object":"response",'
+        '"status":"in_progress","output":[]}\n\n'
+    )
+    message_sse = (
+        'data: {"id":"message-1","object":"message",'
+        '"type":"message","role":"assistant",'
+        '"status":"in_progress","content":[]}\n\n'
+    )
+    content_sse = (
+        'data: {"type":"text","object":"content",'
+        '"msg_id":"message-1","delta":true,"text":"partial"}\n\n'
+    )
+
+    async def slow_stream(_payload):
+        yield response_sse
+        yield message_sse
+        yield content_sse
+        await release.wait()
+
+    await tracker.attach_or_start("chat-1", None, slow_stream)
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+    request = Request(
+        scope={
+            "type": "http",
+            "method": "POST",
+            "path": "/api/console/chat",
+            "query_string": b"materialized_replay=1",
+            "headers": [],
+            "app": app,
+        },
+    )
+    streamed = await post_console_chat(
+        request_data={
+            "reconnect": True,
+            "session_id": "console:default",
+            "user_id": "default",
+            "channel": "console",
+        },
+        request=request,
+    )
+    received: list[str] = []
+
+    async def _consume() -> None:
+        async for chunk in streamed.body_iterator:
+            received.append(chunk)
+            if "replay_end" in chunk:
+                release.set()
+
+    try:
+        await asyncio.wait_for(_consume(), timeout=5)
+    finally:
+        release.set()
+
+    snapshot = json.loads(received[0][len("data: ") :])
+    assert snapshot["object"] == "response"
+    assert snapshot["output"][0]["content"][0]["text"] == "partial"
+    assert json.loads(received[1][len("data: ") :]) == {
+        "type": "replay_end",
+    }
 
 
 @pytest.mark.asyncio
@@ -209,6 +327,7 @@ async def test_new_message_rejects_active_run(
             "type": "http",
             "method": "POST",
             "path": "/api/console/chat",
+            "query_string": b"",
             "headers": [],
             "app": app,
         },

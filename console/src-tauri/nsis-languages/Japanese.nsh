@@ -35,4 +35,5 @@ LangString qwenpawCliPathMissing ${LANG_JAPANESE} "qwenpaw.exe was not found; sk
 LangString qwenpawCliPathUpdateFailed ${LANG_JAPANESE} "Failed to update user PATH"
 LangString qwenpawPrepareInstallFailed ${LANG_JAPANESE} "QwenPaw のインストールまたはアンインストールの準備に失敗しました。$\n$\n以下の詳細を確認し、表示されたプロセスがあれば終了してください。問題を解決した後に「再試行」、中止するには「キャンセル」をクリックしてください。$\n$\n結果: $0"
 LangString qwenpawPowerShellStartFailed ${LANG_JAPANESE} "Windows PowerShell を起動できませんでした。準備スクリプトは実行されていません。"
+LangString qwenpawInstallIncomplete ${LANG_JAPANESE} "インストールが完了していません。インストーラーを再実行して qwenpaw コマンドを復元してください。"
 LangString qwenpawRestoreInstallStateFailed ${LANG_JAPANESE} "Native Messaging ランチャーを復元できませんでした。QwenPaw の起動時に再試行します"

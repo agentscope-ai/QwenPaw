@@ -13,11 +13,13 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.agent_context import scoped_session_id
 from qwenpaw.modes.mission import MissionMode
 from qwenpaw.app.chats.repo import JsonChatRepository
-from qwenpaw.app.chats.session import SafeJSONSession
+from qwenpaw.app.chats.session import DatabaseSession
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.crons.manager import CronManager
 from qwenpaw.app.driver_config_service import DriverConfigService
 from qwenpaw.drivers.adapters.mcp_legacy_config import (
@@ -159,8 +161,11 @@ def _workspace(tmp_path: Path):
     return SimpleNamespace(
         workspace_dir=root,
         agent_id="agent-1",
-        history_store=None,
-        session=SafeJSONSession(str(root / "sessions")),
+        config=AgentProfileConfig(id="agent-1", name="Test"),
+        session=DatabaseSession(
+            catalog=TranscriptCatalog(root),
+            legacy_save_dir=str(root / "sessions"),
+        ),
         chat_manager=ChatManager(
             repo=JsonChatRepository(root / "chats.json"),
         ),
@@ -1540,7 +1545,9 @@ async def test_provider_plugin_restores_marketplace_then_native_installs(
     await _import_from(ProviderImportService(workspace), "codex")
 
     assert not calls
-    registry = json.loads(workspace.marketplace_registry_path.read_text())
+    registry = json.loads(
+        workspace.marketplace_registry_path.read_text(encoding="utf-8"),
+    )
     assert registry["sources"]["codex:codex:local"]["source"] == str(
         plugin_source.parent.parent,
     )
@@ -1832,5 +1839,7 @@ async def test_codex_content_plugin_registers_skills_and_owned_mcp(
     backend = (installed_root / "creative-production/plugin.py").read_text()
     assert "register_skill_provider" in backend
     assert "enabled_by_default=False" in backend
-    card = (workspace.workspace_dir / "drivers/mcp/creative.yaml").read_text()
+    card = (workspace.workspace_dir / "drivers/mcp/creative.yaml").read_text(
+        encoding="utf-8",
+    )
     assert str(installed_root / "creative-production") in card

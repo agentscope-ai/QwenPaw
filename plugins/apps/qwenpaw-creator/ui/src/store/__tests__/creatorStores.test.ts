@@ -24,6 +24,43 @@ const seed = (state: Record<string, unknown> = {}) =>
 describe("bounded frontend caches", () => {
   beforeEach(() => store().reset());
 
+  it("consumes a delayed SSE transition without rolling back the polled session head", async () => {
+    seed({ session: sessionView({ lastEventSeq: 10 }), lastEventSeq: 10 });
+    installMockFetch(
+      bootstrapRoutes({ session: { lastEventSeq: 12, status: "CANCELLED" } }),
+    );
+    await store().refreshSession();
+    ingest(ev(11, "session.status_changed", { status: "RUNNING" }));
+    expect(store().lastEventSeq).toBe(11);
+    expect(store().session).toMatchObject({
+      lastEventSeq: 12,
+      status: "CANCELLED",
+    });
+    ingest(ev(13, "session.status_changed", { status: "IDLE" }));
+    expect(store().session).toMatchObject({ lastEventSeq: 13, status: "IDLE" });
+  });
+
+  it("retains the snapshot error while replaying earlier run failures", () => {
+    const error = {
+      code: "CURRENT",
+      message: "Current failure",
+      retryable: true,
+    };
+    seed({
+      isReplaying: true,
+      replayUntilSeq: 10,
+      session: sessionView({ lastEventSeq: 10, error }),
+    });
+
+    ingest(ev(10, "agent.run.failed", { error: { ...error, code: "OLDER" } }));
+    expect(store().session).toMatchObject({ lastEventSeq: 10, error });
+    ingest(ev(11, "agent.run.failed", { error: { ...error, code: "NEW" } }));
+    expect(store().session).toMatchObject({
+      lastEventSeq: 11,
+      error: { code: "NEW" },
+    });
+  });
+
   it("deduplicates durable events by seq and never treats streaming state as completion", () => {
     seed({ lastEventSeq: 3, events: [] });
     const event = ev(4, "subagent.waiting_runtime");
@@ -170,6 +207,86 @@ describe("bounded frontend caches", () => {
     expect(store().events).toHaveLength(1);
     expect(store().lastEventSeq).toBe(7);
     expect(testEventSources()[0].url).toContain("events?after=7");
+  });
+
+  it("replays the whole durable log on first entry even for a terminal project", async () => {
+    installMockFetch(
+      bootstrapRoutes({
+        session: {
+          lastMessageSeq: 1,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 10_000,
+          status: "IDLE",
+        },
+      }),
+    );
+    await store().bootstrap("p1");
+    // The snapshot holds no terminal projection, so an idle mainline must not
+    // clip the replay: the old 400-event window rebuilt an accepted-then-failed
+    // delegation as a success (CR #7).
+    expect(testEventSources()[0].url).toContain("events?after=0");
+  });
+
+  it("replays the whole durable log when the session is still working", async () => {
+    installMockFetch(
+      bootstrapRoutes({
+        session: {
+          lastMessageSeq: 1,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 10_000,
+          status: "RUNNING",
+        },
+      }),
+    );
+    await store().bootstrap("p1");
+    // In-flight work: streaming-text prefixes and subagent card metadata live
+    // on the events a window would drop.
+    expect(testEventSources()[0].url).toContain("events?after=0");
+  });
+
+  it("keeps the full replay when a terminal session still has a running task", async () => {
+    installMockFetch(
+      bootstrapRoutes({
+        session: {
+          lastMessageSeq: 1,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 10_000,
+          status: "IDLE",
+        },
+        runningTaskCount: 1,
+      }),
+    );
+    await store().bootstrap("p1");
+    // Terminal mainline but a detached specialist is still running: its card is
+    // rebuilt only from the lifecycle events themselves.
+    expect(testEventSources()[0].url).toContain("events?after=0");
+  });
+
+  it("resumes a same-project reconnect at the local cursor, ignoring the window", async () => {
+    installMockFetch(
+      bootstrapRoutes({
+        session: {
+          lastMessageSeq: 1,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 20_000,
+          status: "IDLE",
+        },
+      }),
+    );
+    seed({
+      session: sessionView({
+        lastMessageSeq: 1,
+        lastConsumedMessageSeq: 1,
+        lastEventSeq: 20_000,
+        status: "IDLE",
+      }),
+      activeConversationId: "c1",
+      messages: [msg({ messageId: "m1", messageSeq: 1 })],
+      lastEventSeq: 20_000,
+    });
+    await store().bootstrap("p1");
+    // Same-project: continue from the local cursor rather than re-clipping it.
+    expect(testEventSources()[0].url).toContain("events?after=20000");
   });
 
   it("folds a large durable SSE replay into one bounded store update", async () => {

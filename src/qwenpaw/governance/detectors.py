@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List
 
+from ..security.tool_guard.outbound_shell import search_rule_pattern
 from ..utils.shell_normalization import normalize_posix_line_continuations
 
 logger = logging.getLogger(__name__)
@@ -441,7 +442,7 @@ def detect_dangerous_patterns(  # noqa: E501  pylint: disable=too-many-locals,to
 
             # Check match patterns
             for pattern in compiled_patterns:
-                m = pattern.search(value)
+                m = search_rule_pattern(pattern, value)
                 if m:
                     start = max(0, m.start() - 40)
                     end = min(len(value), m.end() + 40)
